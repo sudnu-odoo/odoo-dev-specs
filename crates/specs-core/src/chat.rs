@@ -8,14 +8,22 @@ use tokio::sync::oneshot;
 
 use crate::claude::{self, DiagramTools, TurnSpec};
 use crate::events::ChatEvent;
+use crate::gemini;
 use crate::runner::{run_turn, CliTurn};
+use crate::settings::Provider;
 use crate::transcript::{TranscriptEntry, TurnRecorder};
 use crate::workspace::Workspace;
 
-/// How to run Claude Code on this machine.
+/// How to run the AI assistant on this machine. The same shared context (source
+/// dirs, diagram tools, odev, demo data) is used whichever provider answers.
 #[derive(Debug, Clone)]
 pub struct ClaudeConfig {
+    /// The `claude` executable.
     pub program: PathBuf,
+    /// The `gemini` executable, when Gemini is installed.
+    pub gemini_program: Option<PathBuf>,
+    /// Which assistant answers (from the user's settings).
+    pub provider: Provider,
     /// Read-only folders for the assistant, e.g. the Odoo source checkouts.
     pub read_dirs: Vec<PathBuf>,
     pub model: Option<String>,
@@ -25,6 +33,17 @@ pub struct ClaudeConfig {
     pub odev: Option<PathBuf>,
     /// Load Odoo demo data into screenshot databases (realistic records).
     pub demo_data: bool,
+}
+
+impl ClaudeConfig {
+    /// The provider actually used: the chosen one, unless it is Gemini but not
+    /// installed, in which case Claude answers.
+    fn effective_provider(&self) -> Provider {
+        match self.provider {
+            Provider::Gemini if self.gemini_program.is_some() => Provider::Gemini,
+            _ => Provider::Claude,
+        }
+    }
 }
 
 /// Send `text` in a session and stream the reply to `on_event`.
@@ -63,20 +82,45 @@ pub async fn send_message(
             demo_data: claude.demo_data,
         }),
     };
+    let invocation = match claude.effective_provider() {
+        Provider::Gemini => {
+            // Gemini reads its MCP servers, allowed tools and system prompt from a
+            // settings file in the working directory.
+            write_gemini_settings(&cwd, spec.diagram_tools.as_ref())?;
+            Invocation {
+                program: claude
+                    .gemini_program
+                    .clone()
+                    .expect("checked by effective_provider"),
+                args: gemini::args(&spec, text),
+                parse: gemini::parse_line,
+            }
+        }
+        Provider::Claude => Invocation {
+            program: claude.program.clone(),
+            args: claude::args(&spec),
+            parse: claude::parse_line,
+        },
+    };
+    let Invocation {
+        program,
+        args,
+        parse,
+    } = invocation;
     let turn = CliTurn {
-        program: claude.program.clone(),
-        args: claude::args(&spec),
+        program,
+        args,
         cwd,
         prompt: text.into(),
     };
 
     let mut recorder = TurnRecorder::default();
-    // Claude has created the conversation once it produced anything, or finished cleanly.
+    // The conversation exists once the CLI produced anything, or finished cleanly.
     let mut conversation_exists = false;
     let mut finished = None;
     run_turn(
         turn,
-        claude::parse_line,
+        parse,
         |event| {
             conversation_exists |= !matches!(event, ChatEvent::Finished { is_error: true, .. });
             recorder.push(&event);
@@ -98,4 +142,20 @@ pub async fn send_message(
         is_error: true,
         message: Some("No answer.".into()),
     }))
+}
+
+/// How to run the chosen CLI for one turn.
+struct Invocation {
+    program: PathBuf,
+    args: Vec<String>,
+    parse: fn(&str) -> Vec<ChatEvent>,
+}
+
+/// Write `<session>/.gemini/settings.json` so Gemini loads the diagram MCP server,
+/// the allowed tools and the system prompt for this turn.
+fn write_gemini_settings(cwd: &std::path::Path, tools: Option<&DiagramTools>) -> Result<()> {
+    let dir = cwd.join(".gemini");
+    std::fs::create_dir_all(&dir)?;
+    let json = serde_json::to_string_pretty(&gemini::settings_json(tools))?;
+    crate::fsutil::write_atomic(&dir.join("settings.json"), json.as_bytes())
 }

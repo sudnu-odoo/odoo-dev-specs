@@ -67,6 +67,8 @@ struct Harness {
 fn harness(with_claude: bool) -> Harness {
     let claude = with_claude.then(|| ClaudeConfig {
         program: fake_claude(),
+        gemini_program: None,
+        provider: specs_core::settings::Provider::Claude,
         read_dirs: vec![],
         model: None,
         diagram_tools: None,

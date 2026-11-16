@@ -177,11 +177,16 @@ pub fn send_message<R: Runtime>(
     session_id: String,
     text: String,
 ) -> CmdResult<()> {
-    let Some(claude) = state.claude.clone() else {
+    let Some(mut claude) = state.claude.clone() else {
         return Err(
             "Claude Code is not installed. Install it and run `claude` once to log in.".into(),
         );
     };
+    // Apply the latest settings, so changing provider or demo data takes effect
+    // without restarting the app.
+    let current = state.settings.load();
+    claude.provider = current.provider;
+    claude.demo_data = current.demo_data;
     if text.trim().is_empty() {
         return Err("The message is empty.".into());
     }

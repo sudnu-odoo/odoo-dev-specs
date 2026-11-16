@@ -15,6 +15,8 @@ fn real_claude() -> ClaudeConfig {
         .expect("Claude Code is not installed");
     ClaudeConfig {
         program,
+        gemini_program: None,
+        provider: specs_core::settings::Provider::Claude,
         read_dirs: vec![],
         model: Some("haiku".into()),
         diagram_tools: None,

@@ -27,27 +27,32 @@ fn patch_odev_pruning() {
     }
 }
 
-/// Claude Code on this machine, with the Odoo source as read-only context.
-fn detect_claude(demo_data: bool) -> Option<ClaudeConfig> {
+/// The AI assistants on this machine, with the Odoo source as read-only context.
+/// Requires Claude Code (the default); Gemini is added when installed.
+fn detect_claude(settings: &specs_core::settings::Settings) -> Option<ClaudeConfig> {
     let home = dirs::home_dir().unwrap_or_default();
     let path_var = std::env::var("PATH").ok();
-    let program = find_executable("claude", path_var.as_deref(), &user_bin_dirs(&home))?;
+    let bins = user_bin_dirs(&home);
+    let program = find_executable("claude", path_var.as_deref(), &bins)?;
+    let gemini_program = find_executable("gemini", path_var.as_deref(), &bins);
     let read_dirs = pruning::default_config_path()
         .map(|cfg| odev_core::paths::odoo_source_dirs(&cfg))
         .unwrap_or_default();
     let diagram_tools = sibling_program("specs-mcp");
-    let odev = find_executable("odev", path_var.as_deref(), &user_bin_dirs(&home));
+    let odev = find_executable("odev", path_var.as_deref(), &bins);
     eprintln!(
-        "claude: {} (read-only: {read_dirs:?}, diagram tools: {diagram_tools:?}, odev: {odev:?})",
+        "claude: {} (gemini: {gemini_program:?}, read-only: {read_dirs:?}, diagram tools: {diagram_tools:?}, odev: {odev:?})",
         program.display()
     );
     Some(ClaudeConfig {
         program,
+        gemini_program,
+        provider: settings.provider,
         read_dirs,
         model: None,
         diagram_tools,
         odev,
-        demo_data,
+        demo_data: settings.demo_data,
     })
 }
 
@@ -71,7 +76,7 @@ fn sibling_program(name: &str) -> Option<std::path::PathBuf> {
 pub fn run() {
     patch_odev_pruning();
     let settings = SettingsStore::new(SettingsStore::default_path());
-    let claude = detect_claude(settings.load().demo_data);
+    let claude = detect_claude(&settings.load());
     let odev = claude.as_ref().and_then(|c| c.odev.clone());
     let state = AppState::new(Workspace::new(Workspace::default_root()), claude, settings);
     register(tauri::Builder::default(), state)

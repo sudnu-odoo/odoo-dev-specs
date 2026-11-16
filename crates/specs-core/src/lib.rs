@@ -5,6 +5,7 @@ pub mod chat;
 pub mod claude;
 pub mod events;
 mod fsutil;
+pub mod gemini;
 pub mod locate;
 pub mod runner;
 pub mod settings;

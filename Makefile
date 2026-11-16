@@ -18,6 +18,7 @@ test-live:          ## End-to-end with the real, logged-in Claude Code (costs to
 	cargo build -p specs-mcp
 	cargo test -p specs-core --test live_claude -- --ignored
 	cargo test -p odev-core --test live_odev -- --ignored
+	cargo test -p specs-core --test live_gemini -- --ignored
 
 lint:               ## Static checks (no changes)
 	cargo clippy --workspace --all-targets -- -D warnings
