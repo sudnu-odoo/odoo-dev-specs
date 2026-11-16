@@ -1,0 +1,19 @@
+[package]
+name = "odoo-dev-specs"
+edition.workspace = true
+version.workspace = true
+
+[lib]
+name = "odoo_dev_specs_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+serde.workspace = true
+serde_json.workspace = true
+anyhow.workspace = true
+odev-core = { path = "../crates/odev-core" }
