@@ -1,6 +1,8 @@
 mod commands;
+mod diagram_window;
 
 pub use commands::{register, AppState, ChatEventPayload, CHAT_EVENT};
+pub use diagram_window::{DIAGRAM_DOCKED_EVENT, DIAGRAM_SESSION_EVENT, DIAGRAM_WINDOW};
 
 use odev_core::pruning::{self, Outcome};
 use specs_core::chat::ClaudeConfig;
@@ -44,6 +46,7 @@ pub fn run() {
     let state = AppState::new(Workspace::new(Workspace::default_root()), detect_claude());
     register(tauri::Builder::default(), state)
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_opener::init())
         .run(tauri::generate_context!())
         .expect("error while running Odoo Dev Specs");
 }

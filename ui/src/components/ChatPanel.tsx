@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import type { ChatItem } from "../chat/chatState";
+import Markdown from "./Markdown";
 
 export interface ChatPanelProps {
   items: ChatItem[];
@@ -14,10 +15,12 @@ const TOOL_STATUS_LABEL = { running: "…", ok: "✓", error: "✗" } as const;
 export default function ChatPanel({ items, running, hasSession, onSend, onStop }: ChatPanelProps) {
   const [draft, setDraft] = useState("");
   const bottom = useRef<HTMLDivElement>(null);
+  // Until the first words of the answer arrive, show that the assistant is working.
+  const thinking = running && items.at(-1)?.role !== "assistant";
 
   useEffect(() => {
     bottom.current?.scrollIntoView?.({ block: "end" });
-  }, [items]);
+  }, [items, thinking]);
 
   function send(e?: FormEvent) {
     e?.preventDefault();
@@ -55,27 +58,61 @@ export default function ChatPanel({ items, running, hasSession, onSend, onStop }
         {items.map((item, i) => (
           <Message key={i} item={item} />
         ))}
+        {thinking && (
+          <div role="status" className="chat-thinking">
+            <span className="spinner" aria-hidden="true" /> Thinking…
+          </div>
+        )}
         <div ref={bottom} />
       </div>
-      <form className="chat-input" onSubmit={send}>
+      <form className="composer" onSubmit={send}>
         <textarea
           aria-label="Message"
-          placeholder="e.g. Add a delivery window on sales orders, shown on the delivery slip…"
-          rows={3}
+          placeholder={
+            hasSession
+              ? "Describe the feature, e.g. a delivery window on sales orders…"
+              : "Open a session first"
+          }
+          rows={2}
           value={draft}
           disabled={!hasSession}
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={onKeyDown}
         />
-        {running ? (
-          <button type="button" className="btn" onClick={onStop}>
-            Stop
-          </button>
-        ) : (
-          <button type="submit" className="btn btn-primary" disabled={!hasSession}>
-            Send
-          </button>
-        )}
+        <div className="composer-bar">
+          <span className="composer-hint">Enter to send · Shift+Enter for a new line</span>
+          {running ? (
+            <button
+              type="button"
+              className="round-btn round-btn-busy"
+              aria-label="Stop"
+              aria-busy="true"
+              title="Stop"
+              onClick={onStop}
+            >
+              <span className="stop-square" aria-hidden="true" />
+            </button>
+          ) : (
+            <button
+              type="submit"
+              className="round-btn"
+              aria-label="Send"
+              title="Send"
+              disabled={!hasSession || !draft.trim()}
+            >
+              <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+                <path
+                  d="M12 19V5M5 12l7-7 7 7"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.4"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+            </button>
+          )}
+        </div>
       </form>
     </section>
   );
@@ -86,11 +123,16 @@ function Message({ item }: { item: ChatItem }) {
     case "user":
       return <div className="msg msg-user">{item.text}</div>;
     case "assistant":
-      return <div className="msg msg-assistant">{item.text}</div>;
+      return (
+        <div className="msg msg-assistant markdown">
+          <Markdown text={item.text} />
+        </div>
+      );
     case "tool":
       return (
         <div className="msg-tool" data-status={item.status}>
-          {TOOL_STATUS_LABEL[item.status]} {item.name}
+          {item.status === "running" ? <span className="spinner spinner-small" aria-hidden="true" /> : null}
+          {item.status === "running" ? "" : TOOL_STATUS_LABEL[item.status]} {item.name}
         </div>
       );
     case "error":

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Excalidraw, exportToBlob, loadFromBlob, serializeAsJSON } from "@excalidraw/excalidraw";
 import "@excalidraw/excalidraw/index.css";
 import type { ExcalidrawImperativeAPI } from "@excalidraw/excalidraw/types";
@@ -15,6 +15,8 @@ export interface ExcalidrawPanelProps {
   scene: string;
   /** Called with the full .excalidraw JSON after the user changed the diagram. */
   onSceneChange: (scene: string) => void;
+  /** Extra toolbar buttons. */
+  actions?: ReactNode;
 }
 
 function useSystemTheme(): "light" | "dark" {
@@ -32,7 +34,7 @@ function fileNameFor(title: string) {
   return title.replace(/[\\/:*?"<>|]+/g, " ").trim() || "spec";
 }
 
-export default function ExcalidrawPanel({ name, scene, onSceneChange }: ExcalidrawPanelProps) {
+export default function ExcalidrawPanel({ name, scene, onSceneChange, actions }: ExcalidrawPanelProps) {
   const [api, setApi] = useState<ExcalidrawImperativeAPI | null>(null);
   const [error, setError] = useState<string | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
@@ -92,6 +94,7 @@ export default function ExcalidrawPanel({ name, scene, onSceneChange }: Excalidr
         <span className="artifact-title">{fileName}.excalidraw</span>
         {error && <span className="artifact-error">{error}</span>}
         <div className="artifact-actions">
+          {actions}
           <button
             className="btn"
             title="Replace this diagram with an .excalidraw file"

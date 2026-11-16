@@ -72,3 +72,93 @@ describe("ChatPanel", () => {
     expect(screen.getByText(/open or create a session/i)).toBeInTheDocument();
   });
 });
+
+describe("ChatPanel formatting", () => {
+  it("renders assistant markdown instead of raw symbols", () => {
+    const { container } = render(
+      <ChatPanel
+        items={[
+          {
+            role: "assistant",
+            text: "**Bold** and `code`\n\n- first\n- second\n\n| A | B |\n|---|---|\n| 1 | 2 |",
+          },
+        ]}
+        running={false}
+        hasSession
+        onSend={vi.fn()}
+        onStop={vi.fn()}
+      />,
+    );
+    expect(screen.getByText("Bold").tagName).toBe("STRONG");
+    expect(screen.getByText("code").tagName).toBe("CODE");
+    expect(screen.getAllByRole("listitem")).toHaveLength(2);
+    expect(screen.getByRole("table")).toBeInTheDocument();
+    expect(container.textContent).not.toContain("**");
+  });
+
+  it("never renders raw HTML from the assistant", () => {
+    const { container } = render(
+      <ChatPanel
+        items={[{ role: "assistant", text: 'Hi <img src=x onerror="alert(1)"> <b>bold</b>' }]}
+        running={false}
+        hasSession
+        onSend={vi.fn()}
+        onStop={vi.fn()}
+      />,
+    );
+    expect(container.querySelector("img, b")).toBeNull();
+  });
+
+  it("opens links outside the app", () => {
+    render(
+      <ChatPanel
+        items={[{ role: "assistant", text: "[docs](https://www.odoo.com/documentation)" }]}
+        running={false}
+        hasSession
+        onSend={vi.fn()}
+        onStop={vi.fn()}
+      />,
+    );
+    expect(screen.getByRole("link", { name: "docs" })).toHaveAttribute("target", "_blank");
+  });
+
+  it("keeps the user's own text as typed", () => {
+    render(
+      <ChatPanel
+        items={[{ role: "user", text: "**not bold**" }]}
+        running={false}
+        hasSession
+        onSend={vi.fn()}
+        onStop={vi.fn()}
+      />,
+    );
+    expect(screen.getByText("**not bold**")).toBeInTheDocument();
+  });
+});
+
+describe("ChatPanel progress", () => {
+  const props = { hasSession: true, onSend: vi.fn(), onStop: vi.fn() };
+
+  it("shows a thinking indicator until the answer starts", () => {
+    const { rerender } = render(<ChatPanel {...props} running items={[{ role: "user", text: "hi" }]} />);
+    expect(screen.getByRole("status")).toHaveTextContent("Thinking");
+    rerender(
+      <ChatPanel
+        {...props}
+        running
+        items={[
+          { role: "user", text: "hi" },
+          { role: "assistant", text: "Hel" },
+        ]}
+      />,
+    );
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+    rerender(<ChatPanel {...props} running={false} items={[{ role: "user", text: "hi" }]} />);
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+  });
+
+  it("shows the stop button as busy while answering", () => {
+    render(<ChatPanel {...props} running items={[]} />);
+    expect(screen.getByRole("button", { name: "Stop" })).toHaveAttribute("aria-busy", "true");
+  });
+});

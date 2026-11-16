@@ -12,6 +12,8 @@ use specs_core::workspace::{ProjectInfo, SessionMeta, Workspace};
 use tauri::{AppHandle, Emitter, Manager, Runtime, State};
 use tokio::sync::oneshot;
 
+use crate::diagram_window;
+
 /// Name of the event carrying [`ChatEventPayload`] to the UI.
 pub const CHAT_EVENT: &str = "chat-event";
 
@@ -123,6 +125,18 @@ pub fn load_session(
 }
 
 #[tauri::command]
+pub fn load_scene(
+    state: State<'_, AppState>,
+    project: String,
+    session_id: String,
+) -> CmdResult<String> {
+    state
+        .workspace
+        .read_scene(&project, &session_id)
+        .map_err(user_error)
+}
+
+#[tauri::command]
 pub fn save_scene(
     state: State<'_, AppState>,
     project: String,
@@ -227,9 +241,13 @@ pub fn register<R: Runtime>(builder: tauri::Builder<R>, state: AppState) -> taur
             rename_session,
             delete_session,
             load_session,
+            load_scene,
             save_scene,
             send_message,
             cancel_turn,
             write_file,
+            diagram_window::open_diagram_window,
+            diagram_window::dock_diagram_window,
         ])
+        .on_window_event(diagram_window::on_window_event)
 }

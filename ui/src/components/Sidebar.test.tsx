@@ -26,6 +26,7 @@ function setup(overrides: Partial<SidebarProps> = {}) {
     onCreateProject: vi.fn().mockResolvedValue(undefined),
     onCreateSession: vi.fn(),
     onDeleteSession: vi.fn(),
+    onRenameSession: vi.fn().mockResolvedValue(undefined),
     ...overrides,
   };
   render(<Sidebar {...props} />);
@@ -67,6 +68,36 @@ describe("Sidebar", () => {
     const props = setup();
     await userEvent.click(screen.getByRole("button", { name: "New session in Globex" }));
     expect(props.onCreateSession).toHaveBeenCalledWith("Globex");
+  });
+
+  it("renames a session from its rename button", async () => {
+    const props = setup();
+    await userEvent.click(screen.getByRole("button", { name: "Rename Invoice layout" }));
+    const field = screen.getByRole("textbox", { name: "Session name" });
+    expect(field).toHaveValue("Invoice layout");
+    await userEvent.clear(field);
+    await userEvent.type(field, "Invoice v2{Enter}");
+    expect(props.onRenameSession).toHaveBeenCalledWith({ project: "Acme", sessionId: "s2" }, "Invoice v2");
+    expect(props.onRenameSession).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("textbox", { name: "Session name" })).not.toBeInTheDocument();
+  });
+
+  it("renames on double-click and cancels with Escape", async () => {
+    const props = setup();
+    await userEvent.dblClick(screen.getByRole("button", { name: "Delivery window" }));
+    await userEvent.type(screen.getByRole("textbox", { name: "Session name" }), " X{Escape}");
+    expect(props.onRenameSession).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "Delivery window" })).toBeInTheDocument();
+  });
+
+  it("does not rename to an unchanged or blank title", async () => {
+    const props = setup();
+    await userEvent.click(screen.getByRole("button", { name: "Rename Invoice layout" }));
+    await userEvent.type(screen.getByRole("textbox", { name: "Session name" }), "{Enter}");
+    await userEvent.click(screen.getByRole("button", { name: "Rename Delivery window" }));
+    await userEvent.clear(screen.getByRole("textbox", { name: "Session name" }));
+    await userEvent.type(screen.getByRole("textbox", { name: "Session name" }), "   {Enter}");
+    expect(props.onRenameSession).not.toHaveBeenCalled();
   });
 
   it("deletes a session", async () => {

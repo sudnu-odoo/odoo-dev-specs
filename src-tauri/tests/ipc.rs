@@ -7,7 +7,7 @@ use std::sync::mpsc;
 use std::sync::OnceLock;
 use std::time::Duration;
 
-use odoo_dev_specs_lib::{register, AppState, CHAT_EVENT};
+use odoo_dev_specs_lib::{register, AppState, CHAT_EVENT, DIAGRAM_SESSION_EVENT, DIAGRAM_WINDOW};
 use serde_json::{json, Value};
 use specs_core::chat::ClaudeConfig;
 use specs_core::workspace::Workspace;
@@ -16,7 +16,7 @@ use tauri::test::{
     get_ipc_response, mock_builder, mock_context, noop_assets, MockRuntime, INVOKE_KEY,
 };
 use tauri::webview::InvokeRequest;
-use tauri::{App, Listener, WebviewWindow, WebviewWindowBuilder};
+use tauri::{App, Listener, Manager, WebviewWindow, WebviewWindowBuilder};
 use tempfile::TempDir;
 
 const FIXTURE: &str = concat!(
@@ -275,4 +275,71 @@ fn missing_claude_is_reported() {
         )
         .unwrap_err();
     assert!(err.contains("Claude Code is not installed"), "{err}");
+}
+
+#[test]
+fn load_scene_returns_the_stored_diagram() {
+    let h = harness(true);
+    let id = h.new_session();
+    let scene = r#"{"type":"excalidraw","version":2,"elements":[],"appState":{},"files":{}}"#;
+    h.call(
+        "save_scene",
+        json!({"project": "Acme", "sessionId": id, "scene": scene}),
+    )
+    .unwrap();
+    assert_eq!(
+        h.call("load_scene", json!({"project": "Acme", "sessionId": id}))
+            .unwrap(),
+        scene
+    );
+}
+
+/// Events of `name` received while `act` runs.
+fn collect_events(h: &Harness, name: &str, act: impl FnOnce()) -> Vec<Value> {
+    let (tx, rx) = mpsc::channel();
+    h.app.listen_any(name, move |e| {
+        let _ = tx.send(serde_json::from_str::<Value>(e.payload()).unwrap());
+    });
+    act();
+    rx.try_iter().collect()
+}
+
+#[test]
+fn diagram_window_opens_once_and_follows_the_selected_session() {
+    let h = harness(true);
+    let id = h.new_session();
+    let open = |title: &str| {
+        h.call(
+            "open_diagram_window",
+            json!({"project": "Acme", "sessionId": id, "title": title}),
+        )
+        .unwrap();
+    };
+
+    // Window titles are not stored by Tauri's mock runtime, so they are checked in the real app.
+    open("Delivery");
+    assert!(h.app.get_webview_window(DIAGRAM_WINDOW).is_some());
+
+    let events = collect_events(&h, DIAGRAM_SESSION_EVENT, || open("Renamed"));
+    assert_eq!(h.app.webview_windows().len(), 2, "no second diagram window");
+    assert_eq!(
+        events,
+        vec![json!({"project": "Acme", "sessionId": id, "title": "Renamed"})]
+    );
+}
+
+/// The mock runtime drops a destroyed window without the `Destroyed` window event that
+/// the real runtime sends, so "the main window is told" is verified in the real app.
+#[test]
+fn docking_destroys_the_diagram_window_and_is_idempotent() {
+    let h = harness(true);
+    let id = h.new_session();
+    h.call(
+        "open_diagram_window",
+        json!({"project": "Acme", "sessionId": id, "title": "t"}),
+    )
+    .unwrap();
+
+    h.call("dock_diagram_window", json!({})).unwrap();
+    h.call("dock_diagram_window", json!({})).unwrap();
 }

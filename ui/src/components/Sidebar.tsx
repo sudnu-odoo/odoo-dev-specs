@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from "react";
+import { useRef, useState, type FormEvent } from "react";
 import type { ProjectInfo, SessionRef } from "../lib/types";
 
 export interface SidebarProps {
@@ -9,6 +9,7 @@ export interface SidebarProps {
   onCreateProject: (name: string) => Promise<void>;
   onCreateSession: (project: string) => void;
   onDeleteSession: (ref: SessionRef) => void;
+  onRenameSession: (ref: SessionRef, title: string) => Promise<void>;
 }
 
 export default function Sidebar({
@@ -18,6 +19,7 @@ export default function Sidebar({
   onCreateProject,
   onCreateSession,
   onDeleteSession,
+  onRenameSession,
 }: SidebarProps) {
   return (
     <aside className="sidebar">
@@ -44,31 +46,103 @@ export default function Sidebar({
             </div>
             {p.sessions.map((s) => {
               const ref = { project: p.name, sessionId: s.id };
-              const active = selected?.project === p.name && selected.sessionId === s.id;
               return (
-                <div key={s.id} className={"tree-session" + (active ? " active" : "")}>
-                  <button
-                    className="tree-session-title"
-                    aria-current={active ? "true" : undefined}
-                    onClick={() => onSelect(ref)}
-                  >
-                    {s.title}
-                  </button>
-                  <button
-                    className="icon-btn tree-session-delete"
-                    aria-label={`Delete ${s.title}`}
-                    title="Delete session"
-                    onClick={() => onDeleteSession(ref)}
-                  >
-                    ×
-                  </button>
-                </div>
+                <SessionRow
+                  key={s.id}
+                  title={s.title}
+                  active={selected?.project === p.name && selected.sessionId === s.id}
+                  onSelect={() => onSelect(ref)}
+                  onRename={(title) => onRenameSession(ref, title)}
+                  onDelete={() => onDeleteSession(ref)}
+                />
               );
             })}
           </div>
         ))}
       </nav>
     </aside>
+  );
+}
+
+interface SessionRowProps {
+  title: string;
+  active: boolean;
+  onSelect: () => void;
+  onRename: (title: string) => Promise<void>;
+  onDelete: () => void;
+}
+
+function SessionRow({ title, active, onSelect, onRename, onDelete }: SessionRowProps) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(title);
+  // Enter closes the field, which may also fire blur: finish each edit only once.
+  const finished = useRef(false);
+
+  function startEditing() {
+    finished.current = false;
+    setDraft(title);
+    setEditing(true);
+  }
+
+  function cancel() {
+    finished.current = true;
+    setEditing(false);
+  }
+
+  function commit() {
+    if (finished.current) return;
+    finished.current = true;
+    setEditing(false);
+    const next = draft.trim();
+    if (next && next !== title) onRename(next).catch(() => {});
+  }
+
+  if (editing) {
+    return (
+      <div className={"tree-session" + (active ? " active" : "")}>
+        <input
+          className="tree-session-input"
+          aria-label="Session name"
+          autoFocus
+          value={draft}
+          onFocus={(e) => e.target.select()}
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={commit}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") commit();
+            if (e.key === "Escape") cancel();
+          }}
+        />
+      </div>
+    );
+  }
+  return (
+    <div className={"tree-session" + (active ? " active" : "")}>
+      <button
+        className="tree-session-title"
+        aria-current={active ? "true" : undefined}
+        onClick={onSelect}
+        onDoubleClick={startEditing}
+      >
+        {title}
+      </button>
+      <button
+        className="icon-btn tree-session-action"
+        aria-label={`Rename ${title}`}
+        title="Rename"
+        onClick={startEditing}
+      >
+        ✎
+      </button>
+      <button
+        className="icon-btn tree-session-action"
+        aria-label={`Delete ${title}`}
+        title="Delete"
+        onClick={onDelete}
+      >
+        ×
+      </button>
+    </div>
   );
 }
 

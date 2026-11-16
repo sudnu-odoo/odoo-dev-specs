@@ -15,6 +15,8 @@ export function useSpecsApp() {
   const [session, setSession] = useState<SessionData | null>(null);
   const [chat, dispatch] = useReducer(chatReducer, emptyChat);
   const [error, setError] = useState<string | null>(null);
+  // True while the diagram is shown in its own window instead of beside the chat.
+  const [diagramDetached, setDiagramDetached] = useState(false);
   // Read inside the event listener, which is registered only once.
   const selectedRef = useRef<SessionRef | null>(null);
   selectedRef.current = selected;
@@ -34,13 +36,25 @@ export function useSpecsApp() {
       dispatch({ type: "event", event });
       if (event.kind === "finished") refresh();
     });
+    const unlistenDocked = api.onDiagramDocked(() => setDiagramDetached(false));
     return () => {
       unlisten.then((stop) => stop());
+      unlistenDocked.then((stop) => stop());
     };
   }, [refresh]);
 
+  // The separate diagram window follows the open session and its title.
+  const openTitle = session?.meta.title;
+  useEffect(() => {
+    if (diagramDetached && selected && openTitle) {
+      api.openDiagramWindow(selected, openTitle).catch((e) => setError(String(e)));
+    }
+  }, [diagramDetached, selected, openTitle]);
+
   const open = useCallback(async (ref: SessionRef) => {
     setSelected(ref);
+    // Never pair the new selection with the previous session's data while loading.
+    setSession(null);
     try {
       const data = await api.loadSession(ref);
       setSession(data);
@@ -98,6 +112,19 @@ export function useSpecsApp() {
     [close, projects, refresh],
   );
 
+  const renameSession = useCallback(
+    async (ref: SessionRef, title: string) => {
+      try {
+        const meta = await api.renameSession(ref, title);
+        if (sameRef(ref, selectedRef.current)) setSession((s) => (s ? { ...s, meta } : s));
+        await refresh();
+      } catch (e) {
+        setError(String(e));
+      }
+    },
+    [refresh],
+  );
+
   const send = useCallback(
     async (text: string) => {
       if (!selected || !session) return;
@@ -120,12 +147,11 @@ export function useSpecsApp() {
     if (selected) api.cancelTurn(selected.sessionId);
   }, [selected]);
 
-  const saveScene = useCallback(
-    (scene: string) => {
-      if (selected) api.saveScene(selected, scene).catch((e) => setError(String(e)));
-    },
-    [selected],
-  );
+  const detachDiagram = useCallback(() => setDiagramDetached(true), []);
+  const dockDiagram = useCallback(() => {
+    // The window's closing event switches the layout back (also when closed directly).
+    api.dockDiagramWindow().catch((e) => setError(String(e)));
+  }, []);
 
   return {
     projects,
@@ -138,8 +164,11 @@ export function useSpecsApp() {
     createProject,
     createSession,
     deleteSession,
+    renameSession,
     send,
     stop,
-    saveScene,
+    diagramDetached,
+    detachDiagram,
+    dockDiagram,
   };
 }

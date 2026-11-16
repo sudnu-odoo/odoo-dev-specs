@@ -43,3 +43,8 @@ export interface SessionRef {
   project: string;
   sessionId: string;
 }
+
+/** What the separate diagram window shows. */
+export interface DiagramTarget extends SessionRef {
+  title: string;
+}

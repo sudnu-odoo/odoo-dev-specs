@@ -1,12 +1,20 @@
 import { Panel, PanelGroup, PanelResizeHandle } from "react-resizable-panels";
 import { useSpecsApp } from "./app/useSpecsApp";
 import ChatPanel from "./components/ChatPanel";
-import ExcalidrawPanel from "./components/ExcalidrawPanel";
+import SessionDiagram from "./components/SessionDiagram";
 import Sidebar from "./components/Sidebar";
 
 export default function App() {
   const app = useSpecsApp();
-  const sessionKey = app.selected ? `${app.selected.project}/${app.selected.sessionId}` : null;
+  const chat = (
+    <ChatPanel
+      items={app.chat.items}
+      running={app.chat.running}
+      hasSession={!!app.session}
+      onSend={app.send}
+      onStop={app.stop}
+    />
+  );
 
   return (
     <div className="app">
@@ -17,6 +25,7 @@ export default function App() {
         onCreateProject={app.createProject}
         onCreateSession={app.createSession}
         onDeleteSession={app.deleteSession}
+        onRenameSession={app.renameSession}
       />
       <div className="main">
         {app.error && (
@@ -27,32 +36,44 @@ export default function App() {
             </button>
           </div>
         )}
-        {/* autoSaveId keeps the chat/artifact split the user dragged to. */}
-        <PanelGroup direction="horizontal" autoSaveId="main-split" className="main-panels">
-          <Panel defaultSize={38} minSize={25}>
-            <ChatPanel
-              items={app.chat.items}
-              running={app.chat.running}
-              hasSession={!!app.session}
-              onSend={app.send}
-              onStop={app.stop}
-            />
-          </Panel>
-          <PanelResizeHandle className="resize-handle" />
-          <Panel defaultSize={62} minSize={30}>
-            {app.session && sessionKey ? (
-              // Remount per session so the canvas starts from that session's diagram.
-              <ExcalidrawPanel
-                key={sessionKey}
-                name={app.session.meta.title}
-                scene={app.session.scene}
-                onSceneChange={app.saveScene}
-              />
-            ) : (
-              <div className="artifact-placeholder">The diagram of the open session appears here.</div>
-            )}
-          </Panel>
-        </PanelGroup>
+        {app.diagramDetached ? (
+          <div className="main-panels detached">
+            <div className="detached-bar">
+              The diagram is open in its own window.
+              <button className="btn btn-small" onClick={app.dockDiagram}>
+                Bring diagram back
+              </button>
+            </div>
+            {chat}
+          </div>
+        ) : (
+          // autoSaveId keeps the chat/diagram split the user dragged to.
+          <PanelGroup direction="horizontal" autoSaveId="main-split" className="main-panels">
+            <Panel defaultSize={38} minSize={25}>
+              {chat}
+            </Panel>
+            <PanelResizeHandle className="resize-handle" />
+            <Panel defaultSize={62} minSize={30}>
+              {app.selected && app.session ? (
+                <SessionDiagram
+                  sessionRef={app.selected}
+                  title={app.session.meta.title}
+                  actions={
+                    <button
+                      className="btn"
+                      title="Edit the diagram in a separate window"
+                      onClick={app.detachDiagram}
+                    >
+                      Open in new window
+                    </button>
+                  }
+                />
+              ) : (
+                <div className="artifact-placeholder">The diagram of the open session appears here.</div>
+              )}
+            </Panel>
+          </PanelGroup>
+        )}
       </div>
     </div>
   );

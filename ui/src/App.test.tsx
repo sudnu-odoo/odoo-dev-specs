@@ -17,6 +17,10 @@ vi.mock("./lib/api", () => ({
     sendMessage: vi.fn(),
     cancelTurn: vi.fn(),
     onChatEvent: vi.fn(),
+    loadScene: vi.fn(),
+    openDiagramWindow: vi.fn(),
+    dockDiagramWindow: vi.fn(),
+    onDiagramDocked: vi.fn(),
   },
 }));
 vi.mock("./lib/confirm", () => ({ confirmAction: vi.fn().mockResolvedValue(true) }));
@@ -29,7 +33,12 @@ vi.mock("react-resizable-panels", () => ({
 }));
 // The real canvas needs a browser; its own behaviour is covered elsewhere.
 vi.mock("./components/ExcalidrawPanel", () => ({
-  default: ({ name }: { name: string }) => <div data-testid="diagram">{name}</div>,
+  default: ({ name, actions }: { name: string; actions?: React.ReactNode }) => (
+    <div>
+      <div data-testid="diagram">{name}</div>
+      {actions}
+    </div>
+  ),
 }));
 
 const mocked = vi.mocked(api);
@@ -43,6 +52,7 @@ const meta = (id: string, title: string) => ({
 });
 let projects: ProjectInfo[];
 let emit: (payload: ChatEventPayload) => void;
+let docked: () => void;
 const emitEvent = (sessionId: string, event: ChatEvent) => act(() => emit({ sessionId, event }));
 
 beforeEach(() => {
@@ -62,6 +72,13 @@ beforeEach(() => {
     emit = handler;
     return () => {};
   });
+  mocked.onDiagramDocked.mockImplementation(async (handler) => {
+    docked = handler;
+    return () => {};
+  });
+  mocked.loadScene.mockResolvedValue('{"type":"excalidraw","elements":[]}');
+  mocked.openDiagramWindow.mockResolvedValue(undefined);
+  mocked.dockDiagramWindow.mockResolvedValue(undefined);
 });
 
 async function openSession(title: string) {
@@ -140,6 +157,22 @@ describe("App", () => {
     );
   });
 
+  it("renames the open session and its diagram", async () => {
+    mocked.renameSession.mockImplementation(async (_ref, title) => {
+      projects = [{ name: "Acme", sessions: [meta("s1", title), meta("s2", "New spec")] }];
+      return meta("s1", title);
+    });
+    await openSession("Delivery window");
+    await screen.findByText("Earlier question");
+    await userEvent.click(screen.getByRole("button", { name: "Rename Delivery window" }));
+    const field = screen.getByRole("textbox", { name: "Session name" });
+    await userEvent.clear(field);
+    await userEvent.type(field, "Delivery slots{Enter}");
+    expect(mocked.renameSession).toHaveBeenCalledWith({ project: "Acme", sessionId: "s1" }, "Delivery slots");
+    expect(await screen.findByTestId("diagram")).toHaveTextContent("Delivery slots");
+    expect(await screen.findByRole("button", { name: "Delivery slots" })).toBeInTheDocument();
+  });
+
   it("closes the open session when it is deleted", async () => {
     mocked.deleteSession.mockImplementation(async () => {
       projects = [{ name: "Acme", sessions: [meta("s2", "New spec")] }];
@@ -150,5 +183,40 @@ describe("App", () => {
     await waitFor(() => expect(screen.queryByText("Earlier question")).not.toBeInTheDocument());
     expect(mocked.deleteSession).toHaveBeenCalledWith({ project: "Acme", sessionId: "s1" });
     expect(message()).toBeDisabled();
+  });
+
+  it("moves the diagram to its own window and back", async () => {
+    await openSession("Delivery window");
+    await userEvent.click(await screen.findByRole("button", { name: "Open in new window" }));
+    expect(mocked.openDiagramWindow).toHaveBeenCalledWith(
+      { project: "Acme", sessionId: "s1" },
+      "Delivery window",
+    );
+    expect(screen.queryByTestId("diagram")).not.toBeInTheDocument();
+    expect(message()).toBeEnabled();
+
+    await userEvent.click(screen.getByRole("button", { name: "Bring diagram back" }));
+    expect(mocked.dockDiagramWindow).toHaveBeenCalled();
+    act(() => docked());
+    expect(await screen.findByTestId("diagram")).toHaveTextContent("Delivery window");
+  });
+
+  it("shows the diagram again when its window is closed directly", async () => {
+    await openSession("Delivery window");
+    await userEvent.click(await screen.findByRole("button", { name: "Open in new window" }));
+    act(() => docked());
+    expect(await screen.findByTestId("diagram")).toBeInTheDocument();
+  });
+
+  it("keeps the separate diagram window on the selected session", async () => {
+    await openSession("Delivery window");
+    await userEvent.click(await screen.findByRole("button", { name: "Open in new window" }));
+    await userEvent.click(screen.getByRole("button", { name: "New spec" }));
+    await waitFor(() =>
+      expect(mocked.openDiagramWindow).toHaveBeenLastCalledWith(
+        { project: "Acme", sessionId: "s2" },
+        "New spec",
+      ),
+    );
   });
 });
