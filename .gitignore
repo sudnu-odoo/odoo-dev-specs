@@ -5,3 +5,9 @@ node_modules
 *.log
 .DS_Store
 *.tsbuildinfo
+
+# Local editor and assistant files
+.vscode/
+.idea/
+CLAUDE.md
+.claude/
