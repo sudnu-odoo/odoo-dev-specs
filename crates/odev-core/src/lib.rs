@@ -1,4 +1,5 @@
-//! Shared odev integration: config patching now, process management later.
+//! odev integration: config patching, source paths and local Odoo servers.
 
 pub mod paths;
 pub mod pruning;
+pub mod server;

@@ -22,7 +22,8 @@ Excalidraw dev spec with real screenshots from a **fresh local Odoo database** (
 make install   # UI dependencies
 make dev       # run the app with hot reload
 make check     # format check, lint, type check, unit + integration tests — must pass before merging
-make test-live # end-to-end with your real, logged-in Claude Code (costs a few cents)
+make test-live # end-to-end with the real Claude Code, odev and Chrome (costs a few cents,
+               # creates the local database specs_19_0_sale_management on first run)
 make build     # .deb + AppImage in target/release/bundle/
 ```
 
@@ -40,6 +41,12 @@ make build     # .deb + AppImage in target/release/bundle/
 Sessions live in `~/OdooSpecs/<Project>/<session-id>/` (`spec.excalidraw`, `transcript.jsonl`,
 `session.json`, `screenshots/`). The assistant runs with read-only tools (Read, Grep, Glob), without
 your personal Claude settings or hooks, and can read the Odoo source checked out by odev.
+
+Screenshots come from fresh local databases named after their version and modules (e.g.
+`specs_19_0_sale_management`), created and started through odev and reused afterwards. Servers keep
+running between messages and are stopped when the app closes; their logs are in
+`~/.local/state/odoo-dev-specs/`. Before creating or starting a database the app runs
+`odev pull -f -V <version>`, because odev otherwise stops to ask about source updates.
 
 On every start the app moves `[pruning] date` in `~/.config/odev/odev.cfg` 5 years ahead so odev
 never stops to ask about old databases (only when it is less than a year away, so the file is not

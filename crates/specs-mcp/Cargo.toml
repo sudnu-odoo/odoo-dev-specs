@@ -11,6 +11,10 @@ tokio.workspace = true
 excalidraw = { path = "../excalidraw" }
 rmcp = { version = "3.10", features = ["server", "macros", "transport-io"] }
 schemars = "1"
+odev-core = { path = "../odev-core" }
+chromiumoxide = "0.9"
+futures = "0.3"
+tempfile.workspace = true
 
 [dev-dependencies]
 rmcp = { version = "3.10", features = ["server", "macros", "transport-io", "client"] }

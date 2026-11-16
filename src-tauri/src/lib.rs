@@ -5,6 +5,7 @@ pub use commands::{register, AppState, ChatEventPayload, CHAT_EVENT};
 pub use diagram_window::{DIAGRAM_DOCKED_EVENT, DIAGRAM_SESSION_EVENT, DIAGRAM_WINDOW};
 
 use odev_core::pruning::{self, Outcome};
+use odev_core::server::Odev;
 use specs_core::chat::ClaudeConfig;
 use specs_core::locate::{find_executable, user_bin_dirs};
 use specs_core::workspace::Workspace;
@@ -33,8 +34,9 @@ fn detect_claude() -> Option<ClaudeConfig> {
         .map(|cfg| odev_core::paths::odoo_source_dirs(&cfg))
         .unwrap_or_default();
     let diagram_tools = sibling_program("specs-mcp");
+    let odev = find_executable("odev", path_var.as_deref(), &user_bin_dirs(&home));
     eprintln!(
-        "claude: {} (read-only: {read_dirs:?}, diagram tools: {diagram_tools:?})",
+        "claude: {} (read-only: {read_dirs:?}, diagram tools: {diagram_tools:?}, odev: {odev:?})",
         program.display()
     );
     Some(ClaudeConfig {
@@ -42,7 +44,18 @@ fn detect_claude() -> Option<ClaudeConfig> {
         read_dirs,
         model: None,
         diagram_tools,
+        odev,
     })
+}
+
+/// Odoo servers started for screenshots keep running between chat turns; stop
+/// them when the app closes.
+fn stop_odoo_servers(odev: Option<&std::path::Path>) {
+    if let Some(odev) = odev {
+        if let Err(e) = Odev::new(odev, Odev::default_state_dir()).stop_all() {
+            eprintln!("could not stop the local Odoo servers: {e:#}");
+        }
+    }
 }
 
 /// A helper program shipped next to the app's own executable.
@@ -54,10 +67,17 @@ fn sibling_program(name: &str) -> Option<std::path::PathBuf> {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     patch_odev_pruning();
-    let state = AppState::new(Workspace::new(Workspace::default_root()), detect_claude());
+    let claude = detect_claude();
+    let odev = claude.as_ref().and_then(|c| c.odev.clone());
+    let state = AppState::new(Workspace::new(Workspace::default_root()), claude);
     register(tauri::Builder::default(), state)
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
-        .run(tauri::generate_context!())
-        .expect("error while running Odoo Dev Specs");
+        .build(tauri::generate_context!())
+        .expect("error while starting Odoo Dev Specs")
+        .run(move |_, event| {
+            if let tauri::RunEvent::Exit = event {
+                stop_odoo_servers(odev.as_deref());
+            }
+        });
 }

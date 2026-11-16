@@ -21,6 +21,8 @@ pub struct ClaudeConfig {
     pub model: Option<String>,
     /// The `specs-mcp` program giving the assistant diagram tools, when found.
     pub diagram_tools: Option<PathBuf>,
+    /// odev, for screenshots of a fresh local Odoo, when found.
+    pub odev: Option<PathBuf>,
 }
 
 /// Send `text` in a session and stream the reply to `on_event`.
@@ -55,6 +57,7 @@ pub async fn send_message(
         diagram_tools: claude.diagram_tools.clone().map(|program| DiagramTools {
             program,
             session_dir: cwd.clone(),
+            odev: claude.odev.clone(),
         }),
     };
     let turn = CliTurn {

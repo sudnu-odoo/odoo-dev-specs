@@ -18,6 +18,7 @@ fn real_claude() -> ClaudeConfig {
         read_dirs: vec![],
         model: Some("haiku".into()),
         diagram_tools: None,
+        odev: None,
     }
 }
 
@@ -135,5 +136,64 @@ async fn real_claude_draws_with_the_diagram_tools() {
     assert!(
         tools.iter().any(|t| t == "mcp__specs__diagram_add_arrow"),
         "{tools:?}"
+    );
+}
+
+#[tokio::test]
+#[ignore = "calls the real Claude Code, odev and Chrome; run with `make test-live`"]
+async fn real_claude_screenshots_a_fresh_odoo_and_places_it() {
+    let mcp =
+        std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/debug/specs-mcp");
+    let home = dirs::home_dir().unwrap();
+    let path = std::env::var("PATH").ok();
+    let odev = find_executable("odev", path.as_deref(), &user_bin_dirs(&home))
+        .expect("odev is not installed");
+    let dir = tempfile::tempdir().unwrap();
+    let ws = Workspace::new(dir.path());
+    ws.create_project("P").unwrap();
+    let id = ws.create_session("P", "live", "claude").unwrap().id;
+    let claude = ClaudeConfig {
+        diagram_tools: Some(mcp),
+        odev: Some(odev.clone()),
+        ..real_claude()
+    };
+
+    let done = turn(
+        &ws,
+        &id,
+        &claude,
+        "Take a screenshot named 'quotations' of the page /odoo/sales on Odoo 19.0 with the module \
+         sale_management, place it on the diagram, then reply: done",
+    )
+    .await;
+    odev_core::server::Odev::new(&odev, odev_core::server::Odev::default_state_dir())
+        .stop_all()
+        .unwrap();
+    assert_eq!(
+        done,
+        ChatEvent::Finished {
+            is_error: false,
+            message: None
+        }
+    );
+
+    let session_dir = ws.session_dir("P", &id).unwrap();
+    let transcript = ws.read_transcript("P", &id).unwrap();
+    let png = std::fs::read(session_dir.join("screenshots/quotations.png"))
+        .unwrap_or_else(|e| panic!("screenshot not saved ({e}); transcript: {transcript:#?}"));
+    assert_eq!(&png[1..4], b"PNG");
+    // Kept for a human look: is it the real page, not the login screen?
+    let keep =
+        std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/test-fixtures");
+    std::fs::create_dir_all(&keep).unwrap();
+    std::fs::write(keep.join("live_quotations.png"), &png).unwrap();
+    let scene: serde_json::Value = serde_json::from_str(&ws.read_scene("P", &id).unwrap()).unwrap();
+    assert!(
+        scene["elements"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|e| e["type"] == "image"),
+        "image placed"
     );
 }

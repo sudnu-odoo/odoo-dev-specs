@@ -99,6 +99,7 @@ async fn offers_the_diagram_tools() {
             "diagram_move",
             "diagram_set_text",
             "diagram_summary",
+            "odoo_screenshot",
         ]
     );
 }
@@ -285,4 +286,18 @@ async fn escaped_line_breaks_become_real_ones() {
         .filter_map(|e| e["originalText"].as_str().map(String::from))
         .collect();
     assert_eq!(texts, ["Quotation\n(status: draft)", "a\nb"]);
+}
+
+#[tokio::test]
+async fn screenshots_need_odev() {
+    let dir = session();
+    let client = connect(dir.path()).await;
+    let result = call(
+        &client,
+        "odoo_screenshot",
+        json!({"version": "19.0", "modules": [], "page": "/odoo", "name": "home"}),
+    )
+    .await;
+    assert!(is_error(&result));
+    assert!(text(&result).contains("odev"), "{}", text(&result));
 }

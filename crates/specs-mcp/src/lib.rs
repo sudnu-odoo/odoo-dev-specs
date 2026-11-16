@@ -1,12 +1,16 @@
 //! MCP server giving the assistant tools to edit one session's diagram
 //! (`<session>/spec.excalidraw`). Claude Code starts it per chat turn.
 
+pub mod browser;
+
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use anyhow::{bail, ensure, Context, Result};
+use browser::Viewport;
 use excalidraw::{Color, Placement, Scene};
+use odev_core::server::Odev;
 use rmcp::handler::server::wrapper::Parameters;
 use rmcp::model::{CallToolResult, ContentBlock};
 use rmcp::{tool, tool_handler, tool_router, ServerHandler};
@@ -91,11 +95,29 @@ pub struct DeleteElements {
     pub ids: Vec<String>,
 }
 
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct Screenshot {
+    /// Odoo version, e.g. "19.0".
+    pub version: String,
+    /// Technical names of the modules to install, e.g. ["sale_management", "stock"].
+    pub modules: Vec<String>,
+    /// Page to open, as a path on the local Odoo, e.g. "/odoo/sales" or "/odoo/action-sale.action_orders".
+    pub page: String,
+    /// Short file name for the screenshot, e.g. "sales_order_form".
+    pub name: String,
+    /// Browser width in pixels (default 1440).
+    pub width: Option<u32>,
+    /// Browser height in pixels (default 900).
+    pub height: Option<u32>,
+}
+
 #[derive(Debug, Clone)]
 pub struct DiagramServer {
     session_dir: PathBuf,
     /// One edit at a time: each tool reads, changes and writes the whole file.
     lock: Arc<tokio::sync::Mutex<()>>,
+    /// Local Odoo servers for screenshots; `None` when odev is not available.
+    odev: Option<Arc<Odev>>,
 }
 
 impl DiagramServer {
@@ -103,7 +125,14 @@ impl DiagramServer {
         Self {
             session_dir: session_dir.into(),
             lock: Arc::default(),
+            odev: None,
         }
+    }
+
+    /// Enable Odoo screenshots through this odev executable.
+    pub fn with_odoo(mut self, odev: impl Into<PathBuf>, state_dir: impl Into<PathBuf>) -> Self {
+        self.odev = Some(Arc::new(Odev::new(odev, state_dir)));
+        self
     }
 }
 
@@ -216,6 +245,16 @@ impl DiagramServer {
         .await
     }
 
+    #[tool(
+        description = "Take a screenshot of a page of a fresh local Odoo database (no customer data), \
+logged in as admin, and save it in the session's screenshots folder. The first call for a version \
+and module set creates the database, which can take several minutes. Then place the image with \
+diagram_add_image."
+    )]
+    async fn odoo_screenshot(&self, Parameters(p): Parameters<Screenshot>) -> CallToolResult {
+        reply(self.take_screenshot(p).await)
+    }
+
     #[tool(description = "Delete elements, with their labels and attached arrows.")]
     async fn diagram_delete(&self, Parameters(p): Parameters<DeleteElements>) -> CallToolResult {
         self.edit(|scene| {
@@ -227,6 +266,34 @@ impl DiagramServer {
 }
 
 impl DiagramServer {
+    async fn take_screenshot(&self, p: Screenshot) -> Result<String> {
+        let file = format!("{}.png", file_stem(&p.name)?);
+        let odev = self
+            .odev
+            .clone()
+            .context("Odoo screenshots are not available: odev was not found on this computer.")?;
+        let (version, modules) = (p.version.clone(), p.modules.clone());
+        let running = tokio::task::spawn_blocking(move || {
+            let database = odev.ensure_database(&version, &modules)?;
+            odev.ensure_running(&version, &database)
+        })
+        .await
+        .context("starting Odoo")??;
+
+        let relative = format!("screenshots/{file}");
+        let out = self.session_dir.join(&relative);
+        fs::create_dir_all(self.session_dir.join("screenshots"))?;
+        let viewport = Viewport {
+            width: p.width.unwrap_or(1440).clamp(320, 3840),
+            height: p.height.unwrap_or(900).clamp(240, 2160),
+        };
+        browser::screenshot(&running.url(), &p.page, viewport, &out).await?;
+        Ok(format!(
+            "Saved {relative} ({}x{}) of {} on Odoo {} (database {}). Place it with diagram_add_image using path \"{relative}\".",
+            viewport.width, viewport.height, p.page, p.version, running.database
+        ))
+    }
+
     fn scene_path(&self) -> PathBuf {
         self.session_dir.join(SCENE_FILE)
     }
@@ -268,6 +335,24 @@ impl DiagramServer {
         );
         Ok(path)
     }
+}
+
+/// A safe file name: lowercase letters, digits and underscores only.
+fn file_stem(name: &str) -> Result<String> {
+    let mut stem = String::new();
+    for c in name.trim().to_lowercase().chars() {
+        if c.is_ascii_alphanumeric() {
+            stem.push(c);
+        } else if !stem.is_empty() && !stem.ends_with('_') {
+            stem.push('_');
+        }
+    }
+    let stem: String = stem.trim_end_matches('_').chars().take(60).collect();
+    ensure!(
+        !stem.is_empty(),
+        "Give the screenshot a name, like \"sales_order_form\"."
+    );
+    Ok(stem)
 }
 
 fn parse_color(name: &str) -> Result<Color> {

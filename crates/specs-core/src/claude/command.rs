@@ -12,7 +12,10 @@ The spec is an Excalidraw diagram the user sees next to the chat. Build and upda
 diagram_* tools: call diagram_summary first, use frames for screens or areas, boxes for models, \
 fields and steps, arrows for flows. Keep labels short (a few words per line, real line \
 breaks), leave at least 80px between boxes, and route arrows around frames rather than through \
-them. Keep the chat answer brief and put the substance in the diagram.";
+them. To show real Odoo screens, take screenshots of a fresh local database with \
+odoo_screenshot (choose the Odoo version and the modules the feature needs) and place them with \
+diagram_add_image, then point at the relevant parts with boxes and arrows. Keep the chat answer \
+brief and put the substance in the diagram.";
 
 /// Everything needed to run one turn of a session.
 #[derive(Debug, Clone)]
@@ -34,10 +37,23 @@ pub struct TurnSpec {
 pub struct DiagramTools {
     pub program: PathBuf,
     pub session_dir: PathBuf,
+    /// odev executable, enabling Odoo screenshots.
+    pub odev: Option<PathBuf>,
 }
 
 /// Name of our MCP server; its tools appear to Claude as `mcp__specs__<tool>`.
 pub const MCP_SERVER_NAME: &str = "specs";
+
+fn mcp_args(tools: &DiagramTools) -> Vec<String> {
+    let mut args = vec![
+        "--session-dir".to_string(),
+        tools.session_dir.display().to_string(),
+    ];
+    if let Some(odev) = &tools.odev {
+        args.extend(["--odev".to_string(), odev.display().to_string()]);
+    }
+    args
+}
 
 /// Arguments for `claude`. The prompt itself is sent on stdin.
 pub fn args(spec: &TurnSpec) -> Vec<String> {
@@ -61,7 +77,7 @@ pub fn args(spec: &TurnSpec) -> Vec<String> {
         Some(tools) => {
             let config = serde_json::json!({ "mcpServers": { MCP_SERVER_NAME: {
                 "command": tools.program,
-                "args": ["--session-dir", tools.session_dir],
+                "args": mcp_args(tools),
             }}});
             a.extend([
                 "--mcp-config".to_string(),
@@ -108,6 +124,7 @@ mod tests {
         s.diagram_tools = Some(DiagramTools {
             program: "/app/specs-mcp".into(),
             session_dir: "/home/u/OdooSpecs/Acme/abc".into(),
+            odev: None,
         });
         let a = args(&s);
         let config: serde_json::Value =
@@ -132,6 +149,24 @@ mod tests {
             SYSTEM_PROMPT.contains("diagram_"),
             "the prompt explains the diagram tools"
         );
+    }
+
+    #[test]
+    fn odev_is_passed_on_for_screenshots() {
+        let mut s = spec(false);
+        s.diagram_tools = Some(DiagramTools {
+            program: "/app/specs-mcp".into(),
+            session_dir: "/s".into(),
+            odev: Some("/home/u/.local/bin/odev".into()),
+        });
+        let a = args(&s);
+        let config: serde_json::Value =
+            serde_json::from_str(value_after(&a, "--mcp-config").unwrap()).unwrap();
+        assert_eq!(
+            config["mcpServers"]["specs"]["args"],
+            serde_json::json!(["--session-dir", "/s", "--odev", "/home/u/.local/bin/odev"])
+        );
+        assert!(SYSTEM_PROMPT.contains("odoo_screenshot"));
     }
 
     #[test]
