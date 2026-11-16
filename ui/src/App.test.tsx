@@ -51,7 +51,9 @@ const meta = (id: string, title: string) => ({
   started: false,
 });
 let projects: ProjectInfo[];
-let emit: (payload: ChatEventPayload) => void;
+// Like the real event bus: every subscriber (the app and the diagram) gets each event.
+let chatListeners: ((payload: ChatEventPayload) => void)[] = [];
+const emit = (payload: ChatEventPayload) => chatListeners.forEach((listener) => listener(payload));
 let docked: () => void;
 const emitEvent = (sessionId: string, event: ChatEvent) => act(() => emit({ sessionId, event }));
 
@@ -68,9 +70,12 @@ beforeEach(() => {
   );
   mocked.sendMessage.mockResolvedValue(undefined);
   mocked.renameSession.mockImplementation(async (_ref, title) => meta("s2", title));
+  chatListeners = [];
   mocked.onChatEvent.mockImplementation(async (handler) => {
-    emit = handler;
-    return () => {};
+    chatListeners.push(handler);
+    return () => {
+      chatListeners = chatListeners.filter((l) => l !== handler);
+    };
   });
   mocked.onDiagramDocked.mockImplementation(async (handler) => {
     docked = handler;

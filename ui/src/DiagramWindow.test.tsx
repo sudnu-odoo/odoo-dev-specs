@@ -6,7 +6,13 @@ import { api } from "./lib/api";
 import type { DiagramTarget } from "./lib/types";
 
 vi.mock("./lib/api", () => ({
-  api: { loadScene: vi.fn(), saveScene: vi.fn(), dockDiagramWindow: vi.fn(), onDiagramSession: vi.fn() },
+  api: {
+    loadScene: vi.fn(),
+    saveScene: vi.fn(),
+    dockDiagramWindow: vi.fn(),
+    onDiagramSession: vi.fn(),
+    onChatEvent: vi.fn().mockResolvedValue(() => {}),
+  },
 }));
 vi.mock("./components/ExcalidrawPanel", () => ({
   default: ({ name, scene, actions }: { name: string; scene: string; actions?: React.ReactNode }) => (
@@ -24,6 +30,7 @@ let follow: (target: DiagramTarget) => void;
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mocked.onChatEvent.mockResolvedValue(() => {});
   mocked.loadScene.mockImplementation(async (ref) => `scene-of-${ref.sessionId}`);
   mocked.dockDiagramWindow.mockResolvedValue(undefined);
   mocked.onDiagramSession.mockImplementation(async (handler) => {

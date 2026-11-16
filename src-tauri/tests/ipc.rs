@@ -54,6 +54,7 @@ fn harness(with_claude: bool) -> Harness {
         program: fake_claude(),
         read_dirs: vec![],
         model: None,
+        diagram_tools: None,
     });
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().join("OdooSpecs");

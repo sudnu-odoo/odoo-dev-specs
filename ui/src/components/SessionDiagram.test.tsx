@@ -3,8 +3,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import SessionDiagram from "./SessionDiagram";
 import { api } from "../lib/api";
 import type { ExcalidrawPanelProps } from "./ExcalidrawPanel";
+import type { ChatEventPayload } from "../lib/types";
 
-vi.mock("../lib/api", () => ({ api: { loadScene: vi.fn(), saveScene: vi.fn() } }));
+vi.mock("../lib/api", () => ({ api: { loadScene: vi.fn(), saveScene: vi.fn(), onChatEvent: vi.fn() } }));
 let panel: ExcalidrawPanelProps | null = null;
 vi.mock("./ExcalidrawPanel", () => ({
   default: (props: ExcalidrawPanelProps) => {
@@ -21,10 +22,16 @@ vi.mock("./ExcalidrawPanel", () => ({
 const mocked = vi.mocked(api);
 const ref = (sessionId: string) => ({ project: "Acme", sessionId });
 
+let chatEvent: (payload: ChatEventPayload) => void;
+
 beforeEach(() => {
   vi.clearAllMocks();
   panel = null;
   mocked.saveScene.mockResolvedValue(undefined);
+  mocked.onChatEvent.mockImplementation(async (handler) => {
+    chatEvent = handler;
+    return () => {};
+  });
 });
 
 describe("SessionDiagram", () => {
@@ -76,5 +83,36 @@ describe("SessionDiagram", () => {
     mocked.loadScene.mockRejectedValue("This session no longer exists.");
     render(<SessionDiagram sessionRef={ref("s1")} title="One" />);
     expect(await screen.findByRole("alert")).toHaveTextContent("no longer exists");
+  });
+
+  it("reloads the diagram when the assistant's tools change it", async () => {
+    mocked.loadScene.mockResolvedValueOnce("scene-1");
+    render(<SessionDiagram sessionRef={ref("s1")} title="One" />);
+    await screen.findByTestId("canvas");
+    expect(panel!.incoming).toBeUndefined();
+
+    mocked.loadScene.mockResolvedValueOnce("scene-2");
+    await act(async () =>
+      chatEvent({ sessionId: "s1", event: { kind: "tool_finished", id: "t", is_error: false } }),
+    );
+    expect(panel!.incoming).toEqual({ scene: "scene-2", revision: 1 });
+
+    mocked.loadScene.mockResolvedValueOnce("scene-3");
+    await act(async () =>
+      chatEvent({ sessionId: "s1", event: { kind: "finished", is_error: false, message: null } }),
+    );
+    expect(panel!.incoming).toEqual({ scene: "scene-3", revision: 2 });
+    expect(screen.getByTestId("canvas")).toHaveTextContent("One:scene-1"); // no remount
+  });
+
+  it("ignores other sessions and streamed text", async () => {
+    mocked.loadScene.mockResolvedValue("scene-1");
+    render(<SessionDiagram sessionRef={ref("s1")} title="One" />);
+    await screen.findByTestId("canvas");
+    await act(async () => {
+      chatEvent({ sessionId: "s2", event: { kind: "tool_finished", id: "t", is_error: false } });
+      chatEvent({ sessionId: "s1", event: { kind: "text_delta", text: "hi" } });
+    });
+    expect(mocked.loadScene).toHaveBeenCalledTimes(1);
   });
 });

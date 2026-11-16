@@ -17,6 +17,7 @@ fn real_claude() -> ClaudeConfig {
         program,
         read_dirs: vec![],
         model: Some("haiku".into()),
+        diagram_tools: None,
     }
 }
 
@@ -76,4 +77,63 @@ async fn real_claude_answers_and_resumes() {
         }
         other => panic!("expected an answer, got {other:?}"),
     }
+}
+
+#[tokio::test]
+#[ignore = "calls the real Claude Code; run with `make test-live`"]
+async fn real_claude_draws_with_the_diagram_tools() {
+    let mcp =
+        std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/debug/specs-mcp");
+    assert!(mcp.is_file(), "build it first: cargo build -p specs-mcp");
+    let dir = tempfile::tempdir().unwrap();
+    let ws = Workspace::new(dir.path());
+    ws.create_project("P").unwrap();
+    let id = ws.create_session("P", "live", "claude").unwrap().id;
+    let claude = ClaudeConfig {
+        diagram_tools: Some(mcp),
+        ..real_claude()
+    };
+
+    let done = turn(
+        &ws,
+        &id,
+        &claude,
+        "Using the diagram tools, add a blue box 'Sales order', a green box 'Delivery', \
+         and an arrow from the first to the second labelled 'plans'. Then reply: done",
+    )
+    .await;
+    assert_eq!(
+        done,
+        ChatEvent::Finished {
+            is_error: false,
+            message: None
+        }
+    );
+
+    let scene: serde_json::Value = serde_json::from_str(&ws.read_scene("P", &id).unwrap()).unwrap();
+    let live: Vec<&serde_json::Value> = scene["elements"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|e| e["isDeleted"] != true)
+        .collect();
+    let count = |kind: &str| live.iter().filter(|e| e["type"] == kind).count();
+    assert_eq!((count("rectangle"), count("arrow")), (2, 1), "{scene}");
+    let texts: Vec<&str> = live.iter().filter_map(|e| e["text"].as_str()).collect();
+    for expected in ["Sales order", "Delivery", "plans"] {
+        assert!(texts.contains(&expected), "missing {expected}: {texts:?}");
+    }
+    let tools: Vec<_> = ws
+        .read_transcript("P", &id)
+        .unwrap()
+        .into_iter()
+        .filter_map(|e| match e {
+            TranscriptEntry::Tool { name, .. } => Some(name),
+            _ => None,
+        })
+        .collect();
+    assert!(
+        tools.iter().any(|t| t == "mcp__specs__diagram_add_arrow"),
+        "{tools:?}"
+    );
 }

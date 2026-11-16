@@ -7,7 +7,11 @@ pub const ALLOWED_TOOLS: &str = "Read,Grep,Glob";
 
 pub const SYSTEM_PROMPT: &str = "You help Odoo business analysts write development specs. \
 The Odoo community and enterprise source code is available read-only; read it to ground your \
-answers in how Odoo really works. Answer in plain language for a non-developer audience.";
+answers in how Odoo really works. Answer in plain language for a non-developer audience. \
+The spec is an Excalidraw diagram the user sees next to the chat. Build and update it with the \
+diagram_* tools: call diagram_summary first, use frames for screens or areas, boxes for models, \
+fields and steps, arrows for flows, and short labels. Keep the chat answer brief and put the \
+substance in the diagram.";
 
 /// Everything needed to run one turn of a session.
 #[derive(Debug, Clone)]
@@ -20,7 +24,19 @@ pub struct TurnSpec {
     pub read_dirs: Vec<PathBuf>,
     /// Model alias or id; `None` uses the CLI default.
     pub model: Option<String>,
+    /// The diagram tools server for this session, when available.
+    pub diagram_tools: Option<DiagramTools>,
 }
+
+/// `specs-mcp` started by Claude Code for one session folder.
+#[derive(Debug, Clone)]
+pub struct DiagramTools {
+    pub program: PathBuf,
+    pub session_dir: PathBuf,
+}
+
+/// Name of our MCP server; its tools appear to Claude as `mcp__specs__<tool>`.
+pub const MCP_SERVER_NAME: &str = "specs";
 
 /// Arguments for `claude`. The prompt itself is sent on stdin.
 pub fn args(spec: &TurnSpec) -> Vec<String> {
@@ -32,8 +48,6 @@ pub fn args(spec: &TurnSpec) -> Vec<String> {
         "--include-partial-messages",
         "--tools",
         ALLOWED_TOOLS,
-        "--allowedTools",
-        ALLOWED_TOOLS,
         "--setting-sources",
         "project",
         "--strict-mcp-config",
@@ -42,6 +56,22 @@ pub fn args(spec: &TurnSpec) -> Vec<String> {
     ]
     .map(String::from)
     .into();
+    match &spec.diagram_tools {
+        Some(tools) => {
+            let config = serde_json::json!({ "mcpServers": { MCP_SERVER_NAME: {
+                "command": tools.program,
+                "args": ["--session-dir", tools.session_dir],
+            }}});
+            a.extend([
+                "--mcp-config".to_string(),
+                config.to_string(),
+                "--allowedTools".to_string(),
+                // Pre-approve every tool of our server (headless runs cannot ask the user).
+                format!("{ALLOWED_TOOLS},mcp__{MCP_SERVER_NAME}"),
+            ]);
+        }
+        None => a.extend(["--allowedTools".to_string(), ALLOWED_TOOLS.to_string()]),
+    }
     let session_flag = if spec.resume {
         "--resume"
     } else {
@@ -67,7 +97,47 @@ mod tests {
             resume,
             read_dirs: vec!["/src/odoo".into(), "/src/enterprise".into()],
             model: None,
+            diagram_tools: None,
         }
+    }
+
+    #[test]
+    fn diagram_tools_are_offered_and_preapproved_for_the_session() {
+        let mut s = spec(false);
+        s.diagram_tools = Some(DiagramTools {
+            program: "/app/specs-mcp".into(),
+            session_dir: "/home/u/OdooSpecs/Acme/abc".into(),
+        });
+        let a = args(&s);
+        let config: serde_json::Value =
+            serde_json::from_str(value_after(&a, "--mcp-config").unwrap()).unwrap();
+        assert_eq!(
+            config,
+            serde_json::json!({"mcpServers": {"specs": {
+                "command": "/app/specs-mcp",
+                "args": ["--session-dir", "/home/u/OdooSpecs/Acme/abc"],
+            }}})
+        );
+        assert_eq!(
+            value_after(&a, "--allowedTools"),
+            Some("Read,Grep,Glob,mcp__specs")
+        );
+        assert_eq!(
+            value_after(&a, "--tools"),
+            Some(ALLOWED_TOOLS),
+            "built-in tools unchanged"
+        );
+        assert!(
+            SYSTEM_PROMPT.contains("diagram_"),
+            "the prompt explains the diagram tools"
+        );
+    }
+
+    #[test]
+    fn without_diagram_tools_no_mcp_server_is_configured() {
+        let a = args(&spec(false));
+        assert_eq!(value_after(&a, "--mcp-config"), None);
+        assert_eq!(value_after(&a, "--allowedTools"), Some(ALLOWED_TOOLS));
     }
 
     fn value_after<'a>(args: &'a [String], flag: &str) -> Option<&'a str> {

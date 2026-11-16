@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Excalidraw, exportToBlob, loadFromBlob, serializeAsJSON } from "@excalidraw/excalidraw";
 import "@excalidraw/excalidraw/index.css";
 import type { ExcalidrawImperativeAPI } from "@excalidraw/excalidraw/types";
+import { mergeElements } from "../diagram/merge";
 import { parseScene, sceneFingerprint } from "../diagram/scene";
 import { saveFile } from "../lib/saveFile";
 
@@ -17,6 +18,14 @@ export interface ExcalidrawPanelProps {
   onSceneChange: (scene: string) => void;
   /** Extra toolbar buttons. */
   actions?: ReactNode;
+  /** A newer copy of the diagram from disk (e.g. edited by the assistant) to merge in. */
+  incoming?: IncomingScene;
+}
+
+export interface IncomingScene {
+  scene: string;
+  /** Increases with every reload, so the same text can be applied again. */
+  revision: number;
 }
 
 function useSystemTheme(): "light" | "dark" {
@@ -34,7 +43,13 @@ function fileNameFor(title: string) {
   return title.replace(/[\\/:*?"<>|]+/g, " ").trim() || "spec";
 }
 
-export default function ExcalidrawPanel({ name, scene, onSceneChange, actions }: ExcalidrawPanelProps) {
+export default function ExcalidrawPanel({
+  name,
+  scene,
+  onSceneChange,
+  actions,
+  incoming,
+}: ExcalidrawPanelProps) {
   const [api, setApi] = useState<ExcalidrawImperativeAPI | null>(null);
   const [error, setError] = useState<string | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
@@ -43,6 +58,19 @@ export default function ExcalidrawPanel({ name, scene, onSceneChange, actions }:
   // The panel is remounted per session, so the initial scene is read once.
   const initialData = useMemo(() => parseScene(scene), []); // eslint-disable-line react-hooks/exhaustive-deps
   const autosave = useAutosave(initialData, onSceneChange);
+
+  // Merge a newer copy from disk (the assistant's edits) into the canvas, keeping
+  // the user's own newer edits. Saving the result only happens if it differs from disk.
+  useEffect(() => {
+    if (!api || !incoming) return;
+    const disk = parseScene(incoming.scene);
+    const diskElements = disk.elements ?? [];
+    api.updateScene({
+      elements: mergeElements(api.getSceneElementsIncludingDeleted(), diskElements),
+    });
+    api.addFiles(Object.values(disk.files ?? {}));
+    autosave.markSaved(sceneFingerprint(diskElements, disk.files ?? {}));
+  }, [api, incoming?.revision]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function openFile(file: File) {
     if (!api) return;
@@ -122,7 +150,12 @@ export default function ExcalidrawPanel({ name, scene, onSceneChange, actions }:
         />
       </header>
       <div className="artifact-canvas">
-        <Excalidraw excalidrawAPI={setApi} theme={theme} initialData={initialData} onChange={autosave} />
+        <Excalidraw
+          excalidrawAPI={setApi}
+          theme={theme}
+          initialData={initialData}
+          onChange={autosave.onChange}
+        />
       </div>
     </section>
   );
@@ -149,7 +182,7 @@ function useAutosave(initial: ReturnType<typeof parseScene>, save: (scene: strin
     [],
   );
 
-  return (
+  const onChange = (
     elements: Parameters<typeof serializeAsJSON>[0],
     appState: Parameters<typeof serializeAsJSON>[1],
     files: Parameters<typeof serializeAsJSON>[2],
@@ -164,4 +197,9 @@ function useAutosave(initial: ReturnType<typeof parseScene>, save: (scene: strin
     };
     pending.current = { timer: window.setTimeout(flush, AUTOSAVE_MS), flush };
   };
+  /** The disk already holds this content (e.g. it was just loaded from there). */
+  const markSaved = (fingerprint: string) => {
+    lastSaved.current = fingerprint;
+  };
+  return { onChange, markSaved };
 }

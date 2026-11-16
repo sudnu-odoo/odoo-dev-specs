@@ -54,6 +54,7 @@ fn env() -> Env {
         program,
         read_dirs: vec!["/src/odoo".into()],
         model: None,
+        diagram_tools: Some("/app/specs-mcp".into()),
     };
     Env {
         ws,
@@ -199,4 +200,19 @@ async fn unknown_session_is_an_error() {
     let missing = "6f1c2a7e-0000-4000-8000-000000000000";
     let result = send_message(&env.ws, "P", missing, "x", &env.config, |_| {}, rx).await;
     assert!(result.is_err());
+}
+
+#[tokio::test]
+async fn diagram_tools_work_on_this_session_folder() {
+    let env = env();
+    env.send("draw it").await;
+    let args = env.args();
+    let config: serde_json::Value =
+        serde_json::from_str(&value_after(&args, "--mcp-config").unwrap()).unwrap();
+    let dir = env.ws.session_dir("P", &env.session.id).unwrap();
+    assert_eq!(config["mcpServers"]["specs"]["command"], "/app/specs-mcp");
+    assert_eq!(
+        config["mcpServers"]["specs"]["args"],
+        serde_json::json!(["--session-dir", dir.to_str().unwrap()])
+    );
 }

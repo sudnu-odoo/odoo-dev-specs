@@ -1,0 +1,17 @@
+[package]
+name = "specs-mcp"
+edition.workspace = true
+version.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+excalidraw = { path = "../excalidraw" }
+rmcp = { version = "3.10", features = ["server", "macros", "transport-io"] }
+schemars = "1"
+
+[dev-dependencies]
+rmcp = { version = "3.10", features = ["server", "macros", "transport-io", "client"] }
+tempfile.workspace = true

@@ -15,6 +15,7 @@ test:               ## Rust and UI tests (unit + integration)
 	npm --prefix ui run -s test
 
 test-live:          ## End-to-end with the real, logged-in Claude Code (costs tokens)
+	cargo build -p specs-mcp
 	cargo test -p specs-core --test live_claude -- --ignored
 
 lint:               ## Static checks (no changes)

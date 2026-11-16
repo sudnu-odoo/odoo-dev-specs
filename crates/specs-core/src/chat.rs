@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use anyhow::Result;
 use tokio::sync::oneshot;
 
-use crate::claude::{self, TurnSpec};
+use crate::claude::{self, DiagramTools, TurnSpec};
 use crate::events::ChatEvent;
 use crate::runner::{run_turn, CliTurn};
 use crate::transcript::{TranscriptEntry, TurnRecorder};
@@ -19,6 +19,8 @@ pub struct ClaudeConfig {
     /// Read-only folders for the assistant, e.g. the Odoo source checkouts.
     pub read_dirs: Vec<PathBuf>,
     pub model: Option<String>,
+    /// The `specs-mcp` program giving the assistant diagram tools, when found.
+    pub diagram_tools: Option<PathBuf>,
 }
 
 /// Send `text` in a session and stream the reply to `on_event`.
@@ -50,6 +52,10 @@ pub async fn send_message(
         resume: meta.started,
         read_dirs: claude.read_dirs.clone(),
         model: claude.model.clone(),
+        diagram_tools: claude.diagram_tools.clone().map(|program| DiagramTools {
+            program,
+            session_dir: cwd.clone(),
+        }),
     };
     let turn = CliTurn {
         program: claude.program.clone(),

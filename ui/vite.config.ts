@@ -12,5 +12,7 @@ export default defineConfig({
     environment: "jsdom",
     setupFiles: ["src/test/setup.ts"],
     css: false,
+    // Excalidraw's ESM build has extension-less imports that Node cannot resolve on its own.
+    server: { deps: { inline: ["@excalidraw/excalidraw"] } },
   },
 });

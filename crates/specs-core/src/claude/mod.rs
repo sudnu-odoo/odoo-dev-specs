@@ -3,5 +3,5 @@
 mod command;
 mod parse;
 
-pub use command::{args, TurnSpec, ALLOWED_TOOLS, SYSTEM_PROMPT};
+pub use command::{args, DiagramTools, TurnSpec, ALLOWED_TOOLS, MCP_SERVER_NAME, SYSTEM_PROMPT};
 pub use parse::parse_line;

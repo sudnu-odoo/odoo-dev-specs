@@ -32,12 +32,23 @@ fn detect_claude() -> Option<ClaudeConfig> {
     let read_dirs = pruning::default_config_path()
         .map(|cfg| odev_core::paths::odoo_source_dirs(&cfg))
         .unwrap_or_default();
-    eprintln!("claude: {} (read-only: {read_dirs:?})", program.display());
+    let diagram_tools = sibling_program("specs-mcp");
+    eprintln!(
+        "claude: {} (read-only: {read_dirs:?}, diagram tools: {diagram_tools:?})",
+        program.display()
+    );
     Some(ClaudeConfig {
         program,
         read_dirs,
         model: None,
+        diagram_tools,
     })
+}
+
+/// A helper program shipped next to the app's own executable.
+fn sibling_program(name: &str) -> Option<std::path::PathBuf> {
+    let path = std::env::current_exe().ok()?.parent()?.join(name);
+    path.is_file().then_some(path)
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
