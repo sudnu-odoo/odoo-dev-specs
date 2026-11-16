@@ -1,5 +1,6 @@
 mod commands;
 mod diagram_window;
+mod environment;
 
 pub use commands::{register, AppState, ChatEventPayload, CHAT_EVENT};
 pub use diagram_window::{DIAGRAM_DOCKED_EVENT, DIAGRAM_SESSION_EVENT, DIAGRAM_WINDOW};
@@ -8,6 +9,7 @@ use odev_core::pruning::{self, Outcome};
 use odev_core::server::Odev;
 use specs_core::chat::ClaudeConfig;
 use specs_core::locate::{find_executable, user_bin_dirs};
+use specs_core::settings::SettingsStore;
 use specs_core::workspace::Workspace;
 
 /// Keep odev from prompting about old databases (it would block headless runs).
@@ -26,7 +28,7 @@ fn patch_odev_pruning() {
 }
 
 /// Claude Code on this machine, with the Odoo source as read-only context.
-fn detect_claude() -> Option<ClaudeConfig> {
+fn detect_claude(demo_data: bool) -> Option<ClaudeConfig> {
     let home = dirs::home_dir().unwrap_or_default();
     let path_var = std::env::var("PATH").ok();
     let program = find_executable("claude", path_var.as_deref(), &user_bin_dirs(&home))?;
@@ -45,6 +47,7 @@ fn detect_claude() -> Option<ClaudeConfig> {
         model: None,
         diagram_tools,
         odev,
+        demo_data,
     })
 }
 
@@ -67,9 +70,10 @@ fn sibling_program(name: &str) -> Option<std::path::PathBuf> {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     patch_odev_pruning();
-    let claude = detect_claude();
+    let settings = SettingsStore::new(SettingsStore::default_path());
+    let claude = detect_claude(settings.load().demo_data);
     let odev = claude.as_ref().and_then(|c| c.odev.clone());
-    let state = AppState::new(Workspace::new(Workspace::default_root()), claude);
+    let state = AppState::new(Workspace::new(Workspace::default_root()), claude, settings);
     register(tauri::Builder::default(), state)
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())

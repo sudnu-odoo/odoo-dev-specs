@@ -97,18 +97,25 @@ impl Drop for Env {
 #[test]
 fn database_names_are_stable_and_readable() {
     let _serial = serial();
-    let a = database_name("19.0", &["stock".into(), "sale_management".into()]);
+    let a = database_name("19.0", &["stock".into(), "sale_management".into()], true);
     let b = database_name(
         "19.0",
         &["sale_management".into(), "stock".into(), "stock".into()],
+        true,
     );
     assert_eq!(a, b, "order and duplicates do not matter");
     assert_eq!(a, "specs_19_0_sale_management_stock");
-    assert_eq!(database_name("18.0", &[]), "specs_18_0_base");
+    assert_eq!(database_name("18.0", &[], true), "specs_18_0_base");
+    // Demo and no-demo are different databases, so the two never clash.
+    assert_eq!(database_name("18.0", &[], false), "specs_18_0_base_nodemo");
+    assert_ne!(
+        database_name("19.0", &["sale".into()], true),
+        database_name("19.0", &["sale".into()], false)
+    );
     let many: Vec<String> = (0..20).map(|i| format!("module_number_{i}")).collect();
-    let long = database_name("19.0", &many);
+    let long = database_name("19.0", &many, true);
     assert!(long.len() <= 63, "PostgreSQL limit: {long}");
-    assert_ne!(long, database_name("19.0", &many[..19]));
+    assert_ne!(long, database_name("19.0", &many[..19], true));
 }
 
 #[test]
@@ -116,7 +123,7 @@ fn creates_a_missing_database_with_its_modules() {
     let env = env("other_db", false);
     let name = env
         .odev
-        .ensure_database("19.0", &["sale_management".into()])
+        .ensure_database("19.0", &["sale_management".into()], true)
         .unwrap();
     assert_eq!(name, "specs_19_0_sale_management");
     assert_eq!(
@@ -131,10 +138,24 @@ fn creates_a_missing_database_with_its_modules() {
 }
 
 #[test]
+fn without_demo_data_uses_a_separate_database() {
+    let env = env("", false);
+    let name = env
+        .odev
+        .ensure_database("19.0", &["sale_management".into()], false)
+        .unwrap();
+    assert_eq!(name, "specs_19_0_sale_management_nodemo");
+    assert_eq!(
+        env.calls().last().unwrap(),
+        "create -f -V 19.0 specs_19_0_sale_management_nodemo -i sale_management --without-demo=all --stop-after-init"
+    );
+}
+
+#[test]
 fn reuses_an_existing_database() {
     let env = env("specs_19_0_sale_management", false);
     env.odev
-        .ensure_database("19.0", &["sale_management".into()])
+        .ensure_database("19.0", &["sale_management".into()], true)
         .unwrap();
     assert_eq!(env.calls(), ["list -1"]);
 }
@@ -144,7 +165,7 @@ fn creation_failures_explain_why() {
     let env = env("", true);
     let err = env
         .odev
-        .ensure_database("19.0", &["sale_typo".into()])
+        .ensure_database("19.0", &["sale_typo".into()], true)
         .unwrap_err();
     assert!(
         format!("{err:#}").contains("Module sale_typo not found"),

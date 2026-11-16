@@ -4,9 +4,11 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
+use odev_core::doctor::{self, Probe, Report};
 use serde::Serialize;
 use specs_core::chat::{self, ClaudeConfig};
 use specs_core::events::ChatEvent;
+use specs_core::settings::{Settings, SettingsStore};
 use specs_core::transcript::TranscriptEntry;
 use specs_core::workspace::{ProjectInfo, SessionMeta, Workspace};
 use tauri::{AppHandle, Emitter, Manager, Runtime, State};
@@ -25,15 +27,31 @@ pub struct AppState {
     /// turn has really ended (the switch is taken when cancelling), so a new turn
     /// cannot start while the old process is still shutting down.
     pub running: Mutex<HashMap<String, Option<oneshot::Sender<()>>>>,
+    /// Where user preferences are stored.
+    pub settings: Arc<SettingsStore>,
+    /// Gathers the machine state for the first-run check; swappable in tests.
+    pub probe: Arc<dyn Fn() -> Probe + Send + Sync>,
 }
 
 impl AppState {
-    pub fn new(workspace: Workspace, claude: Option<ClaudeConfig>) -> Self {
+    pub fn new(
+        workspace: Workspace,
+        claude: Option<ClaudeConfig>,
+        settings: SettingsStore,
+    ) -> Self {
         Self {
             workspace: Arc::new(workspace),
             claude,
             running: Mutex::default(),
+            settings: Arc::new(settings),
+            probe: Arc::new(crate::environment::probe),
         }
+    }
+
+    /// Replace the environment probe (tests use a fixed machine state).
+    pub fn with_probe(mut self, probe: impl Fn() -> Probe + Send + Sync + 'static) -> Self {
+        self.probe = Arc::new(probe);
+        self
     }
 }
 
@@ -230,6 +248,22 @@ pub fn write_file(path: String, contents: Vec<u8>) -> CmdResult<()> {
     std::fs::write(&path, contents).map_err(|e| format!("Could not save {path}: {e}"))
 }
 
+#[tauri::command]
+pub fn get_settings(state: State<'_, AppState>) -> Settings {
+    state.settings.load()
+}
+
+#[tauri::command]
+pub fn save_settings(state: State<'_, AppState>, settings: Settings) -> CmdResult<()> {
+    state.settings.save(&settings).map_err(user_error)
+}
+
+/// The first-run / Settings environment report (odev, PostgreSQL, source, Chrome, AI).
+#[tauri::command]
+pub fn check_environment(state: State<'_, AppState>) -> Report {
+    doctor::check(&(state.probe)())
+}
+
 /// Register state and every command on a builder (shared by the app and tests).
 pub fn register<R: Runtime>(builder: tauri::Builder<R>, state: AppState) -> tauri::Builder<R> {
     builder
@@ -246,6 +280,9 @@ pub fn register<R: Runtime>(builder: tauri::Builder<R>, state: AppState) -> taur
             send_message,
             cancel_turn,
             write_file,
+            get_settings,
+            save_settings,
+            check_environment,
             diagram_window::open_diagram_window,
             diagram_window::dock_diagram_window,
         ])

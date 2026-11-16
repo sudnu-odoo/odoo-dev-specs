@@ -24,7 +24,7 @@ fn real_odev_creates_and_serves_a_fresh_database() {
     let state = tempfile::tempdir().unwrap();
     let odev = Odev::new(odev(), state.path());
     let db = odev
-        .ensure_database("19.0", &["sale_management".into()])
+        .ensure_database("19.0", &["sale_management".into()], true)
         .unwrap();
     assert!(odev.databases().unwrap().contains(&db));
 

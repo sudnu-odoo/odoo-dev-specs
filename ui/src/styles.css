@@ -539,3 +539,151 @@ body {
   background: var(--border);
   color: var(--text);
 }
+
+/* Sidebar title row */
+.sidebar-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+/* First-run / setup warning banner */
+.banner-warning {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 12px;
+  background: color-mix(in srgb, var(--accent) 12%, var(--surface));
+  color: var(--text);
+  border-bottom: 1px solid var(--accent);
+}
+
+/* Settings panel (modal overlay) */
+.settings-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgb(0 0 0 / 0.4);
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  z-index: 10;
+}
+.settings-panel {
+  width: 100%;
+  max-width: 560px;
+  max-height: 85vh;
+  overflow-y: auto;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 8px 40px rgb(0 0 0 / 0.3);
+}
+.settings-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border);
+}
+.settings-header h2 {
+  margin: 0;
+  font-size: 16px;
+}
+.settings-section {
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border);
+}
+.settings-section:last-child {
+  border-bottom: 0;
+}
+.settings-section h3 {
+  margin: 0 0 12px;
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+.env-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.env-row {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+}
+.env-icon {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 12px;
+  font-weight: 700;
+  flex-shrink: 0;
+  color: #fff;
+}
+.env-row[data-status="ok"] .env-icon {
+  background: #2f9e44;
+}
+.env-row[data-status="warning"] .env-icon {
+  background: #f08c00;
+}
+.env-row[data-status="missing"] .env-icon {
+  background: var(--danger);
+}
+.env-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.env-label {
+  font-weight: 500;
+}
+.env-detail {
+  font-size: 12px;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+.env-hint {
+  font-size: 12px;
+  margin-top: 2px;
+}
+.env-loading {
+  color: var(--muted);
+}
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 14px;
+}
+.field > span {
+  font-size: 13px;
+}
+.field input,
+.field select {
+  font: inherit;
+  color: inherit;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 8px;
+}
+.field-check {
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 8px;
+}
+.field-check input {
+  margin-top: 2px;
+}
+.settings-actions {
+  display: flex;
+  justify-content: flex-end;
+}

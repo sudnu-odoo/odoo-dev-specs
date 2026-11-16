@@ -4,6 +4,8 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type {
   ChatEventPayload,
+  EnvReport,
+  Settings,
   DiagramTarget,
   ProjectInfo,
   SessionData,
@@ -30,6 +32,9 @@ export const api = {
     invoke<void>("open_diagram_window", { ...ref, title }),
   /** Close the diagram window; the main window shows the diagram again. */
   dockDiagramWindow: () => invoke<void>("dock_diagram_window"),
+  getSettings: () => invoke<Settings>("get_settings"),
+  saveSettings: (settings: Settings) => invoke<void>("save_settings", { settings }),
+  checkEnvironment: () => invoke<EnvReport>("check_environment"),
   /** In the diagram window: the main window selected another session. */
   onDiagramSession: (handler: (target: DiagramTarget) => void): Promise<UnlistenFn> =>
     listen<DiagramTarget>("diagram-session", (e) => handler(e.payload)),

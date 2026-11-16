@@ -21,7 +21,18 @@ vi.mock("./lib/api", () => ({
     openDiagramWindow: vi.fn(),
     dockDiagramWindow: vi.fn(),
     onDiagramDocked: vi.fn(),
+    getSettings: vi.fn(),
+    checkEnvironment: vi.fn(),
+    saveSettings: vi.fn(),
   },
+}));
+// Settings panel has its own test; here we only check it opens.
+vi.mock("./components/SettingsPanel", () => ({
+  default: ({ onClose }: { onClose: () => void }) => (
+    <div data-testid="settings-panel">
+      <button onClick={onClose}>close-settings</button>
+    </div>
+  ),
 }));
 vi.mock("./lib/confirm", () => ({ confirmAction: vi.fn().mockResolvedValue(true) }));
 // jsdom has no layout: every element measures 0x0, so the panel library thinks each
@@ -82,6 +93,8 @@ beforeEach(() => {
     return () => {};
   });
   mocked.loadScene.mockResolvedValue('{"type":"excalidraw","elements":[]}');
+  mocked.checkEnvironment.mockResolvedValue({ checks: [] });
+  mocked.getSettings.mockResolvedValue({ provider: "claude", defaultVersion: "19.0", demoData: true });
   mocked.openDiagramWindow.mockResolvedValue(undefined);
   mocked.dockDiagramWindow.mockResolvedValue(undefined);
 });
@@ -223,5 +236,41 @@ describe("App", () => {
         "New spec",
       ),
     );
+  });
+  it("opens and closes the settings panel", async () => {
+    render(<App />);
+    await userEvent.click(await screen.findByRole("button", { name: "Settings" }));
+    expect(await screen.findByTestId("settings-panel")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "close-settings" }));
+    await waitFor(() => expect(screen.queryByTestId("settings-panel")).not.toBeInTheDocument());
+  });
+
+  it("warns on first run when a required tool is missing", async () => {
+    mocked.checkEnvironment.mockResolvedValue({
+      checks: [
+        {
+          key: "odev",
+          label: "odev",
+          status: "missing",
+          detail: "not found",
+          hint: "Install odev.",
+          required: true,
+        },
+      ],
+    });
+    render(<App />);
+    expect(await screen.findByRole("alert")).toHaveTextContent(/setup is incomplete/i);
+    // Opening settings from the warning shows the details.
+    await userEvent.click(screen.getByRole("button", { name: /open settings/i }));
+    expect(await screen.findByTestId("settings-panel")).toBeInTheDocument();
+  });
+
+  it("shows no setup warning when everything is ready", async () => {
+    mocked.checkEnvironment.mockResolvedValue({
+      checks: [{ key: "odev", label: "odev", status: "ok", detail: "/bin/odev", hint: null, required: true }],
+    });
+    render(<App />);
+    await screen.findByRole("button", { name: "Settings" });
+    expect(screen.queryByText(/setup is incomplete/i)).not.toBeInTheDocument();
   });
 });

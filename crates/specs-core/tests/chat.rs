@@ -56,6 +56,7 @@ fn env() -> Env {
         model: None,
         diagram_tools: Some("/app/specs-mcp".into()),
         odev: None,
+        demo_data: true,
     };
     Env {
         ws,

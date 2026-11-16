@@ -36,7 +36,7 @@ impl Running {
 }
 
 /// Database name for an Odoo version and module set, e.g. `specs_19_0_sale_stock`.
-pub fn database_name(version: &str, modules: &[String]) -> String {
+pub fn database_name(version: &str, modules: &[String], demo_data: bool) -> String {
     let mut mods: Vec<&str> = modules
         .iter()
         .map(|m| m.trim())
@@ -47,7 +47,9 @@ pub fn database_name(version: &str, modules: &[String]) -> String {
     if mods.is_empty() {
         mods.push("base");
     }
-    let raw = format!("specs_{version}_{}", mods.join("_"));
+    // Demo and no-demo data cannot share a database, so they get different names.
+    let suffix = if demo_data { "" } else { "_nodemo" };
+    let raw = format!("specs_{version}_{}{suffix}", mods.join("_"));
     let name: String = raw
         .chars()
         .map(|c| {
@@ -115,8 +117,15 @@ impl Odev {
     }
 
     /// Create the database with these modules unless it exists. Returns its name.
-    pub fn ensure_database(&self, version: &str, modules: &[String]) -> Result<String> {
-        let name = database_name(version, modules);
+    /// `demo_data` controls whether Odoo's demo records are loaded; demo and
+    /// no-demo variants are separate databases.
+    pub fn ensure_database(
+        &self,
+        version: &str,
+        modules: &[String],
+        demo_data: bool,
+    ) -> Result<String> {
+        let name = database_name(version, modules, demo_data);
         if self.databases()?.contains(&name) {
             return Ok(name);
         }
@@ -126,17 +135,13 @@ impl Odev {
             modules.join(",")
         };
         self.pull(version);
+        let mut args = vec!["create", "-f", "-V", version, &name, "-i", &mods];
+        if !demo_data {
+            args.push("--without-demo=all");
+        }
+        args.push("--stop-after-init");
         let created = self
-            .run_to_end(&[
-                "create",
-                "-f",
-                "-V",
-                version,
-                &name,
-                "-i",
-                &mods,
-                "--stop-after-init",
-            ])
+            .run_to_end(&args)
             .with_context(|| format!("Could not create the Odoo {version} database with {mods}."));
         if let Err(e) = created {
             // odev creates the PostgreSQL database before installing modules: remove the

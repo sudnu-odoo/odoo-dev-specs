@@ -40,6 +40,8 @@ pub struct DiagramTools {
     pub session_dir: PathBuf,
     /// odev executable, enabling Odoo screenshots.
     pub odev: Option<PathBuf>,
+    /// Load Odoo demo data into screenshot databases (realistic records).
+    pub demo_data: bool,
 }
 
 /// Name of our MCP server; its tools appear to Claude as `mcp__specs__<tool>`.
@@ -52,6 +54,9 @@ fn mcp_args(tools: &DiagramTools) -> Vec<String> {
     ];
     if let Some(odev) = &tools.odev {
         args.extend(["--odev".to_string(), odev.display().to_string()]);
+    }
+    if !tools.demo_data {
+        args.push("--no-demo-data".to_string());
     }
     args
 }
@@ -126,6 +131,7 @@ mod tests {
             program: "/app/specs-mcp".into(),
             session_dir: "/home/u/OdooSpecs/Acme/abc".into(),
             odev: None,
+            demo_data: true,
         });
         let a = args(&s);
         let config: serde_json::Value =
@@ -159,6 +165,7 @@ mod tests {
             program: "/app/specs-mcp".into(),
             session_dir: "/s".into(),
             odev: Some("/home/u/.local/bin/odev".into()),
+            demo_data: true,
         });
         let a = args(&s);
         let config: serde_json::Value =
@@ -171,6 +178,23 @@ mod tests {
         assert!(
             SYSTEM_PROMPT.contains("start from a screenshot"),
             "existing screens are shown, not redrawn"
+        );
+    }
+
+    #[test]
+    fn no_demo_data_is_passed_to_the_tools() {
+        let mut s = spec(false);
+        s.diagram_tools = Some(DiagramTools {
+            program: "/app/specs-mcp".into(),
+            session_dir: "/s".into(),
+            odev: Some("/odev".into()),
+            demo_data: false,
+        });
+        let config: serde_json::Value =
+            serde_json::from_str(value_after(&args(&s), "--mcp-config").unwrap()).unwrap();
+        assert_eq!(
+            config["mcpServers"]["specs"]["args"],
+            serde_json::json!(["--session-dir", "/s", "--odev", "/odev", "--no-demo-data"])
         );
     }
 

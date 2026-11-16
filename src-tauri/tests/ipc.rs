@@ -7,10 +7,25 @@ use std::sync::mpsc;
 use std::sync::OnceLock;
 use std::time::Duration;
 
+use odev_core::doctor::Probe;
 use odoo_dev_specs_lib::{register, AppState, CHAT_EVENT, DIAGRAM_SESSION_EVENT, DIAGRAM_WINDOW};
 use serde_json::{json, Value};
 use specs_core::chat::ClaudeConfig;
+use specs_core::settings::SettingsStore;
 use specs_core::workspace::Workspace;
+
+/// A fully healthy machine, so `check_environment` reports ready unless a test says otherwise.
+fn test_probe() -> Probe {
+    Probe {
+        odev: Some("/bin/odev".into()),
+        postgres_ready: true,
+        postgres_client: true,
+        odoo_sources: vec!["/src/odoo".into(), "/src/enterprise".into()],
+        chrome: Some("/bin/chrome".into()),
+        claude: Some("/bin/claude".into()),
+        gemini: None,
+    }
+}
 use tauri::ipc::{CallbackFn, InvokeBody};
 use tauri::test::{
     get_ipc_response, mock_builder, mock_context, noop_assets, MockRuntime, INVOKE_KEY,
@@ -56,10 +71,12 @@ fn harness(with_claude: bool) -> Harness {
         model: None,
         diagram_tools: None,
         odev: None,
+        demo_data: true,
     });
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().join("OdooSpecs");
-    let state = AppState::new(Workspace::new(&root), claude);
+    let settings = SettingsStore::new(dir.path().join("settings.json"));
+    let state = AppState::new(Workspace::new(&root), claude, settings).with_probe(test_probe);
     let app = register(mock_builder(), state)
         .build(mock_context(noop_assets()))
         .unwrap();
@@ -344,4 +361,27 @@ fn docking_destroys_the_diagram_window_and_is_idempotent() {
 
     h.call("dock_diagram_window", json!({})).unwrap();
     h.call("dock_diagram_window", json!({})).unwrap();
+}
+
+#[test]
+fn settings_default_then_round_trip() {
+    let h = harness(true);
+    let defaults = h.call("get_settings", json!({})).unwrap();
+    assert_eq!(defaults["provider"], "claude");
+    assert_eq!(defaults["defaultVersion"], "19.0");
+    assert_eq!(defaults["demoData"], true);
+
+    let new = json!({"provider": "gemini", "defaultVersion": "18.0", "demoData": false});
+    h.call("save_settings", json!({ "settings": new })).unwrap();
+    assert_eq!(h.call("get_settings", json!({})).unwrap(), new);
+}
+
+#[test]
+fn check_environment_reports_each_requirement() {
+    let h = harness(true);
+    let report = h.call("check_environment", json!({})).unwrap();
+    let checks = report["checks"].as_array().unwrap();
+    let keys: Vec<&str> = checks.iter().map(|c| c["key"].as_str().unwrap()).collect();
+    assert_eq!(keys, ["odev", "postgresql", "odoo_source", "chrome", "ai"]);
+    assert!(checks.iter().all(|c| c["status"] == "ok"), "{report}");
 }

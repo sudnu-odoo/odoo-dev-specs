@@ -7,5 +7,6 @@ pub mod events;
 mod fsutil;
 pub mod locate;
 pub mod runner;
+pub mod settings;
 pub mod transcript;
 pub mod workspace;

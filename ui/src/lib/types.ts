@@ -48,3 +48,25 @@ export interface SessionRef {
 export interface DiagramTarget extends SessionRef {
   title: string;
 }
+
+/** Mirrors specs_core::settings::Settings. */
+export interface Settings {
+  provider: "claude" | "gemini";
+  defaultVersion: string;
+  demoData: boolean;
+}
+
+/** One environment requirement (mirrors odev_core::doctor::Check). */
+export interface EnvCheck {
+  key: string;
+  label: string;
+  status: "ok" | "warning" | "missing";
+  detail: string;
+  hint: string | null;
+  required: boolean;
+}
+
+/** Mirrors odev_core::doctor::Report. */
+export interface EnvReport {
+  checks: EnvCheck[];
+}

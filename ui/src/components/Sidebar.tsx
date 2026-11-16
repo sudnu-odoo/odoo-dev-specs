@@ -10,6 +10,7 @@ export interface SidebarProps {
   onCreateSession: (project: string) => void;
   onDeleteSession: (ref: SessionRef) => void;
   onRenameSession: (ref: SessionRef, title: string) => Promise<void>;
+  onOpenSettings: () => void;
 }
 
 export default function Sidebar({
@@ -20,11 +21,17 @@ export default function Sidebar({
   onCreateSession,
   onDeleteSession,
   onRenameSession,
+  onOpenSettings,
 }: SidebarProps) {
   return (
     <aside className="sidebar">
       <div className="sidebar-header">
-        <span className="brand">Odoo Dev Specs</span>
+        <div className="sidebar-title">
+          <span className="brand">Odoo Dev Specs</span>
+          <button className="icon-btn" aria-label="Settings" title="Settings" onClick={onOpenSettings}>
+            ⚙
+          </button>
+        </div>
         <NewProjectForm onCreate={onCreateProject} />
       </div>
       <nav className="tree" aria-label="Projects">

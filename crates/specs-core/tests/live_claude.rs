@@ -19,6 +19,7 @@ fn real_claude() -> ClaudeConfig {
         model: Some("haiku".into()),
         diagram_tools: None,
         odev: None,
+        demo_data: true,
     }
 }
 

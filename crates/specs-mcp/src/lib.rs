@@ -118,6 +118,8 @@ pub struct DiagramServer {
     lock: Arc<tokio::sync::Mutex<()>>,
     /// Local Odoo servers for screenshots; `None` when odev is not available.
     odev: Option<Arc<Odev>>,
+    /// Create screenshot databases with Odoo demo data (realistic records).
+    demo_data: bool,
 }
 
 impl DiagramServer {
@@ -126,12 +128,19 @@ impl DiagramServer {
             session_dir: session_dir.into(),
             lock: Arc::default(),
             odev: None,
+            demo_data: true,
         }
     }
 
     /// Enable Odoo screenshots through this odev executable.
     pub fn with_odoo(mut self, odev: impl Into<PathBuf>, state_dir: impl Into<PathBuf>) -> Self {
         self.odev = Some(Arc::new(Odev::new(odev, state_dir)));
+        self
+    }
+
+    /// Whether screenshot databases load Odoo demo data (default true).
+    pub fn with_demo_data(mut self, demo_data: bool) -> Self {
+        self.demo_data = demo_data;
         self
     }
 }
@@ -274,9 +283,9 @@ impl DiagramServer {
             .odev
             .clone()
             .context("Odoo screenshots are not available: odev was not found on this computer.")?;
-        let (version, modules) = (p.version.clone(), p.modules.clone());
+        let (version, modules, demo_data) = (p.version.clone(), p.modules.clone(), self.demo_data);
         let running = tokio::task::spawn_blocking(move || {
-            let database = odev.ensure_database(&version, &modules)?;
+            let database = odev.ensure_database(&version, &modules, demo_data)?;
             odev.ensure_running(&version, &database)
         })
         .await

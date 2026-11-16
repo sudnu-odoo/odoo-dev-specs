@@ -23,6 +23,8 @@ pub struct ClaudeConfig {
     pub diagram_tools: Option<PathBuf>,
     /// odev, for screenshots of a fresh local Odoo, when found.
     pub odev: Option<PathBuf>,
+    /// Load Odoo demo data into screenshot databases (realistic records).
+    pub demo_data: bool,
 }
 
 /// Send `text` in a session and stream the reply to `on_event`.
@@ -58,6 +60,7 @@ pub async fn send_message(
             program,
             session_dir: cwd.clone(),
             odev: claude.odev.clone(),
+            demo_data: claude.demo_data,
         }),
     };
     let turn = CliTurn {

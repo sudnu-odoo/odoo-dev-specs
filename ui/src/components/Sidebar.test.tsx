@@ -27,6 +27,7 @@ function setup(overrides: Partial<SidebarProps> = {}) {
     onCreateSession: vi.fn(),
     onDeleteSession: vi.fn(),
     onRenameSession: vi.fn().mockResolvedValue(undefined),
+    onOpenSettings: vi.fn(),
     ...overrides,
   };
   render(<Sidebar {...props} />);
