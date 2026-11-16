@@ -17,3 +17,10 @@ serde.workspace = true
 serde_json.workspace = true
 anyhow.workspace = true
 odev-core = { path = "../crates/odev-core" }
+specs-core = { path = "../crates/specs-core" }
+dirs.workspace = true
+tokio.workspace = true
+
+[dev-dependencies]
+tauri = { version = "2", features = ["test"] }
+tempfile.workspace = true

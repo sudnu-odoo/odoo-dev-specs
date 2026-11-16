@@ -1,11 +1,11 @@
-use odev_core::pruning::{self, Outcome};
+mod commands;
 
-/// Write a file chosen by the user through the native save dialog.
-/// The path always comes from the dialog, never from the AI.
-#[tauri::command]
-fn write_file(path: String, contents: Vec<u8>) -> Result<(), String> {
-    std::fs::write(&path, contents).map_err(|e| format!("Could not save {path}: {e}"))
-}
+pub use commands::{register, AppState, ChatEventPayload, CHAT_EVENT};
+
+use odev_core::pruning::{self, Outcome};
+use specs_core::chat::ClaudeConfig;
+use specs_core::locate::{find_executable, user_bin_dirs};
+use specs_core::workspace::Workspace;
 
 /// Keep odev from prompting about old databases (it would block headless runs).
 fn patch_odev_pruning() {
@@ -22,12 +22,28 @@ fn patch_odev_pruning() {
     }
 }
 
+/// Claude Code on this machine, with the Odoo source as read-only context.
+fn detect_claude() -> Option<ClaudeConfig> {
+    let home = dirs::home_dir().unwrap_or_default();
+    let path_var = std::env::var("PATH").ok();
+    let program = find_executable("claude", path_var.as_deref(), &user_bin_dirs(&home))?;
+    let read_dirs = pruning::default_config_path()
+        .map(|cfg| odev_core::paths::odoo_source_dirs(&cfg))
+        .unwrap_or_default();
+    eprintln!("claude: {} (read-only: {read_dirs:?})", program.display());
+    Some(ClaudeConfig {
+        program,
+        read_dirs,
+        model: None,
+    })
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     patch_odev_pruning();
-    tauri::Builder::default()
+    let state = AppState::new(Workspace::new(Workspace::default_root()), detect_claude());
+    register(tauri::Builder::default(), state)
         .plugin(tauri_plugin_dialog::init())
-        .invoke_handler(tauri::generate_handler![write_file])
         .run(tauri::generate_context!())
         .expect("error while running Odoo Dev Specs");
 }

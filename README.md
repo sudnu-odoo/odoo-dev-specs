@@ -21,7 +21,8 @@ Excalidraw dev spec with real screenshots from a **fresh local Odoo database** (
 ```bash
 make install   # UI dependencies
 make dev       # run the app with hot reload
-make check     # format check, lint, type check, tests — must pass before merging
+make check     # format check, lint, type check, unit + integration tests — must pass before merging
+make test-live # end-to-end with your real, logged-in Claude Code (costs a few cents)
 make build     # .deb + AppImage in target/release/bundle/
 ```
 
@@ -30,8 +31,14 @@ make build     # .deb + AppImage in target/release/bundle/
 | Path | What |
 |---|---|
 | `src-tauri/` | Desktop app core (Rust): window, commands, startup tasks |
-| `crates/odev-core/` | odev integration shared by the app and the MCP server |
+| `crates/odev-core/` | odev integration: config patching, Odoo source paths |
+| `crates/specs-core/` | Sessions on disk, AI CLI adapters (Claude Code), chat turns |
 | `ui/` | React + TypeScript UI (sidebar, chat, Excalidraw panel) |
 
+Sessions live in `~/OdooSpecs/<Project>/<session-id>/` (`spec.excalidraw`, `transcript.jsonl`,
+`session.json`, `screenshots/`). The assistant runs with read-only tools (Read, Grep, Glob), without
+your personal Claude settings or hooks, and can read the Odoo source checked out by odev.
+
 On every start the app moves `[pruning] date` in `~/.config/odev/odev.cfg` 5 years ahead so odev
-never stops to ask about old databases. A `.bak` copy is written before any change.
+never stops to ask about old databases (only when it is less than a year away, so the file is not
+rewritten on every start). A `.bak` copy is written before any change.

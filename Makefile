@@ -1,5 +1,5 @@
 # One entry point for everything. `make check` must pass before a milestone is done.
-.PHONY: install dev build test lint fmt check
+.PHONY: install dev build test test-live lint fmt check
 
 install:            ## Install UI dependencies
 	npm --prefix ui ci
@@ -10,8 +10,12 @@ dev:                ## Run the desktop app with hot reload
 build:              ## Build .deb and AppImage bundles
 	cargo tauri build
 
-test:               ## Rust unit tests
+test:               ## Rust and UI tests (unit + integration)
 	cargo test --workspace
+	npm --prefix ui run -s test
+
+test-live:          ## End-to-end with the real, logged-in Claude Code (costs tokens)
+	cargo test -p specs-core --test live_claude -- --ignored
 
 lint:               ## Static checks (no changes)
 	cargo clippy --workspace --all-targets -- -D warnings

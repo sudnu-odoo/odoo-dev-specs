@@ -14,6 +14,9 @@ use chrono::{Local, Months, NaiveDateTime};
 const DATE_FMT: &str = "%Y-%m-%d %H:%M:%S";
 /// How far ahead the pruning date is pushed.
 pub const YEARS_AHEAD: u32 = 5;
+/// The date is only pushed again once it is closer than this, so the file is
+/// not rewritten on every start.
+pub const MIN_YEARS_LEFT: u32 = 1;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Outcome {
@@ -29,18 +32,20 @@ pub fn default_config_path() -> Option<PathBuf> {
     dirs::config_dir().map(|d| d.join("odev").join("odev.cfg"))
 }
 
-/// Ensure the pruning date in `path` is at least `now + YEARS_AHEAD`.
-/// A `.bak` copy of the original is written before any change.
+/// Ensure the pruning date in `path` is at least `now + MIN_YEARS_LEFT`; when it is
+/// not, set it to `now + YEARS_AHEAD`. A `.bak` copy is written before any change.
 pub fn ensure_pruning_date(path: &Path, now: NaiveDateTime) -> Result<Outcome> {
     if !path.exists() {
         return Ok(Outcome::NoConfig);
     }
     let original =
         fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
-    let threshold = now
-        .checked_add_months(Months::new(12 * YEARS_AHEAD))
-        .context("date overflow")?;
-    let new_value = threshold.format(DATE_FMT).to_string();
+    let years = |n: u32| {
+        now.checked_add_months(Months::new(12 * n))
+            .context("date overflow")
+    };
+    let threshold = years(MIN_YEARS_LEFT)?;
+    let new_value = years(YEARS_AHEAD)?.format(DATE_FMT).to_string();
 
     let (patched, old) = patch(&original, threshold, &new_value);
     let Some(patched) = patched else {
@@ -169,6 +174,28 @@ mod tests {
         assert_eq!(
             fs::read_to_string(dir.path().join("odev.cfg.bak")).unwrap(),
             SAMPLE
+        );
+    }
+
+    #[test]
+    fn recently_pushed_date_is_not_rewritten_on_every_start() {
+        // Set by an earlier start 30 minutes ago: still years ahead, so no write.
+        let content = SAMPLE.replace("2025-01-01 00:00:00", "2031-11-16 11:30:00");
+        let (o, s, dir) = run(&content);
+        assert_eq!(o, Outcome::AlreadyOk("2031-11-16 11:30:00".into()));
+        assert_eq!(s, content);
+        assert!(!dir.path().join("odev.cfg.bak").exists());
+    }
+
+    #[test]
+    fn date_less_than_a_year_ahead_is_pushed_again() {
+        let (o, _, _d) = run(&SAMPLE.replace("2025-01-01 00:00:00", "2027-06-01 00:00:00"));
+        assert_eq!(
+            o,
+            Outcome::Updated {
+                old: Some("2027-06-01 00:00:00".into()),
+                new: "2031-11-16 12:00:00".into()
+            }
         );
     }
 
