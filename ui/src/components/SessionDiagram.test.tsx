@@ -115,4 +115,25 @@ describe("SessionDiagram", () => {
     });
     expect(mocked.loadScene).toHaveBeenCalledTimes(1);
   });
+
+  it("holds saves while the assistant works, until its final changes are merged", async () => {
+    mocked.loadScene.mockResolvedValue("scene-1");
+    render(<SessionDiagram sessionRef={ref("s1")} title="One" />);
+    await screen.findByTestId("canvas");
+    expect(panel!.holdSaves).toBe(false);
+
+    await act(async () => chatEvent({ sessionId: "s1", event: { kind: "text_delta", text: "Let me" } }));
+    expect(panel!.holdSaves).toBe(true);
+    await act(async () =>
+      chatEvent({ sessionId: "s1", event: { kind: "tool_finished", id: "t", is_error: false } }),
+    );
+    expect(panel!.holdSaves).toBe(true);
+
+    mocked.loadScene.mockResolvedValueOnce("final");
+    await act(async () =>
+      chatEvent({ sessionId: "s1", event: { kind: "finished", is_error: false, message: null } }),
+    );
+    expect(panel!.incoming?.scene).toBe("final");
+    expect(panel!.holdSaves).toBe(false);
+  });
 });

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fitContainers, type LayoutElement } from "./fit";
+import { fitContainers, layoutChanged, type LayoutElement } from "./fit";
 
 const box = (over: Partial<LayoutElement> = {}): LayoutElement => ({
   id: "box",
@@ -44,5 +44,20 @@ describe("fitContainers", () => {
     const arrow = box({ id: "arrow", type: "arrow", height: 0 });
     const input = [arrow, label({ containerId: "arrow" }), box(), label({ isDeleted: true })];
     expect(fitContainers(input)).toEqual(input);
+  });
+});
+
+describe("layoutChanged", () => {
+  it("sees re-wrapped text and resized boxes, not identical layouts", () => {
+    const before = [box(), { ...label(), text: "a long line" }];
+    expect(
+      layoutChanged(
+        before,
+        before.map((e) => ({ ...e })),
+      ),
+    ).toBe(false);
+    expect(layoutChanged(before, [box(), { ...label(), text: "a long\nline" }])).toBe(true);
+    expect(layoutChanged(before, [box({ height: 95 }), before[1]])).toBe(true);
+    expect(layoutChanged([], [])).toBe(false);
   });
 });

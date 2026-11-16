@@ -301,3 +301,18 @@ async fn screenshots_need_odev() {
     assert!(is_error(&result));
     assert!(text(&result).contains("odev"), "{}", text(&result));
 }
+
+#[tokio::test]
+async fn box_answers_tell_the_real_size() {
+    let dir = session();
+    let client = connect(dir.path()).await;
+    let answer = text(
+        &call(
+            &client,
+            "diagram_add_box",
+            json!({"label": "Confirm", "width": 120, "height": 40}),
+        )
+        .await,
+    );
+    assert!(answer.ends_with("(120x40)."), "{answer}");
+}

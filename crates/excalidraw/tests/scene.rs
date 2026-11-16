@@ -378,3 +378,22 @@ fn explicit_box_size_grows_to_fit_its_label() {
     let ty = text["y"].as_f64().unwrap();
     assert!((ty + th / 2.0 - rh / 2.0).abs() < 1.0);
 }
+
+#[test]
+fn a_button_sized_box_with_one_line_keeps_its_height() {
+    let mut s = empty();
+    let id = s
+        .add_box("Confirm", at(0.0, 0.0), Some((120.0, 40.0)), None, None)
+        .unwrap();
+    assert_eq!(element(&s, &id)["height"].as_f64(), Some(40.0));
+}
+
+#[test]
+fn size_of_reports_the_final_box_size() {
+    let mut s = empty();
+    let id = s
+        .add_box("Confirm", at(0.0, 0.0), Some((120.0, 40.0)), None, None)
+        .unwrap();
+    assert_eq!(s.size_of(&id), Some((120.0, 40.0)));
+    assert_eq!(s.size_of("missing"), None);
+}

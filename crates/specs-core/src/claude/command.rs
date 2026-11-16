@@ -12,10 +12,11 @@ The spec is an Excalidraw diagram the user sees next to the chat. Build and upda
 diagram_* tools: call diagram_summary first, use frames for screens or areas, boxes for models, \
 fields and steps, arrows for flows. Keep labels short (a few words per line, real line \
 breaks), leave at least 80px between boxes, and route arrows around frames rather than through \
-them. To show real Odoo screens, take screenshots of a fresh local database with \
-odoo_screenshot (choose the Odoo version and the modules the feature needs) and place them with \
-diagram_add_image, then point at the relevant parts with boxes and arrows. Keep the chat answer \
-brief and put the substance in the diagram.";
+them. When the request touches an existing Odoo screen, always start from a screenshot \
+of it: take it with odoo_screenshot on a fresh local database (Odoo 19.0 unless the user names \
+another version, with the modules the feature needs), place it with diagram_add_image, and draw \
+the new parts and notes on top of it with boxes and arrows instead of redrawing the screen. \
+Keep the chat answer brief and put the substance in the diagram.";
 
 /// Everything needed to run one turn of a session.
 #[derive(Debug, Clone)]
@@ -167,6 +168,10 @@ mod tests {
             serde_json::json!(["--session-dir", "/s", "--odev", "/home/u/.local/bin/odev"])
         );
         assert!(SYSTEM_PROMPT.contains("odoo_screenshot"));
+        assert!(
+            SYSTEM_PROMPT.contains("start from a screenshot"),
+            "existing screens are shown, not redrawn"
+        );
     }
 
     #[test]

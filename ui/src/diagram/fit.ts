@@ -34,3 +34,25 @@ export function fitContainers<T extends LayoutElement>(elements: readonly T[]): 
   }
   return elements.map((e) => grown.get(e.id) ?? e);
 }
+
+/**
+ * Whether laying out changed anything visible. Re-measuring with the real font
+ * changes sizes and wrapped text without bumping versions, so compare those.
+ */
+export function layoutChanged(
+  before: readonly (LayoutElement & { text?: string })[],
+  after: readonly (LayoutElement & { text?: string })[],
+): boolean {
+  if (before.length !== after.length) return true;
+  return before.some((b, i) => {
+    const a = after[i];
+    return (
+      a.id !== b.id ||
+      a.x !== b.x ||
+      a.y !== b.y ||
+      a.width !== b.width ||
+      a.height !== b.height ||
+      a.text !== b.text
+    );
+  });
+}

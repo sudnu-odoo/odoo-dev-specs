@@ -3,6 +3,8 @@ import { Excalidraw, exportToBlob, loadFromBlob, serializeAsJSON } from "@excali
 import "@excalidraw/excalidraw/index.css";
 import type { ExcalidrawImperativeAPI } from "@excalidraw/excalidraw/types";
 import { layoutElements } from "../diagram/layout";
+import { Autosave } from "../diagram/autosave";
+import { layoutChanged } from "../diagram/fit";
 import { mergeElements } from "../diagram/merge";
 import { parseScene, sceneFingerprint } from "../diagram/scene";
 import { saveFile } from "../lib/saveFile";
@@ -21,6 +23,8 @@ export interface ExcalidrawPanelProps {
   actions?: ReactNode;
   /** A newer copy of the diagram from disk (e.g. edited by the assistant) to merge in. */
   incoming?: IncomingScene;
+  /** Do not write to disk for now (the assistant is editing the same file). */
+  holdSaves?: boolean;
 }
 
 export interface IncomingScene {
@@ -50,38 +54,57 @@ export default function ExcalidrawPanel({
   onSceneChange,
   actions,
   incoming,
+  holdSaves,
 }: ExcalidrawPanelProps) {
   const [api, setApi] = useState<ExcalidrawImperativeAPI | null>(null);
   const [error, setError] = useState<string | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const theme = useSystemTheme();
   const fileName = fileNameFor(name);
-  // The panel is remounted per session, so the initial scene is read once.
-  const initialData = useMemo(() => parseScene(scene), []); // eslint-disable-line react-hooks/exhaustive-deps
-  const autosave = useAutosave(initialData, onSceneChange);
+  // The panel is remounted per session, so the initial scene is read once. Labels are
+  // laid out before Excalidraw gets the scene: its API exists before it has loaded the
+  // initial data, so changing the scene through the API at that point would race it.
+  const [initialData, diskFingerprint] = useMemo(() => {
+    const disk = parseScene(scene);
+    const elements = disk.elements ?? [];
+    return [{ ...disk, elements: layoutElements(elements) }, sceneFingerprint(elements, disk.files ?? {})];
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  const saveRef = useRef(onSceneChange);
+  saveRef.current = onSceneChange;
+  const autosave = useMemo(
+    () => new Autosave((json) => saveRef.current(json), AUTOSAVE_MS, diskFingerprint),
+    [diskFingerprint],
+  );
+  // Leaving the session (or the window) saves a pending edit right away.
+  useEffect(() => () => autosave.flush(), [autosave]);
 
-  // Labels are laid out with the real font once it is loaded (fonts load lazily, so
-  // also after each later font load). Fixes diagrams whose sizes were only estimated.
+  useEffect(() => autosave.hold(!!holdSaves), [autosave, holdSaves]);
+
+  // Fonts load lazily: lay labels out again with the real font once they arrive.
   useEffect(() => {
     if (!api) return;
-    const relayout = () =>
-      api.updateScene({ elements: layoutElements(api.getSceneElementsIncludingDeleted()) });
+    const relayout = () => {
+      const current = api.getSceneElementsIncludingDeleted();
+      if (!current.some((e) => !e.isDeleted)) return; // not loaded yet: never write an empty scene
+      const next = layoutElements(current);
+      if (layoutChanged(current as never, next as never)) api.updateScene({ elements: next });
+    };
     document.fonts?.ready.then(relayout);
     document.fonts?.addEventListener("loadingdone", relayout);
     return () => document.fonts?.removeEventListener("loadingdone", relayout);
   }, [api]);
 
   // Merge a newer copy from disk (the assistant's edits) into the canvas, keeping
-  // the user's own newer edits. Saving the result only happens if it differs from disk.
+  // the user's own newer edits. The merged canvas is saved only if it differs from disk.
   useEffect(() => {
     if (!api || !incoming) return;
     const disk = parseScene(incoming.scene);
     const diskElements = disk.elements ?? [];
+    autosave.markSaved(sceneFingerprint(diskElements, disk.files ?? {}));
+    api.addFiles(Object.values(disk.files ?? {}));
     api.updateScene({
       elements: layoutElements(mergeElements(api.getSceneElementsIncludingDeleted(), diskElements)),
     });
-    api.addFiles(Object.values(disk.files ?? {}));
-    autosave.markSaved(sceneFingerprint(diskElements, disk.files ?? {}));
   }, [api, incoming?.revision]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function openFile(file: File) {
@@ -166,52 +189,13 @@ export default function ExcalidrawPanel({
           excalidrawAPI={setApi}
           theme={theme}
           initialData={initialData}
-          onChange={autosave.onChange}
+          onChange={(elements, appState, files) =>
+            autosave.change(sceneFingerprint(elements, files), () =>
+              serializeAsJSON(elements, appState, files, "local"),
+            )
+          }
         />
       </div>
     </section>
   );
-}
-
-/**
- * Debounced save of real changes only (Excalidraw also fires onChange for
- * selection, scrolling and zoom). A pending save is flushed on unmount, so
- * switching session never loses the last edit.
- */
-function useAutosave(initial: ReturnType<typeof parseScene>, save: (scene: string) => void) {
-  const lastSaved = useRef(sceneFingerprint(initial.elements ?? [], initial.files ?? {}));
-  const pending = useRef<{ timer: number; flush: () => void } | null>(null);
-  const saveRef = useRef(save);
-  saveRef.current = save;
-
-  useEffect(
-    () => () => {
-      if (pending.current) {
-        window.clearTimeout(pending.current.timer);
-        pending.current.flush();
-      }
-    },
-    [],
-  );
-
-  const onChange = (
-    elements: Parameters<typeof serializeAsJSON>[0],
-    appState: Parameters<typeof serializeAsJSON>[1],
-    files: Parameters<typeof serializeAsJSON>[2],
-  ) => {
-    const fingerprint = sceneFingerprint(elements, files);
-    if (fingerprint === lastSaved.current) return;
-    if (pending.current) window.clearTimeout(pending.current.timer);
-    const flush = () => {
-      pending.current = null;
-      lastSaved.current = fingerprint;
-      saveRef.current(serializeAsJSON(elements, appState, files, "local"));
-    };
-    pending.current = { timer: window.setTimeout(flush, AUTOSAVE_MS), flush };
-  };
-  /** The disk already holds this content (e.g. it was just loaded from there). */
-  const markSaved = (fingerprint: string) => {
-    lastSaved.current = fingerprint;
-  };
-  return { onChange, markSaved };
 }

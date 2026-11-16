@@ -22,6 +22,8 @@ const GAP: f64 = 40.0;
 const MIN_BOX: (f64, f64) = (160.0, 80.0);
 const MAX_BOX_WIDTH: f64 = 400.0;
 const BOX_PADDING: f64 = 20.0;
+/// Least space above and below a label before its box must grow (Excalidraw's own value).
+const LABEL_PADDING_Y: f64 = 5.0;
 const MAX_IMAGE_WIDTH: f64 = 800.0;
 /// Space between an arrow end and the element it is attached to.
 const ARROW_GAP: f64 = 8.0;
@@ -143,13 +145,12 @@ impl Scene {
         let max_text_width = size.map_or(MAX_BOX_WIDTH, |(w, _)| w) - 2.0 * BOX_PADDING;
         let wrapped = text::wrap(label, max_text_width, text::FONT_SIZE);
         let (tw, th) = text::measure(&wrapped, text::FONT_SIZE);
-        let fitted_height = th + 2.0 * BOX_PADDING;
         let (w, h) = match size {
-            // Keep the requested width, but never cut the label off at the bottom.
-            Some((w, h)) => (w, h.max(fitted_height)),
+            // Keep the requested size; only grow when the label would not fit.
+            Some((w, h)) => (w, h.max(th + 2.0 * LABEL_PADDING_Y)),
             None => (
                 (tw + 2.0 * BOX_PADDING).clamp(MIN_BOX.0, MAX_BOX_WIDTH),
-                fitted_height.max(MIN_BOX.1),
+                (th + 2.0 * BOX_PADDING).max(MIN_BOX.1),
             ),
         };
         let (x, y) = self.position(at);
@@ -254,6 +255,14 @@ impl Scene {
         let id = str_of(&e, "id").to_string();
         self.push(e);
         Ok(id)
+    }
+
+    /// Width and height of a live element.
+    pub fn size_of(&self, id: &str) -> Option<(f64, f64)> {
+        self.find_live(id).map(|e| {
+            let r = Rect::of(e);
+            (r.w, r.h)
+        })
     }
 
     /// Change the text of a text element, a box or arrow label, or a frame name.
@@ -446,8 +455,8 @@ impl Scene {
             .as_deref()
             .and_then(|c| self.find(c))
             .is_some_and(|c| c["type"] != "arrow");
-        if is_box && r.h < h + 2.0 * BOX_PADDING {
-            r.h = h + 2.0 * BOX_PADDING;
+        if is_box && r.h < h + 2.0 * LABEL_PADDING_Y {
+            r.h = h + 2.0 * LABEL_PADDING_Y;
             let c = self
                 .find_mut(container.as_deref().expect("checked"))
                 .expect("container exists");

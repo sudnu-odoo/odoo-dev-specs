@@ -167,7 +167,9 @@ impl DiagramServer {
                 color,
                 p.frame_id.as_deref(),
             )?;
-            Ok(format!("Added box {id}."))
+            let (w, h) = scene.size_of(&id).unwrap_or_default();
+            // The box may be taller than asked (to fit its label): say so for the layout.
+            Ok(format!("Added box {id} ({w}x{h})."))
         })
         .await
     }

@@ -22,6 +22,7 @@ export default function SessionDiagram({ sessionRef, title, actions }: SessionDi
   const [loaded, setLoaded] = useState<Loaded | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [incoming, setIncoming] = useState<IncomingScene | undefined>(undefined);
+  const [assistantBusy, setAssistantBusy] = useState(false);
 
   useEffect(() => {
     let current = true; // ignore a late answer for a session we already left
@@ -35,15 +36,29 @@ export default function SessionDiagram({ sessionRef, title, actions }: SessionDi
   }, [key, project, sessionId]);
 
   // The assistant edits the diagram file through its tools: pull each change in.
+  // While it works, the canvas does not save (it could overwrite newer tool edits);
+  // saving resumes once its final changes are merged.
   useEffect(() => {
     setIncoming(undefined);
+    setAssistantBusy(false);
     let current = true;
-    const unlisten = api.onChatEvent(({ sessionId: from, event }) => {
-      if (from !== sessionId || (event.kind !== "tool_finished" && event.kind !== "finished")) return;
+    const reload = (done: boolean) =>
       api.loadScene({ project, sessionId }).then(
-        (scene) => current && setIncoming((prev) => ({ scene, revision: (prev?.revision ?? 0) + 1 })),
-        () => {}, // the next event or a session switch reloads anyway
+        (scene) => {
+          if (!current) return;
+          setIncoming((prev) => ({ scene, revision: (prev?.revision ?? 0) + 1 }));
+          if (done) setAssistantBusy(false);
+        },
+        () => current && done && setAssistantBusy(false),
       );
+    const unlisten = api.onChatEvent(({ sessionId: from, event }) => {
+      if (from !== sessionId) return;
+      if (event.kind === "finished") {
+        reload(true);
+        return;
+      }
+      setAssistantBusy(true);
+      if (event.kind === "tool_finished") reload(false);
     });
     return () => {
       current = false;
@@ -78,6 +93,7 @@ export default function SessionDiagram({ sessionRef, title, actions }: SessionDi
         name={title}
         scene={loaded.scene}
         incoming={incoming}
+        holdSaves={assistantBusy}
         actions={actions}
         onSceneChange={save}
       />

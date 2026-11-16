@@ -197,3 +197,78 @@ async fn real_claude_screenshots_a_fresh_odoo_and_places_it() {
         "image placed"
     );
 }
+
+#[tokio::test]
+#[ignore = "calls the real Claude Code, odev and Chrome; run with `make test-live`"]
+async fn real_claude_starts_a_screen_change_from_a_screenshot() {
+    let mcp =
+        std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/debug/specs-mcp");
+    let home = dirs::home_dir().unwrap();
+    let path = std::env::var("PATH").ok();
+    let odev = find_executable("odev", path.as_deref(), &user_bin_dirs(&home))
+        .expect("odev is not installed");
+    let dir = tempfile::tempdir().unwrap();
+    let ws = Workspace::new(dir.path());
+    ws.create_project("P").unwrap();
+    let id = ws.create_session("P", "live", "claude").unwrap().id;
+    // The model the business team gets by default, not the cheap one.
+    let claude = ClaudeConfig {
+        diagram_tools: Some(mcp),
+        odev: Some(odev.clone()),
+        model: None,
+        ..real_claude()
+    };
+
+    let done = turn(
+        &ws,
+        &id,
+        &claude,
+        "Add a new button beside the Confirm button of sale orders called \"Revise Quotation\"",
+    )
+    .await;
+    odev_core::server::Odev::new(&odev, odev_core::server::Odev::default_state_dir())
+        .stop_all()
+        .unwrap();
+    assert_eq!(
+        done,
+        ChatEvent::Finished {
+            is_error: false,
+            message: None
+        }
+    );
+
+    let tools: Vec<String> = ws
+        .read_transcript("P", &id)
+        .unwrap()
+        .into_iter()
+        .filter_map(|e| match e {
+            TranscriptEntry::Tool { name, is_error } => {
+                Some(format!("{name}{}", if is_error { " (error)" } else { "" }))
+            }
+            _ => None,
+        })
+        .collect();
+    assert!(
+        tools.iter().any(|t| t == "mcp__specs__odoo_screenshot"),
+        "{tools:?}"
+    );
+    assert!(
+        tools.iter().any(|t| t == "mcp__specs__diagram_add_image"),
+        "{tools:?}"
+    );
+    let scene: serde_json::Value = serde_json::from_str(&ws.read_scene("P", &id).unwrap()).unwrap();
+    assert!(scene["elements"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|e| e["type"] == "image" && e["isDeleted"] != true));
+    // Keep the result for a human look.
+    let keep =
+        std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/test-fixtures");
+    std::fs::create_dir_all(&keep).unwrap();
+    std::fs::write(
+        keep.join("live_revise_quotation.excalidraw"),
+        ws.read_scene("P", &id).unwrap(),
+    )
+    .unwrap();
+}
