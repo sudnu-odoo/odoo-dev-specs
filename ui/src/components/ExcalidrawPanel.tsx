@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Excalidraw, exportToBlob, loadFromBlob, serializeAsJSON } from "@excalidraw/excalidraw";
 import "@excalidraw/excalidraw/index.css";
 import type { ExcalidrawImperativeAPI } from "@excalidraw/excalidraw/types";
+import { layoutElements } from "../diagram/layout";
 import { mergeElements } from "../diagram/merge";
 import { parseScene, sceneFingerprint } from "../diagram/scene";
 import { saveFile } from "../lib/saveFile";
@@ -59,6 +60,17 @@ export default function ExcalidrawPanel({
   const initialData = useMemo(() => parseScene(scene), []); // eslint-disable-line react-hooks/exhaustive-deps
   const autosave = useAutosave(initialData, onSceneChange);
 
+  // Labels are laid out with the real font once it is loaded (fonts load lazily, so
+  // also after each later font load). Fixes diagrams whose sizes were only estimated.
+  useEffect(() => {
+    if (!api) return;
+    const relayout = () =>
+      api.updateScene({ elements: layoutElements(api.getSceneElementsIncludingDeleted()) });
+    document.fonts?.ready.then(relayout);
+    document.fonts?.addEventListener("loadingdone", relayout);
+    return () => document.fonts?.removeEventListener("loadingdone", relayout);
+  }, [api]);
+
   // Merge a newer copy from disk (the assistant's edits) into the canvas, keeping
   // the user's own newer edits. Saving the result only happens if it differs from disk.
   useEffect(() => {
@@ -66,7 +78,7 @@ export default function ExcalidrawPanel({
     const disk = parseScene(incoming.scene);
     const diskElements = disk.elements ?? [];
     api.updateScene({
-      elements: mergeElements(api.getSceneElementsIncludingDeleted(), diskElements),
+      elements: layoutElements(mergeElements(api.getSceneElementsIncludingDeleted(), diskElements)),
     });
     api.addFiles(Object.values(disk.files ?? {}));
     autosave.markSaved(sceneFingerprint(diskElements, disk.files ?? {}));

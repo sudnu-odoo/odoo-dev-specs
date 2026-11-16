@@ -132,7 +132,7 @@ impl DiagramServer {
                 _ => bail!("Give both width and height, or neither."),
             };
             let id = scene.add_box(
-                &p.label,
+                &unescape(&p.label),
                 Placement { x: p.x, y: p.y },
                 size,
                 color,
@@ -146,7 +146,11 @@ impl DiagramServer {
     #[tool(description = "Add free text such as a title or a note. Returns its id.")]
     async fn diagram_add_text(&self, Parameters(p): Parameters<AddText>) -> CallToolResult {
         self.edit(|scene| {
-            let id = scene.add_text(&p.text, Placement { x: p.x, y: p.y }, p.font_size);
+            let id = scene.add_text(
+                &unescape(&p.text),
+                Placement { x: p.x, y: p.y },
+                p.font_size,
+            );
             Ok(format!("Added text {id}."))
         })
         .await
@@ -157,7 +161,8 @@ impl DiagramServer {
     )]
     async fn diagram_add_arrow(&self, Parameters(p): Parameters<AddArrow>) -> CallToolResult {
         self.edit(|scene| {
-            let id = scene.add_arrow(&p.from_id, &p.to_id, p.label.as_deref())?;
+            let label = p.label.as_deref().map(unescape);
+            let id = scene.add_arrow(&p.from_id, &p.to_id, label.as_deref())?;
             Ok(format!("Added arrow {id}."))
         })
         .await
@@ -168,7 +173,11 @@ impl DiagramServer {
     )]
     async fn diagram_add_frame(&self, Parameters(p): Parameters<AddFrame>) -> CallToolResult {
         self.edit(|scene| {
-            let id = scene.add_frame(&p.name, Placement { x: p.x, y: p.y }, (p.width, p.height));
+            let id = scene.add_frame(
+                &unescape(&p.name),
+                Placement { x: p.x, y: p.y },
+                (p.width, p.height),
+            );
             Ok(format!("Added frame {id}."))
         })
         .await
@@ -192,7 +201,7 @@ impl DiagramServer {
     #[tool(description = "Change the text of a text, box label, arrow label or frame name.")]
     async fn diagram_set_text(&self, Parameters(p): Parameters<SetText>) -> CallToolResult {
         self.edit(|scene| {
-            scene.set_text(&p.id, &p.text)?;
+            scene.set_text(&p.id, &unescape(&p.text))?;
             Ok(format!("Changed the text of {}.", p.id))
         })
         .await
@@ -268,6 +277,11 @@ fn parse_color(name: &str) -> Result<Color> {
             Color::NAMES.join(", ")
         )
     })
+}
+
+/// The assistant sometimes writes a backslash followed by "n" where it means a line break.
+fn unescape(text: &str) -> String {
+    text.replace("\\n", "\n")
 }
 
 fn reply(result: Result<String>) -> CallToolResult {

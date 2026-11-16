@@ -2,8 +2,9 @@
 
 pub const FONT_SIZE: f64 = 20.0;
 pub const LINE_HEIGHT: f64 = 1.25;
-/// Average glyph width relative to the font size for the hand-drawn font.
-const CHAR_WIDTH: f64 = 0.55;
+/// Average glyph width relative to the font size for the hand-drawn font, on the
+/// generous side: the UI re-measures with the real font, an overestimate only adds space.
+const CHAR_WIDTH: f64 = 0.62;
 
 /// Width and height of (already wrapped) text.
 pub fn measure(text: &str, font_size: f64) -> (f64, f64) {

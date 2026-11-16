@@ -143,10 +143,15 @@ impl Scene {
         let max_text_width = size.map_or(MAX_BOX_WIDTH, |(w, _)| w) - 2.0 * BOX_PADDING;
         let wrapped = text::wrap(label, max_text_width, text::FONT_SIZE);
         let (tw, th) = text::measure(&wrapped, text::FONT_SIZE);
-        let (w, h) = size.unwrap_or((
-            (tw + 2.0 * BOX_PADDING).clamp(MIN_BOX.0, MAX_BOX_WIDTH),
-            (th + 2.0 * BOX_PADDING).max(MIN_BOX.1),
-        ));
+        let fitted_height = th + 2.0 * BOX_PADDING;
+        let (w, h) = match size {
+            // Keep the requested width, but never cut the label off at the bottom.
+            Some((w, h)) => (w, h.max(fitted_height)),
+            None => (
+                (tw + 2.0 * BOX_PADDING).clamp(MIN_BOX.0, MAX_BOX_WIDTH),
+                fitted_height.max(MIN_BOX.1),
+            ),
+        };
         let (x, y) = self.position(at);
 
         let mut rect = base("rectangle", x, y, w, h);
@@ -434,12 +439,25 @@ impl Scene {
         e["originalText"] = json!(content);
         e["width"] = json!(w);
         e["height"] = json!(h);
-        if let Some(r) = container_rect {
-            let (cx, cy) = r.center();
-            e["x"] = json!(cx - w / 2.0);
-            e["y"] = json!(cy - h / 2.0);
-        }
         bump(e);
+        let Some(mut r) = container_rect else { return };
+        // A longer label makes its box taller rather than spilling out of it.
+        let is_box = container
+            .as_deref()
+            .and_then(|c| self.find(c))
+            .is_some_and(|c| c["type"] != "arrow");
+        if is_box && r.h < h + 2.0 * BOX_PADDING {
+            r.h = h + 2.0 * BOX_PADDING;
+            let c = self
+                .find_mut(container.as_deref().expect("checked"))
+                .expect("container exists");
+            c["height"] = json!(r.h);
+            bump(c);
+        }
+        let (cx, cy) = r.center();
+        let e = self.find_mut(text_id).expect("caller checked");
+        e["x"] = json!(cx - w / 2.0);
+        e["y"] = json!(cy - h / 2.0);
     }
 
     /// Straight arrow between the facing edges of its two bound elements.

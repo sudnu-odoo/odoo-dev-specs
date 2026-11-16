@@ -352,3 +352,29 @@ fn delete_marks_elements_with_labels_and_arrows() {
     );
     assert!(s.delete(&["missing".into()]).is_err());
 }
+
+#[test]
+fn explicit_box_size_grows_to_fit_its_label() {
+    let mut s = empty();
+    let label = "Order lines: Product | Quantity | Unit price | Taxes | Subtotal (sections & notes) - Total";
+    let id = s
+        .add_box(label, at(0.0, 0.0), Some((180.0, 40.0)), None, None)
+        .unwrap();
+    let rect = element(&s, &id);
+    let text_id = rect["boundElements"][0]["id"].as_str().unwrap().to_string();
+    let text = element(&s, &text_id);
+    let (rw, rh) = (
+        rect["width"].as_f64().unwrap(),
+        rect["height"].as_f64().unwrap(),
+    );
+    let (tw, th) = (
+        text["width"].as_f64().unwrap(),
+        text["height"].as_f64().unwrap(),
+    );
+    assert_eq!(rw, 180.0, "the requested width is kept");
+    assert!(tw <= rw, "label wrapped inside the box: {tw} > {rw}");
+    assert!(rh >= th + 10.0, "box grew to fit the label: {rh} < {th}");
+    // The label is centred in the grown box.
+    let ty = text["y"].as_f64().unwrap();
+    assert!((ty + th / 2.0 - rh / 2.0).abs() < 1.0);
+}

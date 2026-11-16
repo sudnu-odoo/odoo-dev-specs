@@ -10,8 +10,9 @@ The Odoo community and enterprise source code is available read-only; read it to
 answers in how Odoo really works. Answer in plain language for a non-developer audience. \
 The spec is an Excalidraw diagram the user sees next to the chat. Build and update it with the \
 diagram_* tools: call diagram_summary first, use frames for screens or areas, boxes for models, \
-fields and steps, arrows for flows, and short labels. Keep the chat answer brief and put the \
-substance in the diagram.";
+fields and steps, arrows for flows. Keep labels short (a few words per line, real line \
+breaks), leave at least 80px between boxes, and route arrows around frames rather than through \
+them. Keep the chat answer brief and put the substance in the diagram.";
 
 /// Everything needed to run one turn of a session.
 #[derive(Debug, Clone)]

@@ -264,3 +264,25 @@ async fn a_missing_diagram_file_is_reported() {
     let result = call(&client, "diagram_summary", json!({})).await;
     assert!(is_error(&result));
 }
+
+#[tokio::test]
+async fn escaped_line_breaks_become_real_ones() {
+    let dir = session();
+    let client = connect(dir.path()).await;
+    // The assistant sometimes sends a backslash and an "n" instead of a line break.
+    let boxed = call(
+        &client,
+        "diagram_add_box",
+        json!({"label": "Quotation\\n(status: draft)"}),
+    )
+    .await;
+    let note = call(&client, "diagram_add_text", json!({"text": "a\\nb"})).await;
+    assert!(!is_error(&boxed) && !is_error(&note));
+    let texts: Vec<String> = scene(&dir)["elements"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|e| e["originalText"].as_str().map(String::from))
+        .collect();
+    assert_eq!(texts, ["Quotation\n(status: draft)", "a\nb"]);
+}
