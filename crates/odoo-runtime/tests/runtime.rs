@@ -63,7 +63,13 @@ printf 'psycopg2==2.9.9\npython-ldap==3.4.4\nlxml==5.2.1\n' > "$last/requirement
         script(
             &bin.join("python3"),
             &format!(
-                r#"if [ "$1" = "-m" ] && [ "$2" = "venv" ]; then
+                r#"echo "env PYTHONPATH=$PYTHONPATH PYTHONHOME=$PYTHONHOME NOUSERSITE=$PYTHONNOUSERSITE" >> '{d}/env.log'
+if [ "$1" = "-c" ]; then
+  echo "python -c $2" >> '{log}'
+  [ -f '{d}/broken-imports' ] && {{ echo "ModuleNotFoundError: No module named 'babel'" >&2; exit 1; }}
+  exit 0
+fi
+if [ "$1" = "-m" ] && [ "$2" = "venv" ]; then
   echo "python -m venv" >> '{log}'
   mkdir -p "$3/bin"; ln -sf "$0" "$3/bin/python"; exit 0
 fi
@@ -361,4 +367,54 @@ fn two_callers_starting_the_same_server_share_one() {
     });
     assert_eq!(ports[0], ports[1], "one server for both");
     env.rt.stop_all().unwrap();
+}
+
+#[test]
+fn python_runs_clean_of_the_launchers_python_settings() {
+    let env = Env::new(&[], false);
+    // A launcher's PYTHONPATH (e.g. /usr/lib/python3/dist-packages) once made pip skip
+    // packages it saw there, leaving Odoo without babel when run from the app.
+    std::env::set_var("PYTHONPATH", "/leaked/site-packages");
+    std::env::set_var("PYTHONHOME", "/leaked/home");
+    let db = env.rt.ensure_database("19.0", &[], true);
+    let running = db.and_then(|db| env.rt.ensure_running("19.0", &db));
+    std::env::remove_var("PYTHONPATH");
+    std::env::remove_var("PYTHONHOME");
+    running.unwrap();
+    env.rt.stop_all().unwrap();
+    let log = fs::read_to_string(env.dir.path().join("env.log")).unwrap();
+    assert!(!log.contains("/leaked"), "{log}");
+    // The user's own site-packages are left out too.
+    assert!(log.lines().all(|l| l.ends_with("NOUSERSITE=1")), "{log}");
+}
+
+#[test]
+fn an_incomplete_python_environment_is_reported_and_not_marked_ready() {
+    let env = Env::new(&[], false);
+    fs::write(env.dir.path().join("broken-imports"), "").unwrap();
+    let err = env.rt.ensure_database("19.0", &[], true).unwrap_err();
+    assert!(format!("{err:#}").contains("babel"), "{err:#}");
+    assert!(!env
+        .rt
+        .venv_dir("19.0")
+        .join(odoo_runtime::runtime::VENV_READY)
+        .exists());
+    // Fixed (e.g. network back): the next call rebuilds it.
+    fs::remove_file(env.dir.path().join("broken-imports")).unwrap();
+    env.rt.ensure_database("19.0", &[], true).unwrap();
+    assert_eq!(env.count("python -m venv"), 2);
+}
+
+#[test]
+fn environments_from_older_app_versions_are_rebuilt_once() {
+    let env = Env::new(&[], false);
+    let venv = env.rt.venv_dir("19.0");
+    fs::create_dir_all(&venv).unwrap();
+    fs::write(venv.join(".requirements-installed"), "").unwrap();
+    env.rt.ensure_database("19.0", &[], true).unwrap();
+    assert_eq!(env.count("python -m venv"), 1, "old marker is not trusted");
+    env.rt
+        .ensure_database("19.0", &["sale".into()], true)
+        .unwrap();
+    assert_eq!(env.count("python -m venv"), 1, "the new one is");
 }

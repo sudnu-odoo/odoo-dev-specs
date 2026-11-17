@@ -196,6 +196,7 @@ mod tests {
             "Never ask for, read or reproduce customer data",
             "Test cases",
             "Known limitations",
+            "Reply in the language of the user's latest message",
         ] {
             assert!(SYSTEM_PROMPT.contains(rule), "missing: {rule}");
         }

@@ -37,7 +37,33 @@ const MAX_NAME: usize = 63;
 /// How much of a tool's output is shown when something fails.
 const OUTPUT_TAIL: usize = 1500;
 /// Written once a virtualenv has all its requirements installed.
-pub const VENV_READY: &str = ".requirements-installed";
+/// Marks a complete Python environment. Versioned: environments built before
+/// Python ran isolated (and might lack packages) carry the old name and are rebuilt.
+pub const VENV_READY: &str = ".requirements-installed-v2";
+
+/// Modules Odoo needs at startup; checked after installing, so a broken environment
+/// fails here with a clear message instead of when the server starts.
+const CORE_IMPORTS: &str = "import babel, lxml, psycopg2, werkzeug, PIL";
+
+/// Variables through which the launching shell would change what Python sees.
+const PYTHON_ENV: [&str; 5] = [
+    "PYTHONPATH",
+    "PYTHONHOME",
+    "PYTHONUSERBASE",
+    "PYTHONSTARTUP",
+    "VIRTUAL_ENV",
+];
+
+/// A command whose Python sees only its own environment, whoever launched the app:
+/// no inherited search paths and no user site-packages.
+fn isolated(program: &Path) -> Command {
+    let mut cmd = Command::new(program);
+    for var in PYTHON_ENV {
+        cmd.env_remove(var);
+    }
+    cmd.env("PYTHONNOUSERSITE", "1");
+    cmd
+}
 
 /// A running Odoo server.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -206,7 +232,7 @@ impl Runtime {
         self.root.join("data")
     }
 
-    fn venv_dir(&self, version: &str) -> PathBuf {
+    pub fn venv_dir(&self, version: &str) -> PathBuf {
         self.root.join("venvs").join(version)
     }
 
@@ -287,6 +313,8 @@ impl Runtime {
             &["-m", "pip", "install", "--quiet", "-r", &adjusted_arg],
         )
         .with_context(|| format!("Could not install the Python packages for Odoo {version}."))?;
+        self.run_to_end(&python, &["-c", CORE_IMPORTS])
+            .with_context(|| format!("The Python packages for Odoo {version} are incomplete."))?;
         fs::write(venv.join(VENV_READY), "")?;
         Ok(python)
     }
@@ -380,7 +408,7 @@ impl Runtime {
 
         fs::create_dir_all(self.state_dir())?;
         let log = fs::File::create(self.log_file(database)).context("creating the server log")?;
-        let mut child = Command::new(&python)
+        let mut child = isolated(&python)
             .args(&args)
             .stdin(Stdio::null())
             .stdout(log.try_clone()?)
@@ -504,7 +532,7 @@ impl Runtime {
 
     /// Run a program to completion without a terminal, so it can never wait for input.
     fn run_to_end(&self, program: &Path, args: &[&str]) -> Result<String> {
-        let out = Command::new(program)
+        let out = isolated(program)
             .args(args)
             .stdin(Stdio::null())
             .output()
