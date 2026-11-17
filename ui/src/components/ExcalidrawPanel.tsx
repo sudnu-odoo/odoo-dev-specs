@@ -33,17 +33,6 @@ export interface IncomingScene {
   revision: number;
 }
 
-function useSystemTheme(): "light" | "dark" {
-  const query = window.matchMedia("(prefers-color-scheme: dark)");
-  const [dark, setDark] = useState(query.matches);
-  useEffect(() => {
-    const onChange = (e: MediaQueryListEvent) => setDark(e.matches);
-    query.addEventListener("change", onChange);
-    return () => query.removeEventListener("change", onChange);
-  }, [query]);
-  return dark ? "dark" : "light";
-}
-
 function fileNameFor(title: string) {
   return title.replace(/[\\/:*?"<>|]+/g, " ").trim() || "spec";
 }
@@ -59,7 +48,6 @@ export default function ExcalidrawPanel({
   const [api, setApi] = useState<ExcalidrawImperativeAPI | null>(null);
   const [error, setError] = useState<string | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
-  const theme = useSystemTheme();
   const fileName = fileNameFor(name);
   // The panel is remounted per session, so the initial scene is read once. Labels are
   // laid out before Excalidraw gets the scene: its API exists before it has loaded the
@@ -187,7 +175,9 @@ export default function ExcalidrawPanel({
       <div className="artifact-canvas">
         <Excalidraw
           excalidrawAPI={setApi}
-          theme={theme}
+          // Always light, like paper and the PNG export: Excalidraw's dark theme inverts
+          // colours, which would show Odoo screenshots as a dark Odoo.
+          theme="light"
           initialData={initialData}
           onChange={(elements, appState, files) =>
             autosave.change(sceneFingerprint(elements, files), () =>
