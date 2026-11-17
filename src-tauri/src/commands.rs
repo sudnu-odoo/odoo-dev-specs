@@ -284,6 +284,15 @@ pub fn send_message<R: Runtime>(
     Ok(())
 }
 
+/// Sessions whose assistant is answering right now, so the UI can offer Stop when
+/// it opens one of them (also after the UI reloaded).
+#[tauri::command]
+pub fn running_sessions(state: State<'_, AppState>) -> Vec<String> {
+    let mut ids: Vec<String> = state.running.lock().unwrap().keys().cloned().collect();
+    ids.sort();
+    ids
+}
+
 #[tauri::command]
 pub fn cancel_turn(state: State<'_, AppState>, session_id: String) {
     if let Some(cancel) = state
@@ -375,6 +384,7 @@ pub fn register<R: Runtime>(builder: tauri::Builder<R>, state: AppState) -> taur
             save_scene,
             send_message,
             cancel_turn,
+            running_sessions,
             write_file,
             get_settings,
             save_settings,

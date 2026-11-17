@@ -308,16 +308,20 @@ fn cancel_stops_the_turn_and_blocks_overlap_until_it_ends() {
         )
     };
 
+    assert_eq!(h.call("running_sessions", json!({})).unwrap(), json!([]));
     let events = h.events_until_finished(|| {
         send().unwrap();
         let err = send().unwrap_err();
         assert!(err.contains("still answering"), "{err}");
+        // The UI asks which sessions are busy when it opens one (e.g. after a reload).
+        assert_eq!(h.call("running_sessions", json!({})).unwrap(), json!([id]));
         h.call("cancel_turn", json!({"sessionId": id})).unwrap();
     });
     assert_eq!(
         events.last().unwrap()["event"],
         json!({"kind": "finished", "is_error": true, "message": "Stopped."})
     );
+    assert_eq!(h.call("running_sessions", json!({})).unwrap(), json!([]));
 }
 
 #[test]

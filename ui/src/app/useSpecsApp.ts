@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
-import { chatReducer, emptyChat } from "../chat/chatState";
+import { emptyChat } from "../chat/chatState";
+import { emptySessionChats, sessionChatsReducer } from "../chat/sessionChats";
 import { DEFAULT_TITLE, titleFromMessage } from "../chat/title";
 import { api } from "../lib/api";
 import { confirmAction } from "../lib/confirm";
@@ -13,7 +14,12 @@ export function useSpecsApp() {
   const [projects, setProjects] = useState<ProjectInfo[]>([]);
   const [selected, setSelected] = useState<SessionRef | null>(null);
   const [session, setSession] = useState<SessionData | null>(null);
-  const [chat, dispatch] = useReducer(chatReducer, emptyChat);
+  // Every session's chat, so one can keep answering while another is open.
+  const [chats, dispatch] = useReducer(sessionChatsReducer, emptySessionChats);
+  const chat = {
+    ...((selected && chats.chats[selected.sessionId]) || emptyChat),
+    plan: chats.plan,
+  };
   const [error, setError] = useState<string | null>(null);
   // True while the diagram is shown in its own window instead of beside the chat.
   const [diagramDetached, setDiagramDetached] = useState(false);
@@ -67,8 +73,7 @@ export function useSpecsApp() {
     refresh();
     reloadModels();
     const unlisten = api.onChatEvent(({ sessionId, event }) => {
-      if (sessionId !== selectedRef.current?.sessionId) return;
-      dispatch({ type: "event", event });
+      dispatch({ type: "event", sessionId, event });
       if (event.kind === "finished") refresh();
     });
     const unlistenDocked = api.onDiagramDocked(() => setDiagramDetached(false));
@@ -94,9 +99,18 @@ export function useSpecsApp() {
     // Never pair the new selection with the previous session's data while loading.
     setSession(null);
     try {
-      const data = await api.loadSession(ref);
+      const [data, running] = await Promise.all([
+        api.loadSession(ref),
+        // The backend knows which turns are still going, also after a UI reload.
+        api.runningSessions().catch(() => [] as string[]),
+      ]);
       setSession(data);
-      dispatch({ type: "loaded", transcript: data.transcript });
+      dispatch({
+        type: "opened",
+        sessionId: ref.sessionId,
+        transcript: data.transcript,
+        running: running.includes(ref.sessionId),
+      });
     } catch (e) {
       setError(String(e));
     }
@@ -105,7 +119,6 @@ export function useSpecsApp() {
   const close = useCallback(() => {
     setSelected(null);
     setSession(null);
-    dispatch({ type: "loaded", transcript: [] });
   }, []);
 
   const createProject = useCallback(
@@ -166,7 +179,8 @@ export function useSpecsApp() {
   const send = useCallback(
     async (text: string) => {
       if (!selected || !session) return;
-      dispatch({ type: "sent", text });
+      const sessionId = selected.sessionId;
+      dispatch({ type: "chat", sessionId, action: { type: "sent", text } });
       const isFirstMessage = !chat.items.some((i) => i.role === "user");
       const title = titleFromMessage(text);
       if (isFirstMessage && session.meta.title === DEFAULT_TITLE && title) {
@@ -175,7 +189,7 @@ export function useSpecsApp() {
       try {
         await api.sendMessage(selected, text, selectedModel || null, effort || null);
       } catch (e) {
-        dispatch({ type: "sendFailed", message: String(e) });
+        dispatch({ type: "chat", sessionId, action: { type: "sendFailed", message: String(e) } });
       }
     },
     [chat.items, effort, refresh, selected, selectedModel, session],
