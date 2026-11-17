@@ -87,7 +87,7 @@ mod tests {
             find_executable("claude", Some(&path_var), std::slice::from_ref(&b)),
             Some(b.join("claude"))
         );
-        assert_eq!(find_executable("gemini", None, &[a, b]), None);
+        assert_eq!(find_executable("no-such-tool", None, &[a, b]), None);
     }
 
     #[test]

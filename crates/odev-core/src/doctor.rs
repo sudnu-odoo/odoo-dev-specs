@@ -68,8 +68,6 @@ pub struct Probe {
     pub chrome: Option<PathBuf>,
     /// Path of the `claude` executable, if found.
     pub claude: Option<PathBuf>,
-    /// Path of the `gemini` executable, if found.
-    pub gemini: Option<PathBuf>,
 }
 
 /// Build the report from a gathered [`Probe`].
@@ -203,16 +201,13 @@ fn check_ai(p: &Probe) -> Check {
     if p.claude.is_some() {
         present.push("Claude Code");
     }
-    if p.gemini.is_some() {
-        present.push("Gemini");
-    }
     if present.is_empty() {
         problem(
             "ai",
             "AI assistant",
             Status::Missing,
             "none installed".into(),
-            "Install Claude Code (`claude`) or the Gemini CLI (`gemini`) and sign in. The assistant writes the specs.",
+            "Install Claude Code (`claude`) and sign in. The assistant writes the specs.",
             true,
         )
     } else {
@@ -232,7 +227,6 @@ mod tests {
             odoo_sources: vec!["/src/odoo".into(), "/src/enterprise".into()],
             chrome: Some("/usr/bin/google-chrome".into()),
             claude: Some("/home/u/.local/bin/claude".into()),
-            gemini: None,
         }
     }
 
@@ -328,37 +322,13 @@ mod tests {
     }
 
     #[test]
-    fn no_ai_cli_is_missing_but_one_is_enough() {
+    fn missing_ai_cli_blocks() {
         let none = check(&Probe {
             claude: None,
-            gemini: None,
             ..full()
         });
         assert_eq!(get(&none, "ai").status, Status::Missing);
         assert!(!none.is_ready());
-
-        let only_gemini = check(&Probe {
-            claude: None,
-            gemini: Some("/g".into()),
-            ..full()
-        });
-        assert_eq!(get(&only_gemini, "ai").status, Status::Ok);
-        assert!(only_gemini.is_ready());
-    }
-
-    #[test]
-    fn the_ai_check_names_which_clis_are_present() {
-        let report = check(&Probe {
-            claude: Some("/c".into()),
-            gemini: Some("/g".into()),
-            ..full()
-        });
-        let ai = get(&report, "ai");
-        assert_eq!(ai.status, Status::Ok);
-        assert!(
-            ai.detail.contains("Claude") && ai.detail.contains("Gemini"),
-            "{}",
-            ai.detail
-        );
+        assert_eq!(get(&check(&full()), "ai").detail, "Claude Code");
     }
 }

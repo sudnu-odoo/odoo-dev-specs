@@ -31,11 +31,6 @@ pub fn models(provider: Provider) -> Vec<Model> {
             model("opus", "Opus (most capable)"),
             model("haiku", "Haiku (fastest)"),
         ],
-        Provider::Gemini => vec![
-            model("gemini-2.5-flash", "2.5 Flash (balanced)"),
-            model("gemini-2.5-pro", "2.5 Pro (most capable)"),
-            model("gemini-3.1-flash-lite", "3.1 Flash Lite (fastest)"),
-        ],
     }
 }
 
@@ -63,19 +58,11 @@ mod tests {
         let claude = models(Provider::Claude);
         assert_eq!(claude.first().unwrap().id, "sonnet");
         assert_eq!(default_model(Provider::Claude), "sonnet");
-
-        let gemini = models(Provider::Gemini);
-        assert_eq!(gemini.first().unwrap().id, "gemini-2.5-flash");
-        // No "auto": it can pick an unreachable endpoint.
-        assert!(!gemini.iter().any(|m| m.id == "auto"));
     }
 
     #[test]
     fn validity_is_scoped_to_the_provider() {
         assert!(is_valid(Provider::Claude, "opus"));
-        assert!(!is_valid(Provider::Claude, "gemini-2.5-pro"));
-        assert!(is_valid(Provider::Gemini, "gemini-2.5-pro"));
-        assert!(!is_valid(Provider::Gemini, "opus"));
         assert!(!is_valid(Provider::Claude, "nonsense"));
     }
 }

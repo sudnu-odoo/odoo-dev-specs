@@ -27,7 +27,7 @@ fn defaults_before_anything_is_saved() {
 fn saved_settings_round_trip_and_create_the_folder() {
     let (store, _d) = store();
     let settings = Settings {
-        provider: Provider::Gemini,
+        provider: Provider::Claude,
         default_version: "18.0".into(),
         demo_data: false,
     };
@@ -65,9 +65,5 @@ fn provider_serialises_in_snake_case() {
     assert_eq!(
         serde_json::to_string(&Provider::Claude).unwrap(),
         r#""claude""#
-    );
-    assert_eq!(
-        serde_json::to_string(&Provider::Gemini).unwrap(),
-        r#""gemini""#
     );
 }

@@ -13,7 +13,7 @@ Excalidraw dev spec with real screenshots from a **fresh local Odoo database** (
     librsvg2-dev libayatana-appindicator3-dev
   cargo install tauri-cli --version "^2" --locked
   ```
-- At least one AI CLI, logged in: Claude Code (`claude`) or Gemini CLI (`gemini`)
+- Claude Code (`claude`), logged in
 - Google Chrome or Chromium (for screenshots)
 
 ## Development

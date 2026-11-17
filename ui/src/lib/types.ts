@@ -52,7 +52,7 @@ export interface DiagramTarget extends SessionRef {
 
 /** Mirrors specs_core::settings::Settings. */
 export interface Settings {
-  provider: "claude" | "gemini";
+  provider: "claude";
   defaultVersion: string;
   demoData: boolean;
 }

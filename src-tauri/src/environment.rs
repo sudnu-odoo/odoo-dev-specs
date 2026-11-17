@@ -30,7 +30,6 @@ pub fn probe() -> Probe {
             .unwrap_or_default(),
         chrome: CHROME_NAMES.iter().find_map(|name| find(name)),
         claude: find("claude"),
-        gemini: find("gemini"),
     }
 }
 

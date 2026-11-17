@@ -23,7 +23,6 @@ fn test_probe() -> Probe {
         odoo_sources: vec!["/src/odoo".into(), "/src/enterprise".into()],
         chrome: Some("/bin/chrome".into()),
         claude: Some("/bin/claude".into()),
-        gemini: None,
     }
 }
 use tauri::ipc::{CallbackFn, InvokeBody};
@@ -67,7 +66,6 @@ struct Harness {
 fn harness(with_claude: bool) -> Harness {
     let claude = with_claude.then(|| ClaudeConfig {
         program: fake_claude(),
-        gemini_program: None,
         provider: specs_core::settings::Provider::Claude,
         read_dirs: vec![],
         model: None,
@@ -373,7 +371,7 @@ fn settings_default_then_round_trip() {
     assert_eq!(defaults["defaultVersion"], "19.0");
     assert_eq!(defaults["demoData"], true);
 
-    let new = json!({"provider": "gemini", "defaultVersion": "18.0", "demoData": false});
+    let new = json!({"provider": "claude", "defaultVersion": "18.0", "demoData": false});
     h.call("save_settings", json!({ "settings": new })).unwrap();
     assert_eq!(h.call("get_settings", json!({})).unwrap(), new);
 }
@@ -389,28 +387,14 @@ fn check_environment_reports_each_requirement() {
 }
 
 #[test]
-fn list_models_follows_the_selected_provider() {
+fn list_models_offers_the_claude_models_default_first() {
     let h = harness(true);
-    let claude_models = h.call("list_models", json!({})).unwrap();
-    let ids: Vec<&str> = claude_models
+    let models = h.call("list_models", json!({})).unwrap();
+    let ids: Vec<&str> = models
         .as_array()
         .unwrap()
         .iter()
         .map(|m| m["id"].as_str().unwrap())
         .collect();
-    assert_eq!(ids.first(), Some(&"sonnet"));
-
-    h.call(
-        "save_settings",
-        json!({ "settings": {"provider": "gemini", "defaultVersion": "19.0", "demoData": true} }),
-    )
-    .unwrap();
-    let gemini_models = h.call("list_models", json!({})).unwrap();
-    let ids: Vec<&str> = gemini_models
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|m| m["id"].as_str().unwrap())
-        .collect();
-    assert!(ids.iter().all(|id| id.starts_with("gemini-")), "{ids:?}");
+    assert_eq!(ids, ["sonnet", "opus", "haiku"]);
 }

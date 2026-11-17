@@ -16,10 +16,6 @@ const FIXTURE: &str = concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/tests/fixtures/claude_read_tool.jsonl"
 );
-const GEMINI_FIXTURE: &str = concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/tests/fixtures/gemini_read_tool.jsonl"
-);
 
 /// One fake `claude` shared by all tests, written before any test starts a process
 /// (executing a freshly written file races with concurrent forks: "Text file busy").
@@ -32,23 +28,6 @@ fn fake_claude() -> PathBuf {
         let script = format!(
             "#!/bin/sh\ncat > stdin.txt\nprintf '%s\\n' \"$@\" > args.txt\n\
              if [ -f fail ]; then echo 'Not logged in' >&2; exit 1; fi\ncat '{FIXTURE}'\n"
-        );
-        fs::write(&path, script).unwrap();
-        fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
-        (dir, path)
-    })
-    .1
-    .clone()
-}
-
-/// A fake `gemini`, logging its args and replaying the recorded Gemini stream.
-fn fake_gemini() -> PathBuf {
-    static FAKE: OnceLock<(TempDir, PathBuf)> = OnceLock::new();
-    FAKE.get_or_init(|| {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("gemini");
-        let script = format!(
-            "#!/bin/sh\ncat > stdin.txt\nprintf '%s\\n' \"$@\" > gemini_args.txt\ncat '{GEMINI_FIXTURE}'\n"
         );
         fs::write(&path, script).unwrap();
         fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
@@ -73,7 +52,6 @@ fn env() -> Env {
     let session = ws.create_session("P", "t", "claude").unwrap();
     let config = ClaudeConfig {
         program,
-        gemini_program: None,
         provider: specs_core::settings::Provider::Claude,
         read_dirs: vec!["/src/odoo".into()],
         model: None,
@@ -240,75 +218,4 @@ async fn diagram_tools_work_on_this_session_folder() {
         config["mcpServers"]["specs"]["args"],
         serde_json::json!(["--session-dir", dir.to_str().unwrap()])
     );
-}
-
-#[tokio::test]
-async fn gemini_is_run_when_selected_and_gets_a_settings_file() {
-    let mut env = env();
-    env.config.gemini_program = Some(fake_gemini());
-    env.config.provider = specs_core::settings::Provider::Gemini;
-
-    let events = env.send("Draw the sales flow").await;
-    assert_eq!(
-        events.last(),
-        Some(&ChatEvent::Finished {
-            is_error: false,
-            message: None
-        })
-    );
-
-    // The Gemini CLI ran (not Claude): its arg log exists, Claude's does not.
-    let gemini_args: Vec<String> = env
-        .session_file("gemini_args.txt")
-        .lines()
-        .map(String::from)
-        .collect();
-    assert!(
-        gemini_args.contains(&"stream-json".to_string()),
-        "{gemini_args:?}"
-    );
-    assert!(
-        gemini_args.iter().any(|a| a == "specs"),
-        "mcp server allowed: {gemini_args:?}"
-    );
-    let claude_log = env
-        .ws
-        .session_dir("P", &env.session.id)
-        .unwrap()
-        .join("args.txt");
-    assert!(
-        !claude_log.exists(),
-        "Claude must not run when Gemini is selected"
-    );
-
-    // The per-session Gemini settings file declares the MCP server and prompt.
-    let settings: serde_json::Value =
-        serde_json::from_str(&env.session_file(".gemini/settings.json")).unwrap();
-    assert_eq!(settings["mcpServers"]["specs"]["command"], "/app/specs-mcp");
-    assert!(settings["systemPrompt"]
-        .as_str()
-        .unwrap()
-        .contains("diagram_"));
-
-    // The transcript records the reply the fixture produced.
-    let transcript = env.ws.read_transcript("P", &env.session.id).unwrap();
-    assert!(transcript
-        .iter()
-        .any(|e| matches!(e, TranscriptEntry::Assistant { text } if text.contains("tangerine"))));
-}
-
-#[tokio::test]
-async fn gemini_selected_but_not_installed_falls_back_to_claude() {
-    let mut env = env();
-    env.config.gemini_program = None; // not installed
-    env.config.provider = specs_core::settings::Provider::Gemini;
-
-    env.send("hello").await;
-    // Claude ran instead (its arg log exists).
-    assert!(env
-        .ws
-        .session_dir("P", &env.session.id)
-        .unwrap()
-        .join("args.txt")
-        .exists());
 }

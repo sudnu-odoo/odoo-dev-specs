@@ -14,7 +14,6 @@ use crate::fsutil::write_atomic;
 pub enum Provider {
     #[default]
     Claude,
-    Gemini,
 }
 
 /// Persisted preferences. `#[serde(default)]` keeps every field optional on disk,

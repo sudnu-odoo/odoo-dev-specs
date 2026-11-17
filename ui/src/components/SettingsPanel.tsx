@@ -69,7 +69,6 @@ export default function SettingsPanel({ onClose }: SettingsPanelProps) {
                 onChange={(e) => edit({ provider: e.target.value as Settings["provider"] })}
               >
                 <option value="claude">Claude Code</option>
-                <option value="gemini">Gemini</option>
               </select>
             </label>
             <label className="field">
