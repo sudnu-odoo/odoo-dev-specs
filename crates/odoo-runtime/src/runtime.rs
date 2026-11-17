@@ -119,7 +119,12 @@ pub fn demo_flags(version: &str, demo_data: bool) -> Vec<String> {
 }
 
 /// Database name for an Odoo version and module set, e.g. `specs_19_0_sale_stock`.
-pub fn database_name(version: &str, modules: &[String], demo_data: bool) -> String {
+pub fn database_name(
+    version: &str,
+    modules: &[String],
+    demo_data: bool,
+    enterprise: bool,
+) -> String {
     let mut mods: Vec<&str> = modules
         .iter()
         .map(|m| m.trim())
@@ -134,7 +139,9 @@ pub fn database_name(version: &str, modules: &[String], demo_data: bool) -> Stri
     // ("_demo": databases made before demo data was really loaded on Odoo 19 had no
     // suffix and are empty, so they are never reused.)
     let suffix = if demo_data { "_demo" } else { "_nodemo" };
-    let raw = format!("{DB_PREFIX}{version}_{}{suffix}", mods.join("_"));
+    // Enterprise installs more modules (e.g. web_enterprise): its own databases.
+    let edition = if enterprise { "_ee" } else { "" };
+    let raw = format!("{DB_PREFIX}{version}_{}{edition}{suffix}", mods.join("_"));
     let name: String = raw
         .chars()
         .map(|c| {
@@ -224,6 +231,16 @@ impl Runtime {
         &self.tools
     }
 
+    /// Enterprise source of `version`: the one configured, or an `enterprise` folder
+    /// (or link) next to the community source, `sources/<version>/enterprise`.
+    pub fn enterprise_dir(&self, version: &str) -> Option<PathBuf> {
+        if let Some(dir) = self.enterprise.get(version) {
+            return Some(dir.clone());
+        }
+        let beside = self.root.join("sources").join(version).join("enterprise");
+        beside.is_dir().then_some(beside)
+    }
+
     pub fn source_dir(&self, version: &str) -> PathBuf {
         self.root.join("sources").join(version).join("odoo")
     }
@@ -249,8 +266,12 @@ impl Runtime {
         let mut dirs: Vec<PathBuf> = fs::read_dir(self.root.join("sources"))
             .into_iter()
             .flatten()
-            .filter_map(|e| Some(e.ok()?.path().join("odoo")))
-            .filter(|p| p.join("odoo-bin").is_file())
+            .filter_map(|e| e.ok())
+            .filter(|e| e.path().join("odoo").join("odoo-bin").is_file())
+            .flat_map(|e| {
+                let version = e.file_name().to_string_lossy().into_owned();
+                std::iter::once(e.path().join("odoo")).chain(self.enterprise_dir(&version))
+            })
             .collect();
         dirs.sort();
         dirs
@@ -352,7 +373,8 @@ impl Runtime {
         // at a time per version sets up the source, Python environment and database,
         // so none sees a half-installed environment or a database still being built.
         let _setup = self.setup_lock(version)?;
-        let name = database_name(version, modules, demo_data);
+        let enterprise = self.enterprise_dir(version);
+        let name = database_name(version, modules, demo_data, enterprise.is_some());
         if self.databases()?.contains(&name) {
             return Ok(name);
         }
@@ -466,7 +488,7 @@ impl Runtime {
     fn odoo_args(&self, version: &str, database: &str) -> Vec<String> {
         let source = self.source_dir(version);
         let mut addons: Vec<String> = Vec::new();
-        if let Some(enterprise) = self.enterprise.get(version) {
+        if let Some(enterprise) = self.enterprise_dir(version) {
             addons.push(enterprise.display().to_string());
         }
         addons.push(source.join("addons").display().to_string());
@@ -579,20 +601,36 @@ mod tests {
 
     #[test]
     fn database_names_are_stable_and_readable() {
-        let a = database_name("19.0", &["stock".into(), "sale_management".into()], true);
+        let a = database_name(
+            "19.0",
+            &["stock".into(), "sale_management".into()],
+            true,
+            false,
+        );
         let b = database_name(
             "19.0",
             &["sale_management".into(), "stock".into(), "stock".into()],
             true,
+            false,
         );
         assert_eq!(a, b, "order and duplicates do not matter");
         assert_eq!(a, "specs_19_0_sale_management_stock_demo");
-        assert_eq!(database_name("18.0", &[], true), "specs_18_0_base_demo");
-        assert_eq!(database_name("18.0", &[], false), "specs_18_0_base_nodemo");
+        assert_eq!(
+            database_name("18.0", &[], true, false),
+            "specs_18_0_base_demo"
+        );
+        assert_eq!(
+            database_name("18.0", &[], false, false),
+            "specs_18_0_base_nodemo"
+        );
+        assert_eq!(
+            database_name("19.0", &[], true, true),
+            "specs_19_0_base_ee_demo"
+        );
         let many: Vec<String> = (0..20).map(|i| format!("module_number_{i}")).collect();
-        let long = database_name("19.0", &many, true);
+        let long = database_name("19.0", &many, true, false);
         assert!(long.len() <= MAX_NAME, "PostgreSQL limit: {long}");
-        assert_ne!(long, database_name("19.0", &many[..19], true));
+        assert_ne!(long, database_name("19.0", &many[..19], true, false));
     }
 
     #[test]

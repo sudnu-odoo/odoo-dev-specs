@@ -304,7 +304,9 @@ fn an_enterprise_folder_is_added_to_the_addons_path() {
     let rt = Runtime::new(env.dir.path().join("runtime"), env.rt.tools().clone())
         .with_odoo_git_url("https://example.invalid/odoo.git")
         .with_enterprise("19.0", &enterprise);
-    rt.ensure_database("19.0", &[], true).unwrap();
+    let db = rt.ensure_database("19.0", &[], true).unwrap();
+    // Enterprise installs more (e.g. web_enterprise): never mixed up with community.
+    assert_eq!(db, "specs_19_0_base_ee_demo");
     let create = env
         .calls()
         .into_iter()
@@ -318,6 +320,39 @@ fn an_enterprise_folder_is_added_to_the_addons_path() {
             src.display()
         )),
         "{create}"
+    );
+}
+
+#[test]
+fn an_enterprise_folder_next_to_the_source_is_used_automatically() {
+    let env = Env::new(&[], false);
+    env.rt.ensure_source("19.0").unwrap();
+    let enterprise = env
+        .rt
+        .source_dir("19.0")
+        .parent()
+        .unwrap()
+        .join("enterprise");
+    fs::create_dir_all(&enterprise).unwrap();
+    let db = env
+        .rt
+        .ensure_database("19.0", &["sale".into()], true)
+        .unwrap();
+    assert_eq!(db, "specs_19_0_sale_ee_demo");
+    let create = env
+        .calls()
+        .into_iter()
+        .find(|c| c.starts_with("odoo "))
+        .unwrap();
+    assert!(
+        create.contains(&enterprise.display().to_string()),
+        "{create}"
+    );
+    // The assistant reads enterprise code too.
+    assert!(
+        env.rt.source_dirs().contains(&enterprise),
+        "{:?}",
+        env.rt.source_dirs()
     );
 }
 
