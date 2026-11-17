@@ -43,6 +43,14 @@ pub struct ElementSummary {
     pub frame: Option<String>,
 }
 
+/// A spot on the canvas: either canvas coordinates, or a pixel of a screenshot as the
+/// assistant sees it in the PNG file (scaled to where the image is shown).
+#[derive(Debug, Clone, PartialEq)]
+pub enum Target {
+    Point(f64, f64),
+    OnImage { image: String, x: f64, y: f64 },
+}
+
 /// Where to put a new element. Missing coordinates mean "below everything".
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct Placement {
@@ -170,12 +178,21 @@ impl Scene {
         Ok(id)
     }
 
-    /// Free text (titles, notes). Returns the text id.
-    pub fn add_text(&mut self, content: &str, at: Placement, font_size: Option<f64>) -> String {
+    /// Free text (titles, notes); `color` makes it e.g. a red annotation. Returns the text id.
+    pub fn add_text(
+        &mut self,
+        content: &str,
+        at: Placement,
+        font_size: Option<f64>,
+        color: Option<Color>,
+    ) -> String {
         let size = font_size.unwrap_or(text::FONT_SIZE);
         let (w, h) = text::measure(content, size);
         let (x, y) = self.position(at);
         let mut e = base("text", x, y, w, h);
+        if let Some(c) = color {
+            e["strokeColor"] = json!(c.stroke());
+        }
         set_text_fields(&mut e, content, content, size, "left", "top", None);
         let id = str_of(&e, "id").to_string();
         self.push(e);
@@ -217,6 +234,88 @@ impl Scene {
             e["boundElements"] = json!(bound);
             bump(e);
         }
+        Ok(id)
+    }
+
+    /// Canvas coordinates of a target. A screenshot pixel is scaled by how large the
+    /// image is shown compared to the PNG itself.
+    pub fn resolve(&self, target: &Target) -> Result<(f64, f64)> {
+        match target {
+            Target::Point(x, y) => Ok((*x, *y)),
+            Target::OnImage { image, x, y } => {
+                let (r, scale) = self.image_scale(image)?;
+                Ok((r.x + x * scale, r.y + y * scale))
+            }
+        }
+    }
+
+    /// Where an image is shown, and canvas pixels per PNG pixel.
+    fn image_scale(&self, image: &str) -> Result<(Rect, f64)> {
+        let e = self
+            .find_live(image)
+            .filter(|e| e["type"] == "image")
+            .with_context(|| format!("There is no screenshot with id {image}."))?;
+        let file = &self.doc["files"][str_of(e, "fileId")];
+        let data = str_of(file, "dataURL")
+            .split_once(',')
+            .map(|(_, d)| d)
+            .context("The screenshot has no image data.")?;
+        let png = base64::engine::general_purpose::STANDARD
+            .decode(data)
+            .context("The screenshot data is not valid.")?;
+        let (pw, _) = png::dimensions(&png)?;
+        let r = Rect::of(e);
+        Ok((r, r.w / pw as f64))
+    }
+
+    /// Annotation arrow from a note (or any element) to a spot, e.g. a field on a
+    /// screenshot. Red unless another colour is given. Returns the arrow id.
+    pub fn add_pointer(&mut self, from: &str, to: &Target, color: Option<Color>) -> Result<String> {
+        let r = Rect::of(
+            self.find_live(from)
+                .with_context(|| format!("There is no element with id {from}."))?,
+        );
+        let (tx, ty) = self.resolve(to)?;
+        let (sx, sy) = edge_towards(r, (tx, ty));
+        let mut arrow = base("arrow", sx, sy, (tx - sx).abs(), (ty - sy).abs());
+        arrow["points"] = json!([[0.0, 0.0], [tx - sx, ty - sy]]);
+        arrow["strokeColor"] = json!(color.unwrap_or(Color::Red).stroke());
+        arrow["roundness"] = json!({ "type": 2 });
+        arrow["startBinding"] = json!({ "elementId": from, "focus": 0, "gap": ARROW_GAP });
+        arrow["endBinding"] = Value::Null;
+        arrow["startArrowhead"] = Value::Null;
+        arrow["endArrowhead"] = json!("arrow");
+        arrow["lastCommittedPoint"] = Value::Null;
+        arrow["elbowed"] = json!(false);
+        let id = str_of(&arrow, "id").to_string();
+        self.push(arrow);
+        let e = self.find_mut(from).expect("checked above");
+        let mut bound = e["boundElements"].as_array().cloned().unwrap_or_default();
+        bound.push(json!({ "type": "arrow", "id": id }));
+        e["boundElements"] = json!(bound);
+        bump(e);
+        Ok(id)
+    }
+
+    /// Outline (no fill, no label) around part of the canvas or of a screenshot, to
+    /// mark what is new or changes. `size` is in the same units as `top_left`.
+    /// Red unless another colour is given. Returns its id.
+    pub fn add_highlight(
+        &mut self,
+        top_left: &Target,
+        size: (f64, f64),
+        color: Option<Color>,
+    ) -> Result<String> {
+        let (x, y) = self.resolve(top_left)?;
+        let scale = match top_left {
+            Target::OnImage { image, .. } => self.image_scale(image)?.1,
+            Target::Point(..) => 1.0,
+        };
+        let mut e = base("rectangle", x, y, size.0 * scale, size.1 * scale);
+        e["strokeColor"] = json!(color.unwrap_or(Color::Red).stroke());
+        e["roundness"] = json!({ "type": 3 });
+        let id = str_of(&e, "id").to_string();
+        self.push(e);
         Ok(id)
     }
 
@@ -598,6 +697,20 @@ fn set_text_fields(
     e.as_object_mut()
         .expect("element is an object")
         .extend(fields);
+}
+
+/// Where the line from the centre of `r` towards `target` leaves `r`, plus the
+/// usual arrow gap, so a pointer starts at the edge of its note.
+fn edge_towards(r: Rect, target: (f64, f64)) -> (f64, f64) {
+    let (cx, cy) = r.center();
+    let (dx, dy) = (target.0 - cx, target.1 - cy);
+    if dx == 0.0 && dy == 0.0 {
+        return (cx, cy);
+    }
+    let half_w = r.w / 2.0 + ARROW_GAP;
+    let half_h = r.h / 2.0 + ARROW_GAP;
+    let t = (half_w / dx.abs()).min(half_h / dy.abs()).min(1.0);
+    (cx + dx * t, cy + dy * t)
 }
 
 fn is_label(e: &Value) -> bool {

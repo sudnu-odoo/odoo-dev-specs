@@ -1,4 +1,4 @@
-use excalidraw::{Color, Placement, Scene};
+use excalidraw::{Color, Placement, Scene, Target};
 use serde_json::Value;
 
 const EMPTY: &str = r##"{"type":"excalidraw","version":2,"source":"x","elements":[],"appState":{"viewBackgroundColor":"#ffffff"},"files":{}}"##;
@@ -106,7 +106,7 @@ fn every_element_has_the_fields_excalidraw_needs() {
         .add_box("B", Placement::default(), None, None, None)
         .unwrap();
     s.add_arrow(&a, &b, Some("then")).unwrap();
-    s.add_text("Title", Placement::default(), None);
+    s.add_text("Title", Placement::default(), None, None);
     s.add_frame("Screen", Placement::default(), (400.0, 300.0));
     s.add_image(&png(10, 10), Placement::default(), None)
         .unwrap();
@@ -159,7 +159,7 @@ fn new_elements_without_position_go_below_everything() {
     assert!(b["y"].as_f64().unwrap() >= 50.0 + 80.0 + 20.0, "{}", b["y"]);
 
     let mut fresh = empty();
-    let id = fresh.add_text("T", Placement::default(), None);
+    let id = fresh.add_text("T", Placement::default(), None, None);
     assert_eq!(
         (
             element(&fresh, &id)["x"].as_f64(),
@@ -273,7 +273,7 @@ fn summary_lists_live_elements_with_box_labels() {
             Some(&frame),
         )
         .unwrap();
-    s.add_text("Note", at(0.0, 500.0), None);
+    s.add_text("Note", at(0.0, 500.0), None, None);
     let summary = s.summary();
     assert_eq!(
         summary.len(),
@@ -396,4 +396,127 @@ fn size_of_reports_the_final_box_size() {
         .unwrap();
     assert_eq!(s.size_of(&id), Some((120.0, 40.0)));
     assert_eq!(s.size_of("missing"), None);
+}
+
+// ---- Annotations: coloured notes, pointers and highlights on screenshots ----
+
+#[test]
+fn notes_can_be_red() {
+    let mut s = empty();
+    let id = s.add_text("New field", at(0.0, 0.0), None, Some(Color::Red));
+    assert_eq!(element(&s, &id)["strokeColor"], "#e03131");
+    let plain = s.add_text("Title", at(0.0, 100.0), None, None);
+    assert_eq!(element(&s, &plain)["strokeColor"], "#1e1e1e");
+}
+
+/// A 1000x500 screenshot shown at half size (500x250) at (100, 200).
+fn scene_with_screenshot() -> (Scene, String) {
+    let mut s = empty();
+    let img = s
+        .add_image(&png(1000, 500), at(100.0, 200.0), Some(500.0))
+        .unwrap();
+    (s, img)
+}
+
+#[test]
+fn a_point_on_a_screenshot_is_given_in_the_screenshots_own_pixels() {
+    let (s, img) = scene_with_screenshot();
+    let p = s
+        .resolve(&Target::OnImage {
+            image: img,
+            x: 400.0,
+            y: 100.0,
+        })
+        .unwrap();
+    assert_eq!(p, (100.0 + 200.0, 200.0 + 50.0));
+    assert_eq!(s.resolve(&Target::Point(5.0, 6.0)).unwrap(), (5.0, 6.0));
+}
+
+#[test]
+fn a_pointer_goes_from_a_note_to_a_spot_on_the_screenshot() {
+    let (mut s, img) = scene_with_screenshot();
+    let note = s.add_text("New: Delivery date", at(700.0, 0.0), None, Some(Color::Red));
+    let id = s
+        .add_pointer(
+            &note,
+            &Target::OnImage {
+                image: img,
+                x: 400.0,
+                y: 100.0,
+            },
+            None,
+        )
+        .unwrap();
+    let a = element(&s, &id);
+    assert_eq!(a["type"], "arrow");
+    assert_eq!(a["strokeColor"], "#e03131", "pointers are red by default");
+    assert_eq!(a["startBinding"]["elementId"], note.as_str());
+    assert!(
+        a["endBinding"].is_null(),
+        "the end points at a spot, not an element"
+    );
+    // The tip lands exactly on the spot.
+    let pts = a["points"].as_array().unwrap();
+    let tip = pts.last().unwrap();
+    let x = a["x"].as_f64().unwrap() + tip[0].as_f64().unwrap();
+    let y = a["y"].as_f64().unwrap() + tip[1].as_f64().unwrap();
+    assert!(
+        (x - 300.0).abs() < 0.01 && (y - 250.0).abs() < 0.01,
+        "tip at ({x}, {y})"
+    );
+    // The note knows about its arrow, so moving it keeps them together in the editor.
+    let bound = element(&s, &note)["boundElements"].clone();
+    assert!(bound
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|b| b["id"] == id.as_str()));
+}
+
+#[test]
+fn a_pointer_needs_an_existing_note_and_screenshot() {
+    let (mut s, _) = scene_with_screenshot();
+    assert!(s
+        .add_pointer("nope", &Target::Point(0.0, 0.0), None)
+        .is_err());
+    let note = s.add_text("n", at(0.0, 0.0), None, None);
+    let bad = Target::OnImage {
+        image: note.clone(),
+        x: 1.0,
+        y: 1.0,
+    };
+    assert!(
+        s.add_pointer(&note, &bad, None).is_err(),
+        "a text is not a screenshot"
+    );
+}
+
+#[test]
+fn a_highlight_outlines_part_of_a_screenshot() {
+    let (mut s, img) = scene_with_screenshot();
+    let id = s
+        .add_highlight(
+            &Target::OnImage {
+                image: img,
+                x: 200.0,
+                y: 100.0,
+            },
+            (300.0, 50.0),
+            None,
+        )
+        .unwrap();
+    let h = element(&s, &id);
+    assert_eq!(h["type"], "rectangle");
+    assert_eq!(h["backgroundColor"], "transparent");
+    assert_eq!(h["strokeColor"], "#e03131");
+    // Position and size are scaled from screenshot pixels like the pointer target.
+    assert_eq!(
+        (h["x"].as_f64(), h["y"].as_f64()),
+        (Some(200.0), Some(250.0))
+    );
+    assert_eq!(
+        (h["width"].as_f64(), h["height"].as_f64()),
+        (Some(150.0), Some(25.0))
+    );
+    assert!(h["boundElements"].is_null(), "no label inside a highlight");
 }

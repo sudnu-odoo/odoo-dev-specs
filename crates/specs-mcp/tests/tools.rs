@@ -93,7 +93,9 @@ async fn offers_the_diagram_tools() {
             "diagram_add_arrow",
             "diagram_add_box",
             "diagram_add_frame",
+            "diagram_add_highlight",
             "diagram_add_image",
+            "diagram_add_pointer",
             "diagram_add_text",
             "diagram_delete",
             "diagram_move",
@@ -315,4 +317,99 @@ async fn box_answers_tell_the_real_size() {
         .await,
     );
     assert!(answer.ends_with("(120x40)."), "{answer}");
+}
+
+/// A 1000x500 screenshot in the session folder, placed at half size; returns its id.
+async fn screenshot_on_scene(dir: &TempDir, client: &RunningService<RoleClient, Client>) -> String {
+    let mut png = vec![0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A, 0, 0, 0, 13];
+    png.extend(b"IHDR");
+    png.extend(1000u32.to_be_bytes());
+    png.extend(500u32.to_be_bytes());
+    png.extend([8, 6, 0, 0, 0]);
+    fs::write(dir.path().join("screenshots/form.png"), &png).unwrap();
+    let added = call(
+        client,
+        "diagram_add_image",
+        json!({"path": "screenshots/form.png", "x": 0, "y": 0, "width": 500}),
+    )
+    .await;
+    id_in(&text(&added))
+}
+
+fn element(dir: &TempDir, id: &str) -> Value {
+    scene(dir)["elements"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|e| e["id"] == id)
+        .cloned()
+        .unwrap()
+}
+
+#[tokio::test]
+async fn annotations_point_at_spots_on_a_screenshot() {
+    let dir = session();
+    let client = connect(dir.path()).await;
+    let shot = screenshot_on_scene(&dir, &client).await;
+
+    let note = call(
+        &client,
+        "diagram_add_text",
+        json!({"text": "New field", "x": 600, "y": 0, "color": "red"}),
+    )
+    .await;
+    let note = id_in(&text(&note));
+    assert_eq!(element(&dir, &note)["strokeColor"], "#e03131");
+
+    let pointer = call(
+        &client,
+        "diagram_add_pointer",
+        json!({"from_id": note, "image_id": shot, "x": 400, "y": 100}),
+    )
+    .await;
+    assert!(!is_error(&pointer), "{}", text(&pointer));
+    let a = element(&dir, &id_in(&text(&pointer)));
+    let tip = a["points"].as_array().unwrap().last().unwrap().clone();
+    // Pixel (400, 100) of the PNG is shown at (200, 50) on the half-size image.
+    assert_eq!(a["x"].as_f64().unwrap() + tip[0].as_f64().unwrap(), 200.0);
+    assert_eq!(a["y"].as_f64().unwrap() + tip[1].as_f64().unwrap(), 50.0);
+
+    let highlight = call(
+        &client,
+        "diagram_add_highlight",
+        json!({"image_id": shot, "x": 200, "y": 100, "width": 300, "height": 50}),
+    )
+    .await;
+    assert!(!is_error(&highlight), "{}", text(&highlight));
+    let h = element(&dir, &id_in(&text(&highlight)));
+    assert_eq!(
+        (h["x"].as_f64(), h["width"].as_f64()),
+        (Some(100.0), Some(150.0))
+    );
+    assert_eq!(h["backgroundColor"], "transparent");
+}
+
+#[tokio::test]
+async fn annotation_mistakes_are_readable() {
+    let dir = session();
+    let client = connect(dir.path()).await;
+    let bad = call(
+        &client,
+        "diagram_add_pointer",
+        json!({"from_id": "nope", "x": 1, "y": 1}),
+    )
+    .await;
+    assert!(is_error(&bad));
+    assert!(text(&bad).contains("nope"), "{}", text(&bad));
+    let colour = call(
+        &client,
+        "diagram_add_text",
+        json!({"text": "x", "color": "pink"}),
+    )
+    .await;
+    assert!(
+        text(&colour).contains("Unknown colour"),
+        "{}",
+        text(&colour)
+    );
 }

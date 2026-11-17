@@ -12,7 +12,7 @@ use std::sync::Arc;
 
 use anyhow::{bail, ensure, Context, Result};
 use browser::Viewport;
-use excalidraw::{Color, Placement, Scene};
+use excalidraw::{Color, Placement, Scene, Target};
 use odoo_runtime::runtime::Runtime;
 use rmcp::handler::server::wrapper::Parameters;
 use rmcp::model::{CallToolResult, ContentBlock};
@@ -47,6 +47,37 @@ pub struct AddText {
     pub y: Option<f64>,
     /// Default 20. Use 28-36 for titles.
     pub font_size: Option<f64>,
+    /// One of: gray, blue, green, yellow, red, purple. Use red for annotations
+    /// (what is new or changes); leave out for normal text.
+    pub color: Option<String>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct AddPointer {
+    /// Id of the note (usually a red text) the arrow starts from.
+    pub from_id: String,
+    /// Screenshot the arrow points into. With it, x and y are pixels of that PNG file
+    /// (as you see the image when you open it); without it, canvas coordinates.
+    pub image_id: Option<String>,
+    pub x: f64,
+    pub y: f64,
+    /// Default red.
+    pub color: Option<String>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct AddHighlight {
+    /// Screenshot the outline is drawn on. With it, x, y, width and height are pixels
+    /// of that PNG file; without it, canvas coordinates.
+    pub image_id: Option<String>,
+    /// Left of the outlined area.
+    pub x: f64,
+    /// Top of the outlined area.
+    pub y: f64,
+    pub width: f64,
+    pub height: f64,
+    /// Default red.
+    pub color: Option<String>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -186,15 +217,48 @@ impl DiagramServer {
         .await
     }
 
-    #[tool(description = "Add free text such as a title or a note. Returns its id.")]
+    #[tool(
+        description = "Add free text such as a title, a short explanation or a red annotation note. Returns its id."
+    )]
     async fn diagram_add_text(&self, Parameters(p): Parameters<AddText>) -> CallToolResult {
         self.edit(|scene| {
+            let color = p.color.as_deref().map(parse_color).transpose()?;
             let id = scene.add_text(
                 &unescape(&p.text),
                 Placement { x: p.x, y: p.y },
                 p.font_size,
+                color,
             );
             Ok(format!("Added text {id}."))
+        })
+        .await
+    }
+
+    #[tool(
+        description = "Draw an annotation arrow from a note to a spot, e.g. the field on a screenshot the note talks about. Give image_id to use the screenshot's own pixel coordinates. Returns its id."
+    )]
+    async fn diagram_add_pointer(&self, Parameters(p): Parameters<AddPointer>) -> CallToolResult {
+        self.edit(|scene| {
+            let color = p.color.as_deref().map(parse_color).transpose()?;
+            let target = target(p.image_id, p.x, p.y);
+            let id = scene.add_pointer(&p.from_id, &target, color)?;
+            Ok(format!("Added pointer {id}."))
+        })
+        .await
+    }
+
+    #[tool(
+        description = "Outline (no fill) part of a screenshot or of the canvas, to mark what is new, hidden or changed. Give image_id to use the screenshot's own pixel coordinates. Returns its id."
+    )]
+    async fn diagram_add_highlight(
+        &self,
+        Parameters(p): Parameters<AddHighlight>,
+    ) -> CallToolResult {
+        self.edit(|scene| {
+            let color = p.color.as_deref().map(parse_color).transpose()?;
+            let target = target(p.image_id, p.x, p.y);
+            let id = scene.add_highlight(&target, (p.width, p.height), color)?;
+            Ok(format!("Added highlight {id}."))
         })
         .await
     }
@@ -367,6 +431,14 @@ fn file_stem(name: &str) -> Result<String> {
         "Give the screenshot a name, like \"sales_order_form\"."
     );
     Ok(stem)
+}
+
+/// A spot given in a screenshot's own pixels, or on the canvas.
+fn target(image: Option<String>, x: f64, y: f64) -> Target {
+    match image {
+        Some(image) => Target::OnImage { image, x, y },
+        None => Target::Point(x, y),
+    }
 }
 
 fn parse_color(name: &str) -> Result<Color> {
