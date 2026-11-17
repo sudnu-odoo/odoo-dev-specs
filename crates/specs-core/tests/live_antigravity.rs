@@ -65,3 +65,55 @@ async fn real_agy_answers_and_resumes() {
         other => panic!("expected an assistant reply, got {other:?}"),
     }
 }
+
+#[tokio::test]
+#[ignore = "calls the real Antigravity CLI; run with `make test-live`"]
+async fn real_agy_draws_with_the_diagram_tools() {
+    let mcp =
+        std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/debug/specs-mcp");
+    assert!(mcp.is_file(), "build it first: cargo build -p specs-mcp");
+    let dir = tempfile::tempdir().unwrap();
+    let ws = Workspace::new(dir.path());
+    ws.create_project("P").unwrap();
+    let id = ws.create_session("P", "live", "antigravity").unwrap().id;
+    let agy = ClaudeConfig {
+        diagram_tools: Some(mcp),
+        model: Some("gemini-3.8-flash-medium".into()),
+        ..real_agy()
+    };
+
+    let (_tx, rx) = oneshot::channel();
+    let done = send_message(
+        &ws,
+        "P",
+        &id,
+        "Using the diagram tools, add a blue box 'Sales order', a green box 'Delivery', \
+         and an arrow from the first to the second labelled 'plans'. Then reply: done",
+        &agy,
+        |_| {},
+        rx,
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        done,
+        ChatEvent::Finished {
+            is_error: false,
+            message: None
+        }
+    );
+
+    let scene: serde_json::Value = serde_json::from_str(&ws.read_scene("P", &id).unwrap()).unwrap();
+    let live: Vec<&serde_json::Value> = scene["elements"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|e| e["isDeleted"] != true)
+        .collect();
+    let count = |kind: &str| live.iter().filter(|e| e["type"] == kind).count();
+    assert_eq!((count("rectangle"), count("arrow")), (2, 1), "{scene}");
+    let texts: Vec<&str> = live.iter().filter_map(|e| e["text"].as_str()).collect();
+    for expected in ["Sales order", "Delivery", "plans"] {
+        assert!(texts.contains(&expected), "missing {expected}: {texts:?}");
+    }
+}
