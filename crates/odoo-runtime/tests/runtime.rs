@@ -79,8 +79,11 @@ for a in "$@"; do
   [ "$a" = "--stop-after-init" ] && init=1; prev="$a"
 done
 if [ -n "$init" ]; then
+  # Like odoo-bin: the database exists as soon as it starts, ready only at the end.
   echo "$db" >> '{dbs}'
+  sleep 0.3
   {fail}
+  touch '{d}/ready-'"$db"
   exit 0
 fi
 exec /usr/bin/python3 -m http.server "$port" --bind 127.0.0.1"#,
@@ -318,4 +321,44 @@ fn source_dirs_lists_the_downloaded_versions_for_the_assistant() {
     assert!(env.rt.source_dirs().is_empty());
     env.rt.ensure_database("19.0", &[], true).unwrap();
     assert_eq!(env.rt.source_dirs(), [env.rt.source_dir("19.0")]);
+}
+
+#[test]
+fn two_callers_creating_the_same_database_wait_for_one_complete_creation() {
+    let env = Env::new(&[], false);
+    let ready = env.dir.path().join("ready-specs_19_0_sale_demo");
+    std::thread::scope(|s| {
+        for _ in 0..2 {
+            s.spawn(|| {
+                let db = env
+                    .rt
+                    .ensure_database("19.0", &["sale".into()], true)
+                    .unwrap();
+                assert_eq!(db, "specs_19_0_sale_demo");
+                // Never handed out half-made: the creation has finished.
+                assert!(ready.exists(), "got the database before it was ready");
+            });
+        }
+    });
+    assert_eq!(env.count("odoo "), 1, "created once: {:?}", env.calls());
+}
+
+#[test]
+fn two_callers_starting_the_same_server_share_one() {
+    let env = Env::new(&["specs_19_0_base_demo"], false);
+    let ports: Vec<u16> = std::thread::scope(|s| {
+        let handles: Vec<_> = (0..2)
+            .map(|_| {
+                s.spawn(|| {
+                    env.rt
+                        .ensure_running("19.0", "specs_19_0_base_demo")
+                        .unwrap()
+                        .port
+                })
+            })
+            .collect();
+        handles.into_iter().map(|h| h.join().unwrap()).collect()
+    });
+    assert_eq!(ports[0], ports[1], "one server for both");
+    env.rt.stop_all().unwrap();
 }

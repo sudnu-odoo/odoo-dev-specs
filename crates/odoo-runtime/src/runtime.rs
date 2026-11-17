@@ -320,6 +320,10 @@ impl Runtime {
         demo_data: bool,
     ) -> Result<String> {
         validate_version(version)?;
+        // Several assistants (sessions, providers) can ask at the same moment: one
+        // at a time per version sets up the source, Python environment and database,
+        // so none sees a half-installed environment or a database still being built.
+        let _setup = self.setup_lock(version)?;
         let name = database_name(version, modules, demo_data);
         if self.databases()?.contains(&name) {
             return Ok(name);
@@ -360,15 +364,15 @@ impl Runtime {
     /// Start the database's server (or reuse the running one) and wait until it answers.
     pub fn ensure_running(&self, version: &str, database: &str) -> Result<Running> {
         validate_version(version)?;
-        let mut state = self.load_state();
-        if let Some(entry) = state.servers.get(database) {
-            if is_alive(entry.pid) && answers(entry.port) {
-                return Ok(Running {
-                    database: database.into(),
-                    port: entry.port,
-                });
-            }
+        if let Some(running) = self.already_running(database) {
+            return Ok(running);
         }
+        // Another process may be starting the same server: wait, then look again.
+        let _setup = self.setup_lock(version)?;
+        if let Some(running) = self.already_running(database) {
+            return Ok(running);
+        }
+        let mut state = self.load_state();
         let python = self.ensure_venv(version)?;
         let port = free_port()?;
         let mut args = self.odoo_args(version, database);
@@ -448,6 +452,32 @@ impl Runtime {
             self.data_dir().display().to_string(),
             "--log-level=warn".into(),
         ]
+    }
+
+    /// The database's server, if it is recorded, alive and answering.
+    fn already_running(&self, database: &str) -> Option<Running> {
+        let state = self.load_state();
+        let entry = state.servers.get(database)?;
+        (is_alive(entry.pid) && answers(entry.port)).then(|| Running {
+            database: database.into(),
+            port: entry.port,
+        })
+    }
+
+    /// Exclusive lock on setting up one Odoo version, shared by every process using
+    /// this runtime folder. Released when the returned file is dropped.
+    fn setup_lock(&self, version: &str) -> Result<fs::File> {
+        fs::create_dir_all(self.state_dir())?;
+        let path = self.state_dir().join(format!("setup-{version}.lock"));
+        let file = fs::OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .write(true)
+            .open(&path)
+            .with_context(|| format!("opening {}", path.display()))?;
+        file.lock()
+            .with_context(|| format!("waiting for {}", path.display()))?;
+        Ok(file)
     }
 
     fn state_file(&self) -> PathBuf {
