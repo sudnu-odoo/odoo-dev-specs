@@ -242,6 +242,33 @@ impl Scene {
         Ok(id)
     }
 
+    /// Texts and labelled boxes that cover element `id` (also a text or labelled box).
+    /// Images, frames, arrows and outlines are left out: writing on a screenshot or
+    /// outlining part of it is meant to overlap it.
+    pub fn overlapping(&self, id: &str) -> Vec<String> {
+        let Some(me) = self.find_live(id).filter(|e| self.is_readable_block(e)) else {
+            return vec![];
+        };
+        let r = Rect::of(me);
+        self.live()
+            .filter(|e| str_of(e, "id") != id && self.is_readable_block(e))
+            .filter(|e| {
+                let o = Rect::of(e);
+                r.x < o.x + o.w && o.x < r.x + r.w && r.y < o.y + o.h && o.y < r.y + r.h
+            })
+            .map(|e| str_of(e, "id").to_string())
+            .collect()
+    }
+
+    /// A free text, or a box with a label: what must stay readable.
+    fn is_readable_block(&self, e: &Value) -> bool {
+        match e["type"].as_str() {
+            Some("text") => !is_label(e),
+            Some("rectangle") => self.label_of(str_of(e, "id")).is_some(),
+            _ => false,
+        }
+    }
+
     /// A free text must not cover another one (e.g. two notes beside a screenshot):
     /// push it down below every free text it would overlap, keeping its column.
     fn below_overlapping_text(&self, mut r: Rect) -> f64 {

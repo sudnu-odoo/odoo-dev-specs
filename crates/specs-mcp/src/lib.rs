@@ -215,7 +215,10 @@ impl DiagramServer {
             )?;
             let (w, h) = scene.size_of(&id).unwrap_or_default();
             // The box may be taller than asked (to fit its label): say so for the layout.
-            Ok(format!("Added box {id} ({w}x{h})."))
+            Ok(format!(
+                "Added box {id} ({w}x{h}).{}",
+                overlap_note(scene, &id)
+            ))
         })
         .await
     }
@@ -245,7 +248,7 @@ impl DiagramServer {
                 .find(|e| e.id == id)
                 .map(|e| format!(" at ({}, {})", e.x, e.y))
                 .unwrap_or_default();
-            Ok(format!("Added text {id}{at}."))
+            Ok(format!("Added text {id}{at}.{}", overlap_note(scene, &id)))
         })
         .await
     }
@@ -325,7 +328,11 @@ impl DiagramServer {
     async fn diagram_set_text(&self, Parameters(p): Parameters<SetText>) -> CallToolResult {
         self.edit(|scene| {
             scene.set_text(&p.id, &unescape(&p.text))?;
-            Ok(format!("Changed the text of {}.", p.id))
+            Ok(format!(
+                "Changed the text of {}.{}",
+                p.id,
+                overlap_note(scene, &p.id)
+            ))
         })
         .await
     }
@@ -334,7 +341,7 @@ impl DiagramServer {
     async fn diagram_move(&self, Parameters(p): Parameters<MoveElement>) -> CallToolResult {
         self.edit(|scene| {
             scene.move_to(&p.id, p.x, p.y)?;
-            Ok(format!("Moved {}.", p.id))
+            Ok(format!("Moved {}.{}", p.id, overlap_note(scene, &p.id)))
         })
         .await
     }
@@ -447,6 +454,19 @@ fn file_stem(name: &str) -> Result<String> {
         "Give the screenshot a name, like \"sales_order_form\"."
     );
     Ok(stem)
+}
+
+/// Tells the assistant right away when what it placed covers other text or boxes,
+/// so it fixes the layout itself (e.g. with diagram_move) instead of leaving it.
+fn overlap_note(scene: &Scene, id: &str) -> String {
+    let others = scene.overlapping(id);
+    if others.is_empty() {
+        return String::new();
+    }
+    format!(
+        " Warning: it overlaps {}; move one of them so both stay readable.",
+        others.join(", ")
+    )
 }
 
 /// A spot given in a screenshot's own pixels, or on the canvas.

@@ -198,6 +198,8 @@ mod tests {
             "Known limitations",
             "Reply in the language of the user's latest message",
             "New field: x_delivery_window",
+            "Before your final answer, always call diagram_summary",
+            "The user does not run tools",
         ] {
             assert!(SYSTEM_PROMPT.contains(rule), "missing: {rule}");
         }

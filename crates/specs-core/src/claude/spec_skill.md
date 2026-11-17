@@ -43,13 +43,15 @@ Never ask for, read or reproduce customer data. Verify behaviour only on the loc
      type: date
      value: "Dec 20 -> Dec 27"
      (one more short line only if really needed, e.g. "read-only after confirmation").
-  3. Connect them with diagram_add_arrow from the label to the note.
+  3. Connect them with diagram_add_arrow to the note, starting from the text closest to the note (usually the example value, which sits right of the label), so the arrow never crosses your own writing.
   No outline box around a new field, and never redraw a screen or a table inside a box.
 - Layout: one column starting at x = 0. Leave 80px between sections. Put red notes to the right of the screenshot (x = 960 or more), level with what they describe, a few words each with real line breaks.
 - Annotate existing parts with diagram_add_text (color "red") for notes, diagram_add_pointer from the note to the spot (image_id + pixel coordinates as seen in the PNG), and diagram_add_highlight (image_id + pixel area) around what changes.
 - Text sizes: title 36, section headings 28, everything else 20 (never smaller).
 - Plain text (no colour) for titles, context, the fields table, flows, test cases and limitations. Use boxes only for a small mockup of something that does not exist yet (e.g. a new button or field), never for process steps.
-- After adding, check positions with diagram_summary and fix overlaps with diagram_move.
+- When a tool answer says "Warning: it overlaps ...", fix it right away with diagram_move.
+- Before your final answer, always call diagram_summary and check the whole diagram yourself: nothing overlaps, every note is next to what it describes, sections follow each other top to bottom. Fix what is wrong, then answer.
+- The user does not run tools. Never ask them to check the layout or to call a tool, and do not mention tool names in your answer.
 
 ## Lessons from past specs
 

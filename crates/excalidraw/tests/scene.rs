@@ -567,3 +567,27 @@ fn a_note_placed_on_another_note_moves_below_it() {
     let e = s.summary().into_iter().find(|e| e.id == apart).unwrap();
     assert_eq!((e.x, e.y), (0.0, 120.0));
 }
+
+#[test]
+fn overlaps_between_texts_and_boxes_are_reported() {
+    let (mut s, img) = scene_with_screenshot();
+    let title = s.add_text("A long title line", at(0.0, -100.0), Some(28.0), None);
+    let boxed = s
+        .add_box("Mockup", at(10.0, -95.0), Some((200.0, 80.0)), None, None)
+        .unwrap();
+    let on_shot = s.add_text("New Field", at(150.0, 250.0), None, None);
+    s.add_highlight(
+        &Target::OnImage {
+            image: img,
+            x: 100.0,
+            y: 100.0,
+        },
+        (200.0, 50.0),
+        None,
+    )
+    .unwrap();
+    assert_eq!(s.overlapping(&boxed), vec![title.clone()]);
+    assert_eq!(s.overlapping(&title), vec![boxed.clone()]);
+    // Writing on a screenshot, or outlining part of it, is meant to overlap it.
+    assert!(s.overlapping(&on_shot).is_empty());
+}

@@ -464,3 +464,43 @@ async fn text_can_be_placed_on_a_screenshot_in_its_own_pixels() {
         (Some(200.0), Some(50.0))
     );
 }
+
+/// The assistant learns about an overlap the moment it makes one, and can fix it.
+#[tokio::test]
+async fn answers_warn_about_overlaps() {
+    let dir = session();
+    let client = connect(dir.path()).await;
+    let title = call(
+        &client,
+        "diagram_add_text",
+        json!({"text": "Title", "x": 0, "y": 0, "font_size": 36}),
+    )
+    .await;
+    let title = id_in(&text(&title));
+    let clean = call(
+        &client,
+        "diagram_add_box",
+        json!({"label": "Far away", "x": 0, "y": 500}),
+    )
+    .await;
+    assert!(!text(&clean).contains("overlaps"), "{}", text(&clean));
+    let boxed = call(
+        &client,
+        "diagram_add_box",
+        json!({"label": "Mockup", "x": 10, "y": 5}),
+    )
+    .await;
+    let answer = text(&boxed);
+    assert!(
+        answer.contains("overlaps") && answer.contains(&title),
+        "{answer}"
+    );
+    // Moving it away clears the warning.
+    let moved = call(
+        &client,
+        "diagram_move",
+        json!({"id": id_in(&answer), "x": 600, "y": 0}),
+    )
+    .await;
+    assert!(!text(&moved).contains("overlaps"), "{}", text(&moved));
+}
