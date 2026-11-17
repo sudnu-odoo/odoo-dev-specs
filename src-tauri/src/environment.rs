@@ -48,3 +48,14 @@ fn run_ok(program: &str, args: &[&str]) -> bool {
         .map(|s| s.success())
         .unwrap_or(false)
 }
+
+/// `agy`, when it is installed and has been run/logged in at least once (its state
+/// folder exists). Checked on every call so logging in takes effect immediately.
+pub fn find_antigravity() -> Option<std::path::PathBuf> {
+    let home = dirs::home_dir()?;
+    let path = std::env::var("PATH").ok();
+    let program = find_executable("agy", path.as_deref(), &user_bin_dirs(&home))?;
+    home.join(".gemini/antigravity-cli")
+        .is_dir()
+        .then_some(program)
+}

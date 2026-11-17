@@ -170,3 +170,25 @@ fn transcript_append_and_read() {
     let all: Vec<_> = first.iter().chain(second.iter()).cloned().collect();
     assert_eq!(ws.read_transcript("P", &s.id).unwrap(), all);
 }
+
+#[test]
+fn conversation_id_is_stored_and_old_sessions_still_load() {
+    let (ws, _d) = workspace();
+    ws.create_project("P").unwrap();
+    let s = ws.create_session("P", "t", "antigravity").unwrap();
+    assert_eq!(s.conversation_id, None);
+    let saved = ws.set_conversation_id("P", &s.id, "conv-1").unwrap();
+    assert_eq!(saved.conversation_id.as_deref(), Some("conv-1"));
+    assert_eq!(
+        ws.session("P", &s.id).unwrap().conversation_id.as_deref(),
+        Some("conv-1")
+    );
+
+    // A session.json written before this field existed.
+    let path = ws.session_dir("P", &s.id).unwrap().join("session.json");
+    let mut json: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    json.as_object_mut().unwrap().remove("conversation_id");
+    std::fs::write(&path, json.to_string()).unwrap();
+    assert_eq!(ws.session("P", &s.id).unwrap().conversation_id, None);
+}

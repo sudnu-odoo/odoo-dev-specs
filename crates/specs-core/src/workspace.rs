@@ -34,6 +34,9 @@ pub struct SessionMeta {
     pub updated_at: u64,
     /// True once the AI CLI has a conversation for this session (later turns resume it).
     pub started: bool,
+    /// The provider's own conversation id, for CLIs that pick it themselves (Antigravity).
+    #[serde(default)]
+    pub conversation_id: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -104,6 +107,7 @@ impl Workspace {
             created_at: now,
             updated_at: now,
             started: false,
+            conversation_id: None,
         };
         let dir = project_dir.join(&meta.id);
         fs::create_dir_all(dir.join(SCREENSHOTS))?;
@@ -139,6 +143,18 @@ impl Workspace {
     /// Record that the AI conversation exists, and bump `updated_at`.
     pub fn mark_started(&self, project: &str, id: &str) -> Result<SessionMeta> {
         self.update_meta(project, id, |m| m.started = true)
+    }
+
+    /// Remember the provider's conversation id, so later turns can resume it.
+    pub fn set_conversation_id(
+        &self,
+        project: &str,
+        id: &str,
+        conversation_id: &str,
+    ) -> Result<SessionMeta> {
+        self.update_meta(project, id, |m| {
+            m.conversation_id = Some(conversation_id.to_string());
+        })
     }
 
     pub fn read_scene(&self, project: &str, id: &str) -> Result<String> {

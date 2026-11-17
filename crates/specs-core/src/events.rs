@@ -22,6 +22,8 @@ pub enum ChatEvent {
     },
     /// A tool call returned.
     ToolFinished { id: String, is_error: bool },
+    /// The provider's own id for this conversation, needed to resume it later.
+    Conversation { id: String },
     /// Token usage for the turn, reported by the CLI at the end.
     Usage {
         input_tokens: u64,

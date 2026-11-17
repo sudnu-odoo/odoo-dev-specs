@@ -14,6 +14,8 @@ use crate::fsutil::write_atomic;
 pub enum Provider {
     #[default]
     Claude,
+    /// Google's Antigravity CLI (`agy`).
+    Antigravity,
 }
 
 /// Persisted preferences. `#[serde(default)]` keeps every field optional on disk,

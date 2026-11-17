@@ -29,15 +29,59 @@ fn model(provider: &str, id: &str, label: &str) -> Model {
     }
 }
 
-/// Models for a provider, default first.
-pub fn models(provider: Provider) -> Vec<Model> {
-    match provider {
-        Provider::Claude => vec![
-            model("Claude", "sonnet", "Sonnet (balanced)"),
-            model("Claude", "opus", "Opus (most capable)"),
-            model("Claude", "haiku", "Haiku (fastest)"),
-        ],
+/// Every provider, in the order the picker lists them.
+pub const PROVIDERS: [Provider; 2] = [Provider::Claude, Provider::Antigravity];
+
+impl Provider {
+    /// Name shown in the picker.
+    pub fn display_name(self) -> &'static str {
+        match self {
+            Provider::Claude => "Claude",
+            Provider::Antigravity => "Antigravity",
+        }
     }
+}
+
+/// Models for a provider, default first. Antigravity ids are those of `agy models`.
+pub fn models(provider: Provider) -> Vec<Model> {
+    let name = provider.display_name();
+    let list: &[(&str, &str)] = match provider {
+        Provider::Claude => &[
+            ("sonnet", "Sonnet (balanced)"),
+            ("opus", "Opus (most capable)"),
+            ("haiku", "Haiku (fastest)"),
+        ],
+        Provider::Antigravity => &[
+            ("gemini-3.8-flash-high", "Gemini 3.8 Flash (High)"),
+            ("gemini-3.8-flash-medium", "Gemini 3.8 Flash (Medium)"),
+            ("gemini-3.8-flash-low", "Gemini 3.8 Flash (Low)"),
+            ("claude-sonnet-4-6", "Claude Sonnet 4.6 (Thinking)"),
+            ("claude-opus-4-6-thinking", "Claude Opus 4.6 (Thinking)"),
+            ("gpt-oss-120b-medium", "GPT-OSS 120B (Medium)"),
+        ],
+    };
+    list.iter()
+        .map(|(id, label)| model(name, id, label))
+        .collect()
+}
+
+/// The models of every provider for one picker. Providers that are not `available`
+/// (CLI missing or not logged in) are listed too, but locked.
+pub fn all_models(available: impl Fn(Provider) -> bool) -> Vec<Model> {
+    PROVIDERS
+        .into_iter()
+        .flat_map(|provider| {
+            let locked = !available(provider);
+            models(provider)
+                .into_iter()
+                .map(move |m| Model { locked, ..m })
+        })
+        .collect()
+}
+
+/// Which provider offers this model id, if any.
+pub fn provider_of(id: &str) -> Option<Provider> {
+    PROVIDERS.into_iter().find(|p| is_valid(*p, id))
 }
 
 /// The default model id for a provider (the first in its list).
@@ -64,6 +108,34 @@ mod tests {
         let claude = models(Provider::Claude);
         assert_eq!(claude.first().unwrap().id, "sonnet");
         assert_eq!(default_model(Provider::Claude), "sonnet");
+    }
+
+    #[test]
+    fn all_models_lists_every_provider_and_locks_the_unavailable_ones() {
+        let all = all_models(|p| p == Provider::Claude);
+        let first = all.first().unwrap();
+        assert_eq!((first.id.as_str(), first.locked), ("sonnet", false));
+        let agy: Vec<_> = all.iter().filter(|m| m.provider == "Antigravity").collect();
+        assert_eq!(agy.len(), 6);
+        assert!(agy.iter().all(|m| m.locked));
+        let mut ids: Vec<_> = all.iter().map(|m| m.id.as_str()).collect();
+        ids.sort();
+        ids.dedup();
+        assert_eq!(
+            ids.len(),
+            all.len(),
+            "model ids must be unique across providers"
+        );
+    }
+
+    #[test]
+    fn a_model_id_identifies_its_provider() {
+        assert_eq!(provider_of("opus"), Some(Provider::Claude));
+        assert_eq!(
+            provider_of("gemini-3.8-flash-high"),
+            Some(Provider::Antigravity)
+        );
+        assert_eq!(provider_of("nonsense"), None);
     }
 
     #[test]

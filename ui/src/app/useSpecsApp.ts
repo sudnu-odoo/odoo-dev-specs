@@ -26,7 +26,11 @@ export function useSpecsApp() {
       const list = await api.listModels();
       setModels(list);
       // Keep the current choice if it still exists; otherwise fall back to the default.
-      setSelectedModel((current) => (list.some((m) => m.id === current) ? current : (list[0]?.id ?? "")));
+      setSelectedModel((current) => {
+        // Keep the choice while it is still selectable; otherwise the first unlocked model.
+        const usable = list.filter((m) => !m.locked);
+        return usable.some((m) => m.id === current) ? current : (usable[0]?.id ?? "");
+      });
     } catch (e) {
       setError(String(e));
     }

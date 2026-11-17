@@ -47,7 +47,7 @@ pub struct DiagramTools {
 /// Name of our MCP server; its tools appear to Claude as `mcp__specs__<tool>`.
 pub const MCP_SERVER_NAME: &str = "specs";
 
-fn mcp_args(tools: &DiagramTools) -> Vec<String> {
+pub(crate) fn mcp_args(tools: &DiagramTools) -> Vec<String> {
     let mut args = vec![
         "--session-dir".to_string(),
         tools.session_dir.display().to_string(),

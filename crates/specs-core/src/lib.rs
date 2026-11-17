@@ -1,6 +1,7 @@
 //! Core logic of Odoo Dev Specs, independent of the desktop shell:
 //! chat events, AI provider adapters and the on-disk session workspace.
 
+pub mod antigravity;
 pub mod chat;
 pub mod claude;
 pub mod events;

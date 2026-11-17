@@ -65,6 +65,11 @@ struct Harness {
 }
 
 fn harness(with_claude: bool) -> Harness {
+    harness_with(with_claude, None)
+}
+
+/// `antigravity`: the `agy` the app should find, when it is installed and logged in.
+fn harness_with(with_claude: bool, antigravity: Option<PathBuf>) -> Harness {
     let claude = with_claude.then(|| ClaudeConfig {
         program: fake_claude(),
         provider: specs_core::settings::Provider::Claude,
@@ -77,7 +82,9 @@ fn harness(with_claude: bool) -> Harness {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().join("OdooSpecs");
     let settings = SettingsStore::new(dir.path().join("settings.json"));
-    let state = AppState::new(Workspace::new(&root), claude, settings).with_probe(test_probe);
+    let state = AppState::new(Workspace::new(&root), claude, settings)
+        .with_probe(test_probe)
+        .with_antigravity(move || antigravity.clone());
     let app = register(mock_builder(), state)
         .build(mock_context(noop_assets()))
         .unwrap();
@@ -391,14 +398,43 @@ fn check_environment_reports_each_requirement() {
 }
 
 #[test]
-fn list_models_offers_the_claude_models_default_first() {
+fn list_models_offers_every_provider_and_locks_those_not_ready() {
     let h = harness(true);
     let models = h.call("list_models", json!({})).unwrap();
-    let ids: Vec<&str> = models
+    let models = models.as_array().unwrap();
+    let first = &models[0];
+    assert_eq!(
+        (first["id"].as_str(), first["locked"].as_bool()),
+        (Some("sonnet"), Some(false))
+    );
+    let agy: Vec<_> = models
+        .iter()
+        .filter(|m| m["provider"] == "Antigravity")
+        .collect();
+    assert_eq!(agy.len(), 6);
+    assert!(agy.iter().all(|m| m["locked"] == true));
+}
+
+#[test]
+fn antigravity_models_unlock_once_agy_is_ready() {
+    let h = harness_with(true, Some(fake_claude()));
+    let models = h.call("list_models", json!({})).unwrap();
+    assert!(models
         .as_array()
         .unwrap()
         .iter()
-        .map(|m| m["id"].as_str().unwrap())
-        .collect();
-    assert_eq!(ids, ["sonnet", "opus", "haiku"]);
+        .all(|m| m["locked"] == false));
+}
+
+#[test]
+fn choosing_a_locked_model_explains_how_to_unlock_it() {
+    let h = harness(true);
+    let id = h.new_session();
+    let err = h
+        .call(
+            "send_message",
+            json!({"project": "Acme", "sessionId": id, "text": "hi", "model": "claude-sonnet-4-6"}),
+        )
+        .unwrap_err();
+    assert!(err.contains("Antigravity"), "{err}");
 }

@@ -10,7 +10,7 @@ use serde::Serialize;
 use specs_core::chat::{self, ClaudeConfig};
 use specs_core::events::ChatEvent;
 use specs_core::models;
-use specs_core::settings::{Settings, SettingsStore};
+use specs_core::settings::{Provider, Settings, SettingsStore};
 use specs_core::transcript::TranscriptEntry;
 use specs_core::workspace::{ProjectInfo, SessionMeta, Workspace};
 use tauri::{AppHandle, Emitter, Manager, Runtime, State};
@@ -29,6 +29,9 @@ pub struct AppState {
     /// turn has really ended (the switch is taken when cancelling), so a new turn
     /// cannot start while the old process is still shutting down.
     pub running: Mutex<HashMap<String, Option<oneshot::Sender<()>>>>,
+    /// Finds `agy` when it is installed and logged in; asked each time, so logging in
+    /// while the app runs unlocks Antigravity without a restart.
+    pub antigravity: Arc<dyn Fn() -> Option<std::path::PathBuf> + Send + Sync>,
     /// Where user preferences are stored.
     pub settings: Arc<SettingsStore>,
     /// Gathers the machine state for the first-run check; swappable in tests.
@@ -45,9 +48,19 @@ impl AppState {
             workspace: Arc::new(workspace),
             claude,
             running: Mutex::default(),
+            antigravity: Arc::new(crate::environment::find_antigravity),
             settings: Arc::new(settings),
             probe: Arc::new(crate::environment::probe),
         }
+    }
+
+    /// Replace how `agy` is found (tests).
+    pub fn with_antigravity(
+        mut self,
+        find: impl Fn() -> Option<std::path::PathBuf> + Send + Sync + 'static,
+    ) -> Self {
+        self.antigravity = Arc::new(find);
+        self
     }
 
     /// Replace the environment probe (tests use a fixed machine state).
@@ -185,11 +198,18 @@ pub fn send_message<R: Runtime>(
             "Claude Code is not installed. Install it and run `claude` once to log in.".into(),
         );
     };
-    // Apply the latest settings, so changing provider or demo data takes effect
-    // without restarting the app.
+    // Apply the latest settings, so changing demo data takes effect without a restart.
     let current = state.settings.load();
-    claude.provider = current.provider;
     claude.demo_data = current.demo_data;
+    // The chosen model decides which assistant answers; without one, the saved default.
+    claude.provider = model
+        .as_deref()
+        .and_then(models::provider_of)
+        .unwrap_or(current.provider);
+    if claude.provider == Provider::Antigravity {
+        claude.program = (state.antigravity)()
+            .ok_or("Antigravity is not ready. Install it, run `agy` once and log in.")?;
+    }
     // The assistant reads the Odoo source downloaded so far (it grows with use).
     if let Some(root) = &claude.runtime_dir {
         claude.read_dirs = OdooRuntime::new(root, Tools::default()).source_dirs();
@@ -267,10 +287,15 @@ pub fn get_settings(state: State<'_, AppState>) -> Settings {
     state.settings.load()
 }
 
-/// The models the active provider offers, for the chat's model picker (default first).
+/// The models of every provider, for the chat's model picker. A provider that is not
+/// ready (not installed, not logged in) is listed with its models locked.
 #[tauri::command]
 pub fn list_models(state: State<'_, AppState>) -> Vec<models::Model> {
-    models::models(state.settings.load().provider)
+    let antigravity_ready = (state.antigravity)().is_some();
+    models::all_models(|provider| match provider {
+        Provider::Claude => state.claude.is_some(),
+        Provider::Antigravity => antigravity_ready,
+    })
 }
 
 #[tauri::command]

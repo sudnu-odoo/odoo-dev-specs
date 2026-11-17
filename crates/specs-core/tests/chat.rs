@@ -17,24 +17,36 @@ const FIXTURE: &str = concat!(
     "/tests/fixtures/claude_read_tool.jsonl"
 );
 
-/// One fake `claude` shared by all tests, written before any test starts a process
+const AGY_FIXTURE: &str = concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/tests/fixtures/agy_read_tool.jsonl"
+);
+
+/// A fake CLI replaying a recorded run, written once before any test starts a process
 /// (executing a freshly written file races with concurrent forks: "Text file busy").
 /// It runs in the session folder: it logs its args there, and fails if a `fail` file exists.
+fn write_fake(name: &str, fixture: &str) -> (TempDir, PathBuf) {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join(name);
+    let script = format!(
+        "#!/bin/sh\ncat > stdin.txt\nprintf '%s\\n' \"$@\" > args.txt\n\
+         if [ -f fail ]; then echo 'Not logged in' >&2; exit 1; fi\ncat '{fixture}'\n"
+    );
+    fs::write(&path, script).unwrap();
+    fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
+    (dir, path)
+}
+
 fn fake_claude() -> PathBuf {
     static FAKE: OnceLock<(TempDir, PathBuf)> = OnceLock::new();
-    FAKE.get_or_init(|| {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("claude");
-        let script = format!(
-            "#!/bin/sh\ncat > stdin.txt\nprintf '%s\\n' \"$@\" > args.txt\n\
-             if [ -f fail ]; then echo 'Not logged in' >&2; exit 1; fi\ncat '{FIXTURE}'\n"
-        );
-        fs::write(&path, script).unwrap();
-        fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
-        (dir, path)
-    })
-    .1
-    .clone()
+    FAKE.get_or_init(|| write_fake("claude", FIXTURE)).1.clone()
+}
+
+fn fake_agy() -> PathBuf {
+    static FAKE: OnceLock<(TempDir, PathBuf)> = OnceLock::new();
+    FAKE.get_or_init(|| write_fake("agy", AGY_FIXTURE))
+        .1
+        .clone()
 }
 
 struct Env {
@@ -218,4 +230,35 @@ async fn diagram_tools_work_on_this_session_folder() {
         config["mcpServers"]["specs"]["args"],
         serde_json::json!(["--session-dir", dir.to_str().unwrap()])
     );
+}
+
+#[tokio::test]
+async fn antigravity_turn_remembers_its_conversation_and_resumes_it() {
+    let mut e = env();
+    e.config.program = fake_agy();
+    e.config.provider = specs_core::settings::Provider::Antigravity;
+
+    let events = e.send("Add a field").await;
+    assert!(events.contains(&ChatEvent::Conversation {
+        id: "2b27c3b2-dade-4994-93db-adb0dfdb7252".into()
+    }));
+    let args = e.args();
+    assert_eq!(args[0], "-p");
+    assert!(!args.contains(&"--conversation".to_string()));
+    // Our diagram tools are offered through the session's MCP config.
+    assert!(e
+        .session_file(".agents/mcp_config.json")
+        .contains("/app/specs-mcp"));
+
+    let meta = e.ws.session("P", &e.session.id).unwrap();
+    assert_eq!(
+        meta.conversation_id.as_deref(),
+        Some("2b27c3b2-dade-4994-93db-adb0dfdb7252")
+    );
+
+    e.send("And another").await;
+    let args = e.args();
+    let at = args.iter().position(|a| a == "--conversation").unwrap();
+    assert_eq!(args[at + 1], "2b27c3b2-dade-4994-93db-adb0dfdb7252");
+    assert_eq!(args[1], "And another");
 }

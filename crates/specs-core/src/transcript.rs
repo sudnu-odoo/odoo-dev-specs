@@ -55,7 +55,9 @@ impl TurnRecorder {
             }
             ChatEvent::Finished { .. } => {}
             // Usage is live-only UI info, not part of the saved conversation.
-            ChatEvent::Usage { .. } | ChatEvent::PlanUsage { .. } => {}
+            ChatEvent::Usage { .. }
+            | ChatEvent::PlanUsage { .. }
+            | ChatEvent::Conversation { .. } => {}
         }
     }
 

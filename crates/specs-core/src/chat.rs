@@ -6,6 +6,7 @@ use std::path::PathBuf;
 use anyhow::Result;
 use tokio::sync::oneshot;
 
+use crate::antigravity;
 use crate::claude::{self, DiagramTools, TurnSpec};
 use crate::events::ChatEvent;
 use crate::runner::{run_turn, CliTurn};
@@ -72,30 +73,54 @@ pub async fn send_message(
         program,
         args,
         parse,
+        prompt,
     } = match claude.provider {
         Provider::Claude => Invocation {
             program: claude.program.clone(),
             args: claude::args(&spec),
             parse: claude::parse_line,
+            prompt: text.into(),
         },
+        Provider::Antigravity => {
+            if let Some(tools) = &spec.diagram_tools {
+                antigravity::write_mcp_config(&cwd, tools)?;
+            }
+            Invocation {
+                program: claude.program.clone(),
+                args: antigravity::args(&antigravity::TurnSpec {
+                    prompt: text.into(),
+                    conversation: meta.conversation_id.clone(),
+                    read_dirs: spec.read_dirs.clone(),
+                    model: spec.model.clone(),
+                    diagram_tools: spec.diagram_tools.is_some(),
+                }),
+                parse: antigravity::parse_line,
+                // The prompt is an argument; nothing is read from stdin.
+                prompt: String::new(),
+            }
+        }
     };
     let turn = CliTurn {
         program,
         args,
         cwd,
-        prompt: text.into(),
+        prompt,
     };
 
     let mut recorder = TurnRecorder::default();
     // The conversation exists once the CLI produced anything, or finished cleanly.
     let mut conversation_exists = false;
     let mut finished = None;
+    let mut conversation_id = None;
     run_turn(
         turn,
         parse,
         |event| {
             conversation_exists |= !matches!(event, ChatEvent::Finished { is_error: true, .. });
             recorder.push(&event);
+            if let ChatEvent::Conversation { id } = &event {
+                conversation_id = Some(id.clone());
+            }
             match event {
                 ChatEvent::Finished { .. } => finished = Some(event),
                 _ => on_event(event),
@@ -106,6 +131,9 @@ pub async fn send_message(
     .await;
 
     workspace.append_transcript(project, session_id, &recorder.finish())?;
+    if let Some(id) = conversation_id {
+        workspace.set_conversation_id(project, session_id, &id)?;
+    }
     if conversation_exists && !meta.started {
         workspace.mark_started(project, session_id)?;
     }
@@ -121,4 +149,6 @@ struct Invocation {
     program: PathBuf,
     args: Vec<String>,
     parse: fn(&str) -> Vec<ChatEvent>,
+    /// Sent on stdin.
+    prompt: String,
 }

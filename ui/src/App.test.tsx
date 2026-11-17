@@ -119,6 +119,16 @@ describe("App", () => {
     expect(mocked.loadSession).toHaveBeenCalledWith({ project: "Acme", sessionId: "s1" });
   });
 
+  it("never defaults to a locked model", async () => {
+    mocked.listModels.mockResolvedValue([
+      { id: "gem", label: "Gemini", provider: "Antigravity", locked: true },
+      { id: "sonnet", label: "Sonnet", provider: "Claude" },
+    ]);
+    await openSession("Delivery window");
+    await screen.findByText("Earlier question");
+    expect(screen.getByRole("combobox", { name: "Model" })).toHaveValue("sonnet");
+  });
+
   it("sends a message and streams the reply", async () => {
     await openSession("Delivery window");
     await screen.findByText("Earlier question");
