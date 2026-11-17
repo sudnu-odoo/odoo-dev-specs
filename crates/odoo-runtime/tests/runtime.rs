@@ -144,7 +144,15 @@ fn first_use_of_a_version_gets_the_source_and_a_virtualenv_once() {
         .rt
         .ensure_database("19.0", &["sale_management".into()], true)
         .unwrap();
-    assert_eq!(db, "specs_19_0_sale_management");
+    assert_eq!(db, "specs_19_0_sale_management_demo");
+    let create = env
+        .calls()
+        .into_iter()
+        .find(|c| c.starts_with("odoo "))
+        .unwrap();
+    // Odoo 19 only loads demo data when asked.
+    assert!(create.contains("--with-demo"), "{create}");
+    assert!(!create.contains("--without-demo"), "{create}");
 
     assert_eq!(
         env.calls()
@@ -200,10 +208,10 @@ fn creates_the_database_with_odoo_bin() {
 
 #[test]
 fn an_existing_database_is_reused_without_setup() {
-    let env = Env::new(&["specs_19_0_base", "someone_elses_db"], false);
+    let env = Env::new(&["specs_19_0_base_demo", "someone_elses_db"], false);
     assert_eq!(
         env.rt.databases().unwrap(),
-        ["specs_19_0_base"],
+        ["specs_19_0_base_demo"],
         "only our databases"
     );
     env.rt.ensure_database("19.0", &[], true).unwrap();
@@ -220,7 +228,7 @@ fn a_failed_creation_is_cleaned_up() {
     assert!(format!("{err:#}").contains("Could not create"), "{err:#}");
     assert_eq!(
         env.calls().last().unwrap(),
-        "dropdb --if-exists specs_19_0_sale"
+        "dropdb --if-exists specs_19_0_sale_demo"
     );
     assert!(env.rt.databases().unwrap().is_empty());
 }

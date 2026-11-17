@@ -73,6 +73,25 @@ impl Default for Tools {
     }
 }
 
+/// odoo-bin flags that load (or skip) demo data. Odoo 19 turned demo data off by
+/// default and added `--with-demo`; older versions load it unless told not to.
+pub fn demo_flags(version: &str, demo_data: bool) -> Vec<String> {
+    if !demo_data {
+        return vec!["--without-demo=all".into()];
+    }
+    let major: u32 = version
+        .trim_start_matches("saas-")
+        .split('.')
+        .next()
+        .and_then(|m| m.parse().ok())
+        .unwrap_or(0);
+    if major >= 19 {
+        vec!["--with-demo".into()]
+    } else {
+        vec![]
+    }
+}
+
 /// Database name for an Odoo version and module set, e.g. `specs_19_0_sale_stock`.
 pub fn database_name(version: &str, modules: &[String], demo_data: bool) -> String {
     let mut mods: Vec<&str> = modules
@@ -86,7 +105,9 @@ pub fn database_name(version: &str, modules: &[String], demo_data: bool) -> Stri
         mods.push("base");
     }
     // Demo and no-demo data cannot share a database, so they get different names.
-    let suffix = if demo_data { "" } else { "_nodemo" };
+    // ("_demo": databases made before demo data was really loaded on Odoo 19 had no
+    // suffix and are empty, so they are never reused.)
+    let suffix = if demo_data { "_demo" } else { "_nodemo" };
     let raw = format!("{DB_PREFIX}{version}_{}{suffix}", mods.join("_"));
     let name: String = raw
         .chars()
@@ -311,9 +332,7 @@ impl Runtime {
         };
         let mut args = self.odoo_args(version, &name);
         args.extend(["-i".into(), mods.clone()]);
-        if !demo_data {
-            args.push("--without-demo=all".into());
-        }
+        args.extend(demo_flags(version, demo_data));
         args.push("--stop-after-init".into());
         let args: Vec<&str> = args.iter().map(String::as_str).collect();
         if let Err(e) = self.run_to_end(&python, &args) {
@@ -509,13 +528,26 @@ mod tests {
             true,
         );
         assert_eq!(a, b, "order and duplicates do not matter");
-        assert_eq!(a, "specs_19_0_sale_management_stock");
-        assert_eq!(database_name("18.0", &[], true), "specs_18_0_base");
+        assert_eq!(a, "specs_19_0_sale_management_stock_demo");
+        assert_eq!(database_name("18.0", &[], true), "specs_18_0_base_demo");
         assert_eq!(database_name("18.0", &[], false), "specs_18_0_base_nodemo");
         let many: Vec<String> = (0..20).map(|i| format!("module_number_{i}")).collect();
         let long = database_name("19.0", &many, true);
         assert!(long.len() <= MAX_NAME, "PostgreSQL limit: {long}");
         assert_ne!(long, database_name("19.0", &many[..19], true));
+    }
+
+    #[test]
+    fn demo_data_flags_follow_the_odoo_version() {
+        // Odoo 19 stopped loading demo data by default: it must be asked for.
+        assert_eq!(demo_flags("19.0", true), ["--with-demo"]);
+        assert_eq!(demo_flags("saas-19.2", true), ["--with-demo"]);
+        // Before 19 demo data was the default.
+        assert!(demo_flags("18.0", true).is_empty());
+        assert!(demo_flags("17.0", true).is_empty());
+        for v in ["17.0", "18.0", "19.0"] {
+            assert_eq!(demo_flags(v, false), ["--without-demo=all"]);
+        }
     }
 
     #[test]

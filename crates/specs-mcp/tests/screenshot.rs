@@ -46,7 +46,7 @@ fn fake_runtime(work: &std::path::Path, site: &std::path::Path) -> Runtime {
         fs::set_permissions(&p, fs::Permissions::from_mode(0o755)).unwrap();
         p
     };
-    let psql = write("psql", "echo specs_19_0_sale_management".into());
+    let psql = write("psql", "echo specs_19_0_sale_management_demo".into());
     let python = write(
         "python",
         format!(
