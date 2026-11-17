@@ -173,15 +173,53 @@ describe("ChatPanel progress", () => {
 });
 
 describe("ChatPanel model picker and usage", () => {
-  it("shows the model picker and changes model", async () => {
+  const modelButton = () => screen.getByRole("button", { name: /^Model/ });
+
+  it("shows the chosen model on a chip and changes it from a menu", async () => {
     const props = setup();
-    const picker = screen.getByRole("combobox", { name: "Model" });
-    expect(picker).toHaveValue("sonnet");
-    await userEvent.selectOptions(picker, "opus");
+    expect(modelButton()).toHaveTextContent("Sonnet (balanced)");
+    await userEvent.click(modelButton());
+    const opus = screen.getByRole("menuitemradio", { name: "Opus (most capable)" });
+    expect(screen.getByRole("menuitemradio", { name: "Sonnet (balanced)" })).toHaveAttribute(
+      "aria-checked",
+      "true",
+    );
+    await userEvent.click(opus);
     expect(props.onModelChange).toHaveBeenCalledWith("opus");
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
   });
 
-  it("shows token usage once there is any", () => {
+  it("closes the model menu with Escape", async () => {
+    setup();
+    await userEvent.click(modelButton());
+    await userEvent.keyboard("{Escape}");
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+  });
+
+  it("groups models by provider and locks providers that are not ready", async () => {
+    const props = setup({
+      models: [
+        { id: "sonnet", label: "Sonnet", provider: "Claude" },
+        { id: "gem", label: "Gemini Pro", provider: "Antigravity", locked: true },
+      ],
+    });
+    await userEvent.click(modelButton());
+    const claude = screen.getByRole("group", { name: "Claude" });
+    expect(claude).toContainElement(screen.getByRole("menuitemradio", { name: "Sonnet" }));
+    const locked = screen.getByRole("group", { name: /Antigravity.*not ready/i });
+    const gemini = screen.getByRole("menuitemradio", { name: "Gemini Pro" });
+    expect(locked).toContainElement(gemini);
+    expect(gemini).toHaveAttribute("aria-disabled", "true");
+    await userEvent.click(gemini);
+    expect(props.onModelChange).not.toHaveBeenCalled();
+  });
+
+  it("disables the model chip while the assistant is answering", () => {
+    setup({ running: true });
+    expect(modelButton()).toBeDisabled();
+  });
+
+  it("shows token usage under the composer until plan limits are known", () => {
     setup({ usage: { inputTokens: 1234, outputTokens: 567 } });
     const usage = screen.getByText(/tokens/i);
     expect(usage).toHaveTextContent("1,234");
@@ -193,35 +231,25 @@ describe("ChatPanel model picker and usage", () => {
     expect(screen.queryByText(/tokens/i)).not.toBeInTheDocument();
   });
 
-  it("shows plan-limit usage with the reset time instead of raw tokens", () => {
-    const resets = Math.floor(new Date("2026-11-17T18:30:00").getTime() / 1000);
+  it("shows a small plan-limit meter that opens the usage details", async () => {
+    const now = Date.now() / 1000;
     setup({
       usage: { inputTokens: 1234, outputTokens: 567 },
-      plan: { five_hour: { utilization: 0.21, resets_at: resets }, seven_day: null },
+      plan: {
+        five_hour: { utilization: 0.21, resets_at: now + 2 * 3600 + 14 * 60 },
+        seven_day: { utilization: 0.71, resets_at: now + 3 * 86400 },
+      },
     });
-    const meter = screen.getByRole("meter", { name: /5-hour limit/i });
+    const meter = screen.getByRole("meter", { name: /current session/i });
     expect(meter).toHaveAttribute("aria-valuenow", "21");
-    expect(meter).toHaveTextContent("21%");
-    expect(meter).toHaveAttribute("title", expect.stringMatching(/resets/i));
+    expect(screen.getByText(/21% of session limit/i)).toBeInTheDocument();
     expect(screen.queryByText(/tokens/i)).not.toBeInTheDocument();
-  });
 
-  it("groups models by provider and pads a padlock on providers not logged in", () => {
-    setup({
-      models: [
-        { id: "sonnet", label: "Sonnet", provider: "Claude" },
-        { id: "gem", label: "Gemini Pro", provider: "Antigravity", locked: true },
-      ],
-    });
-    const claude = screen.getByRole("group", { name: "Claude" });
-    expect(claude).toContainElement(screen.getByRole("option", { name: "Sonnet" }));
-    const locked = screen.getByRole("group", { name: /Antigravity/ });
-    expect(locked).toHaveAttribute("label", expect.stringContaining("🔒"));
-    expect(screen.getByRole("option", { name: "Gemini Pro" })).toBeDisabled();
-  });
-
-  it("disables the model picker while the assistant is answering", () => {
-    setup({ running: true });
-    expect(screen.getByRole("combobox", { name: "Model" })).toBeDisabled();
+    await userEvent.click(screen.getByRole("button", { name: /usage/i }));
+    const details = screen.getByRole("dialog", { name: "Usage" });
+    expect(details).toHaveTextContent(/Current session/);
+    expect(details).toHaveTextContent(/resets in 2h 1[34]m/);
+    expect(details).toHaveTextContent(/Weekly/);
+    expect(details).toHaveTextContent("71%");
   });
 });

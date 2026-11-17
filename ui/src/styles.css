@@ -184,7 +184,8 @@ body {
 .chat-messages {
   flex: 1;
   overflow-y: auto;
-  padding: 24px;
+  /* Centre a 760px column, lined up with the composer. */
+  padding: 24px max(16px, calc((100% - 760px) / 2));
 }
 .chat-empty {
   max-width: 420px;
@@ -234,19 +235,26 @@ body {
 .msg-tool[data-status="error"] {
   color: var(--danger);
 }
+/* Composer: a soft card centred under the conversation, like the Claude Code app. */
 .composer {
-  margin: 0 16px 16px;
-  padding: 10px 12px 8px;
+  width: calc(100% - 32px);
+  max-width: 760px;
+  margin: 0 auto;
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 14px;
-  box-shadow: 0 1px 2px rgb(0 0 0 / 0.06);
-  transition: border-color 0.15s;
+  border-radius: 16px;
+  box-shadow:
+    0 1px 2px rgb(0 0 0 / 0.04),
+    0 4px 16px rgb(0 0 0 / 0.06);
+  transition:
+    border-color 0.15s,
+    box-shadow 0.15s;
 }
 .composer:focus-within {
-  border-color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
 }
 .composer textarea {
+  display: block;
   width: 100%;
   resize: none;
   border: 0;
@@ -254,24 +262,29 @@ body {
   background: transparent;
   color: inherit;
   font: inherit;
+  font-size: 14.5px;
   line-height: 1.5;
+  padding: 14px 18px 4px;
   max-height: 40vh;
+}
+.composer textarea:disabled {
+  cursor: not-allowed;
 }
 .composer-bar {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  margin-top: 4px;
+  gap: 6px;
+  padding: 4px 10px 10px 12px;
 }
 .composer-hint {
   font-size: 12px;
   color: var(--muted);
 }
-.round-btn {
-  width: 32px;
-  height: 32px;
-  border-radius: 50%;
+/* Send: a rounded square, like the reference app. */
+.send-btn {
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
   border: 0;
   display: grid;
   place-items: center;
@@ -283,24 +296,23 @@ body {
     filter 0.15s,
     opacity 0.15s;
 }
-.round-btn:hover:not(:disabled) {
+.send-btn:hover:not(:disabled) {
   filter: brightness(1.1);
 }
-.round-btn:disabled {
+.send-btn:disabled {
   opacity: 0.35;
   cursor: not-allowed;
 }
-/* While answering: a spinning ring around a stop square. */
-.round-btn-busy {
+.send-btn-stop {
   position: relative;
   background: var(--text);
   color: var(--surface);
 }
-.round-btn-busy::after {
+.send-btn-stop::after {
   content: "";
   position: absolute;
   inset: -4px;
-  border-radius: 50%;
+  border-radius: 12px;
   border: 2px solid transparent;
   border-top-color: var(--accent);
   animation: spin 0.9s linear infinite;
@@ -333,7 +345,7 @@ body {
 }
 @media (prefers-reduced-motion: reduce) {
   .spinner,
-  .round-btn-busy::after {
+  .send-btn-stop::after {
     animation-duration: 3s;
   }
 }
@@ -694,24 +706,185 @@ body {
   justify-content: flex-end;
 }
 
-/* Model picker + usage in the composer */
-.model-picker {
-  font: inherit;
-  font-size: 12px;
-  color: var(--muted);
+/* Model chip and its menu */
+.model-menu {
+  position: relative;
+}
+.model-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border: 0;
+  border-radius: 999px;
   background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+.model-chip:hover:not(:disabled) {
+  background: var(--active);
+}
+.model-chip svg {
+  color: var(--muted);
+}
+.model-chip:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.menu {
+  position: absolute;
+  z-index: 60;
+  min-width: 240px;
+  max-height: 60vh;
+  overflow-y: auto;
+  padding: 4px;
+  background: var(--surface);
   border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow:
+    0 1px 2px rgb(0 0 0 / 0.05),
+    0 6px 24px rgb(0 0 0 / 0.1);
+}
+.menu-up {
+  left: 0;
+  bottom: calc(100% + 8px);
+}
+.menu-group + .menu-group {
+  border-top: 1px solid var(--border);
+  margin-top: 4px;
+  padding-top: 4px;
+}
+.menu-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px 2px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+}
+.menu-lock {
+  margin-left: auto;
+  font-weight: 400;
+}
+.menu-item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 6px 10px;
   border-radius: 6px;
-  padding: 3px 6px;
-  max-width: 200px;
+  font-size: 13px;
+  white-space: nowrap;
+  cursor: pointer;
 }
-.model-picker:disabled {
-  opacity: 0.5;
+.menu-item:hover:not([aria-disabled="true"]),
+.menu-item:focus-visible {
+  background: var(--bg);
+  outline: none;
 }
-.usage {
-  font-size: 12px;
+.menu-item[aria-disabled="true"] {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.menu-check {
+  margin-left: auto;
+  color: var(--accent);
+}
+
+/* Usage: a quiet line under the composer that opens a card with the limits. */
+.composer-footer {
+  width: calc(100% - 32px);
+  max-width: 760px;
+  min-height: 28px;
+  margin: 0 auto 8px;
+  padding: 6px 4px 0;
+  display: flex;
+  align-items: center;
+}
+.usage-meter {
+  position: relative;
+}
+.usage-line {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 4px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  font: inherit;
+  font-size: 11.5px;
   color: var(--muted);
   white-space: nowrap;
+}
+button.usage-line {
+  cursor: pointer;
+}
+button.usage-line:hover {
+  color: var(--text);
+}
+.usage-mini,
+.usage-track {
+  display: block;
+  border-radius: 999px;
+  background: var(--border);
+  overflow: hidden;
+}
+.usage-mini {
+  width: 56px;
+  height: 4px;
+}
+.usage-track {
+  height: 6px;
+}
+.usage-mini i,
+.usage-track i {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+}
+.usage-mini.warm i,
+.usage-track.warm i {
+  background: #d4a017;
+}
+.usage-mini.hot i,
+.usage-track.hot i {
+  background: var(--danger);
+}
+.usage-card {
+  position: absolute;
+  z-index: 60;
+  left: 0;
+  bottom: calc(100% + 8px);
+  width: 320px;
+  padding: 14px 16px 16px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  box-shadow:
+    0 1px 2px rgb(0 0 0 / 0.05),
+    0 6px 24px rgb(0 0 0 / 0.1);
+}
+.usage-card h3 {
+  margin: 0 0 10px;
+  font-size: 15px;
+}
+.usage-bar + .usage-bar {
+  margin-top: 12px;
+}
+.usage-bar-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  margin-bottom: 6px;
+  font-size: 13px;
+}
+.usage-bar-row small {
+  font-size: 11.5px;
+  color: var(--muted);
 }
 .composer-spacer {
   flex: 1;

@@ -2,6 +2,8 @@ import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 
 import type { ChatItem, PlanUsage, TokenUsage } from "../chat/chatState";
 import type { Model } from "../lib/types";
 import Markdown from "./Markdown";
+import ModelMenu from "./ModelMenu";
+import UsageMeter from "./UsageMeter";
 
 export interface ChatPanelProps {
   items: ChatItem[];
@@ -20,29 +22,6 @@ export interface ChatPanelProps {
 const NO_USAGE: TokenUsage = { inputTokens: 0, outputTokens: 0 };
 
 const TOOL_STATUS_LABEL = { running: "…", ok: "✓", error: "✗" } as const;
-
-/** Group digits so large token counts stay readable (1234 -> "1,234"). */
-function formatTokens(n: number): string {
-  return n.toLocaleString("en-US");
-}
-
-/** Group models by provider, keeping first-seen order; "" holds models with no provider. */
-function groupByProvider(models: Model[]): [string, Model[]][] {
-  const groups = new Map<string, Model[]>();
-  for (const m of models) {
-    const key = m.provider ?? "";
-    groups.set(key, [...(groups.get(key) ?? []), m]);
-  }
-  return [...groups];
-}
-
-function modelOption(m: Model) {
-  return (
-    <option key={m.id} value={m.id} disabled={m.locked}>
-      {m.label}
-    </option>
-  );
-}
 
 export default function ChatPanel({
   items,
@@ -125,38 +104,18 @@ export default function ChatPanel({
         />
         <div className="composer-bar">
           {models.length > 0 && (
-            <select
-              className="model-picker"
-              aria-label="Model"
-              value={selectedModel}
+            <ModelMenu
+              models={models}
+              selected={selectedModel}
               disabled={running || !hasSession}
-              onChange={(e) => onModelChange?.(e.target.value)}
-            >
-              {groupByProvider(models).map(([provider, group]) =>
-                provider ? (
-                  <optgroup key={provider} label={group[0].locked ? `${provider} 🔒` : provider}>
-                    {group.map(modelOption)}
-                  </optgroup>
-                ) : (
-                  group.map(modelOption)
-                ),
-              )}
-            </select>
-          )}
-          {plan?.five_hour ? (
-            <PlanMeter window={plan.five_hour} />
-          ) : (
-            usage.inputTokens + usage.outputTokens > 0 && (
-              <span className="usage" title="Tokens used in this session">
-                {formatTokens(usage.inputTokens)} in · {formatTokens(usage.outputTokens)} out tokens
-              </span>
-            )
+              onChange={onModelChange}
+            />
           )}
           <span className="composer-spacer" />
           {running ? (
             <button
               type="button"
-              className="round-btn round-btn-busy"
+              className="send-btn send-btn-stop"
               aria-label="Stop"
               aria-busy="true"
               title="Stop"
@@ -167,7 +126,7 @@ export default function ChatPanel({
           ) : (
             <button
               type="submit"
-              className="round-btn"
+              className="send-btn"
               aria-label="Send"
               title="Send"
               disabled={!hasSession || !draft.trim()}
@@ -186,29 +145,10 @@ export default function ChatPanel({
           )}
         </div>
       </form>
+      <div className="composer-footer">
+        <UsageMeter plan={plan} usage={usage} />
+      </div>
     </section>
-  );
-}
-
-/** "5-hour limit 21%", with the reset time as a tooltip. */
-function PlanMeter({ window }: { window: { utilization: number; resets_at: number } }) {
-  const percent = Math.round(window.utilization * 100);
-  const resets = new Date(window.resets_at * 1000).toLocaleTimeString([], {
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-  return (
-    <span
-      role="meter"
-      className="usage"
-      aria-label="5-hour limit"
-      aria-valuemin={0}
-      aria-valuemax={100}
-      aria-valuenow={percent}
-      title={`Resets at ${resets}`}
-    >
-      5-hour limit {percent}%
-    </span>
   );
 }
 

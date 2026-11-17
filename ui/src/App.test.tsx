@@ -126,7 +126,7 @@ describe("App", () => {
     ]);
     await openSession("Delivery window");
     await screen.findByText("Earlier question");
-    expect(screen.getByRole("combobox", { name: "Model" })).toHaveValue("sonnet");
+    expect(screen.getByRole("button", { name: /^Model/ })).toHaveTextContent("Sonnet");
   });
 
   it("sends a message and streams the reply", async () => {
