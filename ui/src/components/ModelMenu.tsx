@@ -1,11 +1,20 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { Model } from "../lib/types";
+
+/** Effort levels both CLIs accept; "" leaves the CLI's default. */
+export const EFFORTS = ["", "low", "medium", "high", "xhigh", "max"] as const;
+
+const effortLabel = (e: string) => (e ? e[0].toUpperCase() + e.slice(1) : "Default");
 
 interface ModelMenuProps {
   models: Model[];
   selected: string;
+  effort?: string;
   disabled?: boolean;
   onChange?: (id: string) => void;
+  onEffortChange?: (effort: string) => void;
+  /** Start the login of a provider (its lower-case id, e.g. "antigravity"). */
+  onLogin?: (provider: string) => void;
 }
 
 /** Group models by provider, keeping first-seen order; "" holds models with no provider. */
@@ -18,11 +27,62 @@ function groupByProvider(models: Model[]): [string, Model[]][] {
   return [...groups];
 }
 
+function Item({
+  checked,
+  locked,
+  onPick,
+  children,
+}: {
+  checked: boolean;
+  locked?: boolean;
+  onPick: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <div
+      role="menuitemradio"
+      aria-checked={checked}
+      aria-disabled={locked || undefined}
+      tabIndex={locked ? -1 : 0}
+      className="menu-item"
+      title={locked ? "Log in to use this model" : undefined}
+      onClick={() => !locked && onPick()}
+      onKeyDown={(e) => {
+        if (!locked && (e.key === "Enter" || e.key === " ")) {
+          e.preventDefault();
+          onPick();
+        }
+      }}
+    >
+      {children}
+      {locked && (
+        <span className="menu-lock-icon" aria-hidden="true">
+          🔒
+        </span>
+      )}
+      {checked && (
+        <span className="menu-check" aria-hidden="true">
+          ✓
+        </span>
+      )}
+    </div>
+  );
+}
+
 /**
- * A quiet chip showing the chosen model; it opens a small menu above the composer
- * with one section per provider. Providers that are not ready are shown, locked.
+ * A quiet chip showing the chosen model and effort; it opens a menu above the composer
+ * with one section per provider, then the effort levels. A provider that is not ready
+ * has its models locked and a button to log in.
  */
-export default function ModelMenu({ models, selected, disabled, onChange }: ModelMenuProps) {
+export default function ModelMenu({
+  models,
+  selected,
+  effort = "",
+  disabled,
+  onChange,
+  onEffortChange,
+  onLogin,
+}: ModelMenuProps) {
   const [open, setOpen] = useState(false);
   const root = useRef<HTMLDivElement>(null);
   const current = models.find((m) => m.id === selected);
@@ -43,70 +103,75 @@ export default function ModelMenu({ models, selected, disabled, onChange }: Mode
     };
   }, [open]);
 
-  function pick(m: Model) {
-    if (m.locked) return;
-    onChange?.(m.id);
-    setOpen(false);
-  }
-
+  const label = current?.label ?? "Default model";
   return (
     <div className="model-menu" ref={root}>
       <button
         type="button"
         className="model-chip"
-        aria-label={`Model: ${current?.label ?? "default"}`}
+        aria-label={`Model: ${label}${effort ? `, ${effortLabel(effort)} effort` : ""}`}
         aria-haspopup="menu"
         aria-expanded={open}
         disabled={disabled}
         onClick={() => setOpen((o) => !o)}
       >
-        {current?.label ?? "Default model"}
+        {label}
+        {effort && <span className="model-chip-effort">· {effortLabel(effort)}</span>}
         <svg viewBox="0 0 12 12" width="10" height="10" aria-hidden="true">
           <path d="M3 4.5 6 7.5 9 4.5" fill="none" stroke="currentColor" strokeWidth="1.5" />
         </svg>
       </button>
       {open && (
-        <div className="menu menu-up" role="menu" aria-label="Model">
+        <div className="menu menu-up" role="menu" aria-label="Model and effort">
           {groupByProvider(models).map(([provider, group]) => {
             const locked = group.every((m) => m.locked);
             const name = provider ? (locked ? `${provider} (not ready)` : provider) : "Models";
             return (
               <div key={provider} role="group" aria-label={name} className="menu-group">
-                <div className="menu-head" aria-hidden="true">
-                  {provider || "Models"}
-                  {locked && (
-                    <span className="menu-lock" title="Not installed or not logged in">
-                      🔒 log in to use
-                    </span>
+                <div className="menu-head">
+                  <span aria-hidden="true">{provider || "Models"}</span>
+                  {locked && provider && (
+                    <button
+                      type="button"
+                      className="menu-login"
+                      aria-label={`Log in to ${provider}`}
+                      onClick={() => {
+                        onLogin?.(provider.toLowerCase());
+                        setOpen(false);
+                      }}
+                    >
+                      Log in
+                    </button>
                   )}
                 </div>
                 {group.map((m) => (
-                  <div
+                  <Item
                     key={m.id}
-                    role="menuitemradio"
-                    aria-checked={m.id === selected}
-                    aria-disabled={m.locked || undefined}
-                    tabIndex={m.locked ? -1 : 0}
-                    className="menu-item"
-                    onClick={() => pick(m)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" || e.key === " ") {
-                        e.preventDefault();
-                        pick(m);
-                      }
+                    checked={m.id === selected}
+                    locked={m.locked}
+                    onPick={() => {
+                      onChange?.(m.id);
+                      setOpen(false);
                     }}
                   >
                     <span>{m.label}</span>
-                    {m.id === selected && (
-                      <span className="menu-check" aria-hidden="true">
-                        ✓
-                      </span>
-                    )}
-                  </div>
+                  </Item>
                 ))}
               </div>
             );
           })}
+          {onEffortChange && (
+            <div role="group" aria-label="Effort" className="menu-group">
+              <div className="menu-head" aria-hidden="true">
+                Effort
+              </div>
+              {EFFORTS.map((e) => (
+                <Item key={e || "default"} checked={e === effort} onPick={() => onEffortChange(e)}>
+                  <span>{effortLabel(e)}</span>
+                </Item>
+              ))}
+            </div>
+          )}
         </div>
       )}
     </div>

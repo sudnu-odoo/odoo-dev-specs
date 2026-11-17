@@ -6,7 +6,13 @@ import { api } from "../lib/api";
 import type { EnvReport, Settings } from "../lib/types";
 
 vi.mock("../lib/api", () => ({
-  api: { getSettings: vi.fn(), saveSettings: vi.fn(), checkEnvironment: vi.fn() },
+  api: {
+    getSettings: vi.fn(),
+    saveSettings: vi.fn(),
+    checkEnvironment: vi.fn(),
+    providerStatus: vi.fn(),
+    loginProvider: vi.fn(),
+  },
 }));
 
 const mocked = vi.mocked(api);
@@ -23,6 +29,11 @@ beforeEach(() => {
   mocked.getSettings.mockResolvedValue(settings);
   mocked.saveSettings.mockResolvedValue(undefined);
   mocked.checkEnvironment.mockResolvedValue(healthy);
+  mocked.providerStatus.mockResolvedValue([
+    { provider: "claude", name: "Claude", installed: true, loggedIn: true },
+    { provider: "antigravity", name: "Antigravity", installed: true, loggedIn: false },
+  ]);
+  mocked.loginProvider.mockResolvedValue(undefined);
 });
 
 describe("SettingsPanel", () => {
@@ -73,5 +84,39 @@ describe("SettingsPanel", () => {
     render(<SettingsPanel onClose={onClose} />);
     await userEvent.click(await screen.findByRole("button", { name: "Close settings" }));
     expect(onClose).toHaveBeenCalled();
+  });
+
+  it("no longer asks for a preferred assistant: the model menu decides", async () => {
+    render(<SettingsPanel onClose={vi.fn()} />);
+    await screen.findByLabelText("Default Odoo version");
+    expect(screen.queryByText(/preferred assistant/i)).not.toBeInTheDocument();
+  });
+
+  it("lists each AI assistant with its login status and a login button", async () => {
+    render(<SettingsPanel onClose={vi.fn()} />);
+    const claude = await screen.findByRole("listitem", { name: "Claude" });
+    expect(claude).toHaveTextContent("Logged in");
+    const agy = screen.getByRole("listitem", { name: "Antigravity" });
+    expect(agy).toHaveTextContent("Not logged in");
+    await userEvent.click(screen.getByRole("button", { name: "Log in to Antigravity" }));
+    expect(mocked.loginProvider).toHaveBeenCalledWith("antigravity");
+  });
+
+  it("shows plan usage once the assistant has reported it", async () => {
+    const now = Date.now() / 1000;
+    render(
+      <SettingsPanel
+        onClose={vi.fn()}
+        plan={{ five_hour: { utilization: 0.3, resets_at: now + 3600 }, seven_day: null }}
+      />,
+    );
+    const usage = await screen.findByRole("region", { name: "Usage" });
+    expect(usage).toHaveTextContent("30%");
+  });
+
+  it("explains when usage will appear", async () => {
+    render(<SettingsPanel onClose={vi.fn()} />);
+    const usage = await screen.findByRole("region", { name: "Usage" });
+    expect(usage).toHaveTextContent(/after the first reply/i);
   });
 });

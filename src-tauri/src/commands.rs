@@ -10,6 +10,7 @@ use serde::Serialize;
 use specs_core::chat::{self, ClaudeConfig};
 use specs_core::events::ChatEvent;
 use specs_core::models;
+use specs_core::providers::{self, ProviderStatus};
 use specs_core::settings::{Provider, Settings, SettingsStore};
 use specs_core::transcript::TranscriptEntry;
 use specs_core::workspace::{ProjectInfo, SessionMeta, Workspace};
@@ -21,6 +22,9 @@ use crate::diagram_window;
 /// Name of the event carrying [`ChatEventPayload`] to the UI.
 pub const CHAT_EVENT: &str = "chat-event";
 
+/// Opens a command for the user to follow (a login), or says why it could not.
+pub type Launcher = dyn Fn(&[String]) -> Result<(), String> + Send + Sync;
+
 pub struct AppState {
     pub workspace: Arc<Workspace>,
     /// `None` when Claude Code is not installed.
@@ -29,9 +33,11 @@ pub struct AppState {
     /// turn has really ended (the switch is taken when cancelling), so a new turn
     /// cannot start while the old process is still shutting down.
     pub running: Mutex<HashMap<String, Option<oneshot::Sender<()>>>>,
-    /// Finds `agy` when it is installed and logged in; asked each time, so logging in
-    /// while the app runs unlocks Antigravity without a restart.
-    pub antigravity: Arc<dyn Fn() -> Option<std::path::PathBuf> + Send + Sync>,
+    /// Readiness of every provider; asked each time, so logging in while the app
+    /// runs unlocks a provider without a restart. Swappable in tests.
+    pub providers: Arc<dyn Fn() -> Vec<ProviderStatus> + Send + Sync>,
+    /// Opens a login command for the user (a terminal window). Swappable in tests.
+    pub launch: Arc<Launcher>,
     /// Where user preferences are stored.
     pub settings: Arc<SettingsStore>,
     /// Gathers the machine state for the first-run check; swappable in tests.
@@ -48,18 +54,28 @@ impl AppState {
             workspace: Arc::new(workspace),
             claude,
             running: Mutex::default(),
-            antigravity: Arc::new(crate::environment::find_antigravity),
+            providers: Arc::new(crate::environment::provider_status),
+            launch: Arc::new(crate::environment::open_in_terminal),
             settings: Arc::new(settings),
             probe: Arc::new(crate::environment::probe),
         }
     }
 
-    /// Replace how `agy` is found (tests).
-    pub fn with_antigravity(
+    /// Replace how provider readiness is checked (tests).
+    pub fn with_providers(
         mut self,
-        find: impl Fn() -> Option<std::path::PathBuf> + Send + Sync + 'static,
+        status: impl Fn() -> Vec<ProviderStatus> + Send + Sync + 'static,
     ) -> Self {
-        self.antigravity = Arc::new(find);
+        self.providers = Arc::new(status);
+        self
+    }
+
+    /// Replace how login commands are opened (tests record them instead).
+    pub fn with_launcher(
+        mut self,
+        launch: impl Fn(&[String]) -> Result<(), String> + Send + Sync + 'static,
+    ) -> Self {
+        self.launch = Arc::new(launch);
         self
     }
 
@@ -192,6 +208,7 @@ pub fn send_message<R: Runtime>(
     session_id: String,
     text: String,
     model: Option<String>,
+    effort: Option<String>,
 ) -> CmdResult<()> {
     let Some(mut claude) = state.claude.clone() else {
         return Err(
@@ -207,9 +224,14 @@ pub fn send_message<R: Runtime>(
         .and_then(models::provider_of)
         .unwrap_or(current.provider);
     if claude.provider == Provider::Antigravity {
-        claude.program = (state.antigravity)()
-            .ok_or("Antigravity is not ready. Install it, run `agy` once and log in.")?;
+        let status = (state.providers)()
+            .into_iter()
+            .find(|s| s.provider == Provider::Antigravity && s.ready());
+        claude.program = status
+            .and_then(|s| s.program)
+            .ok_or("Antigravity is not ready. Log in from the model menu or in Settings.")?;
     }
+    claude.effort = models::valid_effort(effort);
     // The assistant reads the Odoo source downloaded so far (it grows with use).
     if let Some(root) = &claude.runtime_dir {
         claude.read_dirs = OdooRuntime::new(root, Tools::default()).source_dirs();
@@ -290,12 +312,41 @@ pub fn get_settings(state: State<'_, AppState>) -> Settings {
 /// The models of every provider, for the chat's model picker. A provider that is not
 /// ready (not installed, not logged in) is listed with its models locked.
 #[tauri::command]
-pub fn list_models(state: State<'_, AppState>) -> Vec<models::Model> {
-    let antigravity_ready = (state.antigravity)().is_some();
-    models::all_models(|provider| match provider {
-        Provider::Claude => state.claude.is_some(),
-        Provider::Antigravity => antigravity_ready,
-    })
+pub async fn list_models(state: State<'_, AppState>) -> CmdResult<Vec<models::Model>> {
+    let statuses = provider_statuses(&state).await?;
+    Ok(models::all_models(|provider| {
+        statuses.iter().any(|s| s.provider == provider && s.ready())
+    }))
+}
+
+/// Whether each provider is installed and logged in (Settings and the model menu).
+#[tauri::command]
+pub async fn provider_status(state: State<'_, AppState>) -> CmdResult<Vec<ProviderStatus>> {
+    provider_statuses(&state).await
+}
+
+/// Checking runs the CLIs (up to a second or two), so keep it off the UI thread.
+async fn provider_statuses(state: &AppState) -> CmdResult<Vec<ProviderStatus>> {
+    let check = state.providers.clone();
+    tauri::async_runtime::spawn_blocking(move || check())
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Open the provider's login in a terminal window. The UI re-checks the status
+/// when the user comes back to the app.
+#[tauri::command]
+pub async fn login_provider(state: State<'_, AppState>, provider: Provider) -> CmdResult<()> {
+    let statuses = provider_statuses(&state).await?;
+    let status = statuses
+        .iter()
+        .find(|s| s.provider == provider)
+        .ok_or("Unknown assistant.")?;
+    let program = status
+        .program
+        .as_ref()
+        .ok_or_else(|| format!("{} is not installed on this computer.", status.name))?;
+    (state.launch)(&providers::login_command(provider, program))
 }
 
 #[tauri::command]
@@ -329,6 +380,8 @@ pub fn register<R: Runtime>(builder: tauri::Builder<R>, state: AppState) -> taur
             save_settings,
             check_environment,
             list_models,
+            provider_status,
+            login_provider,
             diagram_window::open_diagram_window,
             diagram_window::dock_diagram_window,
         ])

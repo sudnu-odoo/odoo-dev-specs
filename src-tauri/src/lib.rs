@@ -4,6 +4,7 @@ mod environment;
 
 pub use commands::{register, AppState, ChatEventPayload, CHAT_EVENT};
 pub use diagram_window::{DIAGRAM_DOCKED_EVENT, DIAGRAM_SESSION_EVENT, DIAGRAM_WINDOW};
+pub use environment::provider_status;
 
 use odoo_runtime::runtime::{Runtime, Tools};
 use specs_core::chat::ClaudeConfig;
@@ -30,6 +31,7 @@ fn detect_claude(settings: &specs_core::settings::Settings) -> Option<ClaudeConf
         // Filled per message from the downloaded sources (see send_message).
         read_dirs: vec![],
         model: None,
+        effort: None,
         diagram_tools,
         runtime_dir: Some(runtime_dir),
         demo_data: settings.demo_data,

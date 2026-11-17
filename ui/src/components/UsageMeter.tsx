@@ -23,7 +23,7 @@ export function resetText(resetsAt: number, now = Date.now() / 1000): string {
 /** Bar colour warms up as the limit gets close. */
 const level = (p: number) => (p >= 90 ? "hot" : p >= 70 ? "warm" : "");
 
-function Bar({ label, window }: { label: string; window: PlanWindow }) {
+export function UsageBar({ label, window }: { label: string; window: PlanWindow }) {
   const p = percent(window);
   return (
     <div className="usage-bar">
@@ -107,8 +107,8 @@ export default function UsageMeter({ plan, usage }: UsageMeterProps) {
       {open && (
         <div className="usage-card" role="dialog" aria-label="Usage">
           <h3>Usage</h3>
-          <Bar label="Current session" window={session} />
-          {plan?.seven_day && <Bar label="Weekly · all models" window={plan.seven_day} />}
+          <UsageBar label="Current session" window={session} />
+          {plan?.seven_day && <UsageBar label="Weekly · all models" window={plan.seven_day} />}
         </div>
       )}
     </div>

@@ -20,6 +20,22 @@ export function useSpecsApp() {
   // Models of the active provider, and the one chosen for the next message.
   const [models, setModels] = useState<Model[]>([]);
   const [selectedModel, setSelectedModel] = useState("");
+  // Reasoning effort for the next message ("" = the CLI's default); remembered across runs.
+  const [effort, setEffortState] = useState(() => {
+    try {
+      return localStorage.getItem("effort") ?? "";
+    } catch {
+      return "";
+    }
+  });
+  const setEffort = useCallback((value: string) => {
+    setEffortState(value);
+    try {
+      localStorage.setItem("effort", value);
+    } catch {
+      // Not remembered; still used for this run.
+    }
+  }, []);
 
   const reloadModels = useCallback(async () => {
     try {
@@ -56,7 +72,10 @@ export function useSpecsApp() {
       if (event.kind === "finished") refresh();
     });
     const unlistenDocked = api.onDiagramDocked(() => setDiagramDetached(false));
+    // Logging in happens in a terminal window: unlock its models when the user comes back.
+    window.addEventListener("focus", reloadModels);
     return () => {
+      window.removeEventListener("focus", reloadModels);
       unlisten.then((stop) => stop());
       unlistenDocked.then((stop) => stop());
     };
@@ -154,13 +173,17 @@ export function useSpecsApp() {
         api.renameSession(selected, title).then(refresh, () => {});
       }
       try {
-        await api.sendMessage(selected, text, selectedModel || null);
+        await api.sendMessage(selected, text, selectedModel || null, effort || null);
       } catch (e) {
         dispatch({ type: "sendFailed", message: String(e) });
       }
     },
-    [chat.items, refresh, selected, selectedModel, session],
+    [chat.items, effort, refresh, selected, selectedModel, session],
   );
+
+  const login = useCallback((provider: string) => {
+    api.loginProvider(provider).catch((e) => setError(String(e)));
+  }, []);
 
   const stop = useCallback(() => {
     if (selected) api.cancelTurn(selected.sessionId);
@@ -193,5 +216,8 @@ export function useSpecsApp() {
     selectedModel,
     setSelectedModel,
     reloadModels,
+    effort,
+    setEffort,
+    login,
   };
 }

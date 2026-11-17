@@ -4,14 +4,15 @@ use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
 use std::sync::mpsc;
-use std::sync::OnceLock;
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
 use odoo_dev_specs_lib::{register, AppState, CHAT_EVENT, DIAGRAM_SESSION_EVENT, DIAGRAM_WINDOW};
 use odoo_runtime::doctor::Probe;
 use serde_json::{json, Value};
 use specs_core::chat::ClaudeConfig;
-use specs_core::settings::SettingsStore;
+use specs_core::providers::ProviderStatus;
+use specs_core::settings::{Provider, SettingsStore};
 use specs_core::workspace::Workspace;
 
 /// A fully healthy machine, so `check_environment` reports ready unless a test says otherwise.
@@ -58,6 +59,8 @@ fn fake_claude() -> PathBuf {
 }
 
 struct Harness {
+    /// Login commands the app asked to open (instead of opening a terminal).
+    launched: Arc<Mutex<Vec<Vec<String>>>>,
     app: App<MockRuntime>,
     window: WebviewWindow<MockRuntime>,
     root: PathBuf,
@@ -68,13 +71,34 @@ fn harness(with_claude: bool) -> Harness {
     harness_with(with_claude, None)
 }
 
+fn status(provider: Provider, program: Option<PathBuf>, logged_in: bool) -> ProviderStatus {
+    ProviderStatus {
+        provider,
+        name: provider.display_name().into(),
+        installed: program.is_some(),
+        logged_in,
+        program,
+    }
+}
+
 /// `antigravity`: the `agy` the app should find, when it is installed and logged in.
+/// Without it, agy counts as installed at `/bin/agy` but not logged in.
 fn harness_with(with_claude: bool, antigravity: Option<PathBuf>) -> Harness {
+    let statuses = vec![
+        status(Provider::Claude, with_claude.then(fake_claude), with_claude),
+        match antigravity {
+            Some(p) => status(Provider::Antigravity, Some(p), true),
+            None => status(Provider::Antigravity, Some("/bin/agy".into()), false),
+        },
+    ];
+    let launched: Arc<Mutex<Vec<Vec<String>>>> = Arc::default();
+    let record = launched.clone();
     let claude = with_claude.then(|| ClaudeConfig {
         program: fake_claude(),
         provider: specs_core::settings::Provider::Claude,
         read_dirs: vec![],
         model: None,
+        effort: None,
         diagram_tools: None,
         runtime_dir: None,
         demo_data: true,
@@ -84,7 +108,11 @@ fn harness_with(with_claude: bool, antigravity: Option<PathBuf>) -> Harness {
     let settings = SettingsStore::new(dir.path().join("settings.json"));
     let state = AppState::new(Workspace::new(&root), claude, settings)
         .with_probe(test_probe)
-        .with_antigravity(move || antigravity.clone());
+        .with_providers(move || statuses.clone())
+        .with_launcher(move |cmd| {
+            record.lock().unwrap().push(cmd.to_vec());
+            Ok(())
+        });
     let app = register(mock_builder(), state)
         .build(mock_context(noop_assets()))
         .unwrap();
@@ -92,6 +120,7 @@ fn harness_with(with_claude: bool, antigravity: Option<PathBuf>) -> Harness {
         .build()
         .unwrap();
     Harness {
+        launched,
         app,
         window,
         root,
@@ -437,4 +466,52 @@ fn choosing_a_locked_model_explains_how_to_unlock_it() {
         )
         .unwrap_err();
     assert!(err.contains("Antigravity"), "{err}");
+}
+
+#[test]
+fn provider_status_reports_each_assistant() {
+    let h = harness(true);
+    let status = h.call("provider_status", json!({})).unwrap();
+    assert_eq!(
+        status,
+        json!([
+            {"provider": "claude", "name": "Claude", "installed": true, "loggedIn": true},
+            {"provider": "antigravity", "name": "Antigravity", "installed": true, "loggedIn": false},
+        ])
+    );
+}
+
+#[test]
+fn logging_in_opens_the_providers_login_command() {
+    let h = harness(true);
+    h.call("login_provider", json!({"provider": "antigravity"}))
+        .unwrap();
+    h.call("login_provider", json!({"provider": "claude"}))
+        .unwrap();
+    let launched = h.launched.lock().unwrap().clone();
+    assert_eq!(launched[0], ["/bin/agy"]);
+    assert_eq!(launched[1][1..], ["auth", "login"]);
+}
+
+#[test]
+fn logging_in_needs_the_cli_installed() {
+    let h = harness(false);
+    let err = h
+        .call("login_provider", json!({"provider": "claude"}))
+        .unwrap_err();
+    assert!(err.contains("not installed"), "{err}");
+}
+
+#[test]
+fn a_message_can_carry_an_effort_level() {
+    let h = harness(true);
+    let id = h.new_session();
+    let events = h.events_until_finished(|| {
+        h.call(
+            "send_message",
+            json!({"project": "Acme", "sessionId": id, "text": "Spec it", "model": "opus", "effort": "high"}),
+        )
+        .unwrap();
+    });
+    assert!(events.last().unwrap()["event"]["kind"] == "finished");
 }

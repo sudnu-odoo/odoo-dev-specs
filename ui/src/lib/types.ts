@@ -86,3 +86,11 @@ export interface Model {
   /** The provider isn't logged in: shown with a padlock and not selectable. */
   locked?: boolean;
 }
+
+/** Whether an AI provider is installed and logged in (mirrors specs_core::providers). */
+export interface ProviderStatus {
+  provider: "claude" | "antigravity";
+  name: string;
+  installed: boolean;
+  loggedIn: boolean;
+}

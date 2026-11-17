@@ -67,6 +67,7 @@ fn env() -> Env {
         provider: specs_core::settings::Provider::Claude,
         read_dirs: vec!["/src/odoo".into()],
         model: None,
+        effort: None,
         diagram_tools: Some("/app/specs-mcp".into()),
         runtime_dir: None,
         demo_data: true,
@@ -261,4 +262,14 @@ async fn antigravity_turn_remembers_its_conversation_and_resumes_it() {
     let at = args.iter().position(|a| a == "--conversation").unwrap();
     assert_eq!(args[at + 1], "2b27c3b2-dade-4994-93db-adb0dfdb7252");
     assert_eq!(args[1], "And another");
+}
+
+#[tokio::test]
+async fn chosen_effort_reaches_the_cli() {
+    let mut e = env();
+    e.config.effort = Some("xhigh".into());
+    e.send("Spec it").await;
+    let args = e.args();
+    let at = args.iter().position(|a| a == "--effort").unwrap();
+    assert_eq!(args[at + 1], "xhigh");
 }

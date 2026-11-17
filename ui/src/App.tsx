@@ -30,6 +30,9 @@ export default function App() {
       models={app.models}
       selectedModel={app.selectedModel}
       onModelChange={app.setSelectedModel}
+      effort={app.effort}
+      onEffortChange={app.setEffort}
+      onLogin={app.login}
       usage={app.chat.usage}
       plan={app.chat.plan}
     />
@@ -105,9 +108,10 @@ export default function App() {
       </div>
       {settingsOpen && (
         <SettingsPanel
+          plan={app.chat.plan}
           onClose={() => {
             setSettingsOpen(false);
-            // The provider may have changed: refresh the model picker.
+            // A provider may have been logged in: refresh the model picker.
             app.reloadModels();
             // The user may have just fixed something; re-check.
             api.checkEnvironment().then(

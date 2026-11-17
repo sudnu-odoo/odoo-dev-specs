@@ -19,6 +19,7 @@ fn real_agy() -> ClaudeConfig {
         provider: Provider::Antigravity,
         read_dirs: vec![],
         model: Some("gemini-3.8-flash-low".into()),
+        effort: None,
         diagram_tools: None,
         runtime_dir: None,
         demo_data: true,

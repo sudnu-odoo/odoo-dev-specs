@@ -14,6 +14,8 @@ pub struct TurnSpec {
     pub read_dirs: Vec<PathBuf>,
     /// Model id as listed by `agy models`; `None` uses the CLI default.
     pub model: Option<String>,
+    /// Reasoning effort (`low`..`max`); `None` uses the CLI default.
+    pub effort: Option<String>,
     /// Whether our diagram tools are offered (their config is written by [`write_mcp_config`]).
     pub diagram_tools: bool,
 }
@@ -48,6 +50,9 @@ pub fn args(spec: &TurnSpec) -> Vec<String> {
     if let Some(model) = &spec.model {
         a.extend(["--model".to_string(), model.clone()]);
     }
+    if let Some(effort) = &spec.effort {
+        a.extend(["--effort".to_string(), effort.clone()]);
+    }
     a
 }
 
@@ -72,6 +77,7 @@ mod tests {
             conversation: conversation.map(String::from),
             read_dirs: vec!["/src/odoo".into()],
             model: None,
+            effort: None,
             diagram_tools: false,
         }
     }
@@ -110,6 +116,13 @@ mod tests {
         let mut s = spec(None);
         s.model = Some("claude-sonnet-4-6".into());
         assert_eq!(value_after(&args(&s), "--model"), Some("claude-sonnet-4-6"));
+    }
+
+    #[test]
+    fn effort_is_passed_when_chosen() {
+        let mut s = spec(None);
+        s.effort = Some("low".into());
+        assert_eq!(value_after(&args(&s), "--effort"), Some("low"));
     }
 
     #[test]

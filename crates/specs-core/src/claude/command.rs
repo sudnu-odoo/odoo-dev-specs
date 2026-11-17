@@ -29,6 +29,8 @@ pub struct TurnSpec {
     pub read_dirs: Vec<PathBuf>,
     /// Model alias or id; `None` uses the CLI default.
     pub model: Option<String>,
+    /// Reasoning effort (`low`..`max`); `None` uses the CLI default.
+    pub effort: Option<String>,
     /// The diagram tools server for this session, when available.
     pub diagram_tools: Option<DiagramTools>,
 }
@@ -107,6 +109,9 @@ pub fn args(spec: &TurnSpec) -> Vec<String> {
     if let Some(model) = &spec.model {
         a.extend(["--model".to_string(), model.clone()]);
     }
+    if let Some(effort) = &spec.effort {
+        a.extend(["--effort".to_string(), effort.clone()]);
+    }
     a
 }
 
@@ -120,8 +125,17 @@ mod tests {
             resume,
             read_dirs: vec!["/src/odoo".into(), "/src/enterprise".into()],
             model: None,
+            effort: None,
             diagram_tools: None,
         }
+    }
+
+    #[test]
+    fn effort_is_passed_only_when_chosen() {
+        assert!(!args(&spec(false)).contains(&"--effort".to_string()));
+        let mut s = spec(false);
+        s.effort = Some("high".into());
+        assert_eq!(value_after(&args(&s), "--effort"), Some("high"));
     }
 
     #[test]

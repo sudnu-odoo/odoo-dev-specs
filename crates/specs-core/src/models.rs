@@ -79,6 +79,14 @@ pub fn all_models(available: impl Fn(Provider) -> bool) -> Vec<Model> {
         .collect()
 }
 
+/// Reasoning effort levels both CLIs accept for `--effort`, lowest first.
+pub const EFFORTS: [&str; 5] = ["low", "medium", "high", "xhigh", "max"];
+
+/// Keep only an effort level the CLIs understand.
+pub fn valid_effort(effort: Option<String>) -> Option<String> {
+    effort.filter(|e| EFFORTS.contains(&e.as_str()))
+}
+
 /// Which provider offers this model id, if any.
 pub fn provider_of(id: &str) -> Option<Provider> {
     PROVIDERS.into_iter().find(|p| is_valid(*p, id))
@@ -126,6 +134,13 @@ mod tests {
             all.len(),
             "model ids must be unique across providers"
         );
+    }
+
+    #[test]
+    fn only_known_effort_levels_are_kept() {
+        assert_eq!(valid_effort(Some("high".into())).as_deref(), Some("high"));
+        assert_eq!(valid_effort(Some("turbo".into())), None);
+        assert_eq!(valid_effort(None), None);
     }
 
     #[test]

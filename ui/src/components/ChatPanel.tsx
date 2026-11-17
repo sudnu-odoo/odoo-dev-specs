@@ -14,6 +14,11 @@ export interface ChatPanelProps {
   models?: Model[];
   selectedModel?: string;
   onModelChange?: (id: string) => void;
+  /** Reasoning effort ("" = the CLI's default). */
+  effort?: string;
+  onEffortChange?: (effort: string) => void;
+  /** Log in to a provider whose models are locked. */
+  onLogin?: (provider: string) => void;
   usage?: TokenUsage;
   /** Subscription limit usage; when known it replaces the raw token count. */
   plan?: PlanUsage;
@@ -32,6 +37,9 @@ export default function ChatPanel({
   models = [],
   selectedModel = "",
   onModelChange,
+  effort = "",
+  onEffortChange,
+  onLogin,
   usage = NO_USAGE,
   plan,
 }: ChatPanelProps) {
@@ -109,6 +117,9 @@ export default function ChatPanel({
               selected={selectedModel}
               disabled={running || !hasSession}
               onChange={onModelChange}
+              effort={effort}
+              onEffortChange={onEffortChange}
+              onLogin={onLogin}
             />
           )}
           <span className="composer-spacer" />

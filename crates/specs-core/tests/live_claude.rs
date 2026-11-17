@@ -18,6 +18,7 @@ fn real_claude() -> ClaudeConfig {
         provider: specs_core::settings::Provider::Claude,
         read_dirs: vec![],
         model: Some("haiku".into()),
+        effort: None,
         diagram_tools: None,
         runtime_dir: None,
         demo_data: true,
@@ -216,6 +217,7 @@ async fn real_claude_starts_a_screen_change_from_a_screenshot() {
         diagram_tools: Some(mcp),
         runtime_dir: Some(odoo_runtime::runtime::Runtime::default_root()),
         model: None,
+        effort: None,
         ..real_claude()
     };
 
@@ -269,4 +271,36 @@ async fn real_claude_starts_a_screen_change_from_a_screenshot() {
         ws.read_scene("P", &id).unwrap(),
     )
     .unwrap();
+}
+
+#[tokio::test]
+#[ignore = "calls the real Claude Code; run with `make test-live`"]
+async fn real_claude_reports_plan_usage_to_the_ui() {
+    let dir = tempfile::tempdir().unwrap();
+    let ws = Workspace::new(dir.path());
+    ws.create_project("P").unwrap();
+    let id = ws.create_session("P", "live", "claude").unwrap().id;
+    let mut events = Vec::new();
+    let (_tx, rx) = oneshot::channel();
+    send_message(
+        &ws,
+        "P",
+        &id,
+        "Reply with exactly: ok",
+        &real_claude(),
+        |e| events.push(e),
+        rx,
+    )
+    .await
+    .unwrap();
+    assert!(
+        events.iter().any(|e| matches!(
+            e,
+            ChatEvent::PlanUsage {
+                five_hour: Some(_),
+                ..
+            }
+        )),
+        "no plan usage in {events:?}"
+    );
 }

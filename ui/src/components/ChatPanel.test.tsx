@@ -207,11 +207,39 @@ describe("ChatPanel model picker and usage", () => {
     const claude = screen.getByRole("group", { name: "Claude" });
     expect(claude).toContainElement(screen.getByRole("menuitemradio", { name: "Sonnet" }));
     const locked = screen.getByRole("group", { name: /Antigravity.*not ready/i });
-    const gemini = screen.getByRole("menuitemradio", { name: "Gemini Pro" });
+    const gemini = screen.getByRole("menuitemradio", { name: /Gemini Pro/ });
     expect(locked).toContainElement(gemini);
     expect(gemini).toHaveAttribute("aria-disabled", "true");
     await userEvent.click(gemini);
     expect(props.onModelChange).not.toHaveBeenCalled();
+  });
+
+  it("picks an effort level in the same menu and shows it on the chip", async () => {
+    const props = setup({ effort: "", onEffortChange: vi.fn() });
+    await userEvent.click(modelButton());
+    const effort = screen.getByRole("group", { name: "Effort" });
+    expect(effort).toHaveTextContent(/Default.*Low.*Medium.*High.*Xhigh.*Max/);
+    await userEvent.click(screen.getByRole("menuitemradio", { name: "High" }));
+    expect(props.onEffortChange).toHaveBeenCalledWith("high");
+  });
+
+  it("shows the chosen effort on the chip", () => {
+    setup({ effort: "high" });
+    expect(modelButton()).toHaveTextContent(/Sonnet \(balanced\).*High/);
+  });
+
+  it("marks each locked model with a padlock and offers to log in", async () => {
+    const props = setup({
+      models: [
+        { id: "sonnet", label: "Sonnet", provider: "Claude" },
+        { id: "gem", label: "Gemini Pro", provider: "Antigravity", locked: true },
+      ],
+      onLogin: vi.fn(),
+    });
+    await userEvent.click(modelButton());
+    expect(screen.getByRole("menuitemradio", { name: "Gemini Pro" })).toHaveTextContent("🔒");
+    await userEvent.click(screen.getByRole("button", { name: "Log in to Antigravity" }));
+    expect(props.onLogin).toHaveBeenCalledWith("antigravity");
   });
 
   it("disables the model chip while the assistant is answering", () => {

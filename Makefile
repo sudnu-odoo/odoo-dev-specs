@@ -18,6 +18,7 @@ test-live:          ## End-to-end with the real, logged-in Claude Code (costs to
 	cargo build -p specs-mcp
 	cargo test -p specs-core --test live_claude -- --ignored
 	cargo test -p specs-core --test live_antigravity -- --ignored
+	cargo test -p odoo-dev-specs --test live_providers -- --ignored --nocapture
 	cargo test -p odoo-runtime --test live_runtime -- --ignored
 
 lint:               ## Static checks (no changes)

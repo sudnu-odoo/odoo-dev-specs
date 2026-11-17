@@ -8,6 +8,7 @@ pub mod events;
 mod fsutil;
 pub mod locate;
 pub mod models;
+pub mod providers;
 pub mod runner;
 pub mod settings;
 pub mod transcript;

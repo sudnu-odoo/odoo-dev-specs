@@ -25,6 +25,8 @@ pub struct ClaudeConfig {
     /// Read-only folders for the assistant, e.g. the Odoo source checkouts.
     pub read_dirs: Vec<PathBuf>,
     pub model: Option<String>,
+    /// Reasoning effort for the CLI (`low`..`max`); `None` uses its default.
+    pub effort: Option<String>,
     /// The `specs-mcp` program giving the assistant diagram tools, when found.
     pub diagram_tools: Option<PathBuf>,
     /// Local Odoo runtime folder, for screenshots of a fresh local Odoo.
@@ -62,6 +64,7 @@ pub async fn send_message(
         resume: meta.started,
         read_dirs: claude.read_dirs.clone(),
         model: claude.model.clone(),
+        effort: claude.effort.clone(),
         diagram_tools: claude.diagram_tools.clone().map(|program| DiagramTools {
             program,
             session_dir: cwd.clone(),
@@ -92,6 +95,7 @@ pub async fn send_message(
                     conversation: meta.conversation_id.clone(),
                     read_dirs: spec.read_dirs.clone(),
                     model: spec.model.clone(),
+                    effort: spec.effort.clone(),
                     diagram_tools: spec.diagram_tools.is_some(),
                 }),
                 parse: antigravity::parse_line,

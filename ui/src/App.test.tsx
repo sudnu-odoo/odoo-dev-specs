@@ -138,6 +138,7 @@ describe("App", () => {
       { project: "Acme", sessionId: "s1" },
       "Add a field",
       "sonnet",
+      null,
     );
     expect(screen.getByRole("button", { name: "Stop" })).toBeInTheDocument();
 

@@ -6,6 +6,7 @@ import type {
   ChatEventPayload,
   EnvReport,
   Model,
+  ProviderStatus,
   Settings,
   DiagramTarget,
   ProjectInfo,
@@ -24,8 +25,8 @@ export const api = {
   loadSession: (ref: SessionRef) => invoke<SessionData>("load_session", { ...ref }),
   loadScene: (ref: SessionRef) => invoke<string>("load_scene", { ...ref }),
   saveScene: (ref: SessionRef, scene: string) => invoke<void>("save_scene", { ...ref, scene }),
-  sendMessage: (ref: SessionRef, text: string, model: string | null) =>
-    invoke<void>("send_message", { ...ref, text, model }),
+  sendMessage: (ref: SessionRef, text: string, model: string | null, effort: string | null) =>
+    invoke<void>("send_message", { ...ref, text, model, effort }),
   cancelTurn: (sessionId: string) => invoke<void>("cancel_turn", { sessionId }),
   onChatEvent: (handler: (payload: ChatEventPayload) => void): Promise<UnlistenFn> =>
     listen<ChatEventPayload>("chat-event", (e) => handler(e.payload)),
@@ -38,6 +39,9 @@ export const api = {
   saveSettings: (settings: Settings) => invoke<void>("save_settings", { settings }),
   checkEnvironment: () => invoke<EnvReport>("check_environment"),
   listModels: () => invoke<Model[]>("list_models"),
+  providerStatus: () => invoke<ProviderStatus[]>("provider_status"),
+  /** Open the provider's login in a terminal window. */
+  loginProvider: (provider: string) => invoke<void>("login_provider", { provider }),
   /** In the diagram window: the main window selected another session. */
   onDiagramSession: (handler: (target: DiagramTarget) => void): Promise<UnlistenFn> =>
     listen<DiagramTarget>("diagram-session", (e) => handler(e.payload)),
