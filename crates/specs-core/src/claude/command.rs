@@ -197,6 +197,7 @@ mod tests {
             "Test cases",
             "Known limitations",
             "Reply in the language of the user's latest message",
+            "New field: x_delivery_window",
         ] {
             assert!(SYSTEM_PROMPT.contains(rule), "missing: {rule}");
         }

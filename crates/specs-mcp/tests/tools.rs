@@ -443,3 +443,24 @@ async fn every_tool_the_spec_skill_names_exists() {
         );
     }
 }
+
+/// A new field is "written into" the screenshot where it will appear (a mockup label).
+#[tokio::test]
+async fn text_can_be_placed_on_a_screenshot_in_its_own_pixels() {
+    let dir = session();
+    let client = connect(dir.path()).await;
+    let shot = screenshot_on_scene(&dir, &client).await;
+    let label = call(
+        &client,
+        "diagram_add_text",
+        json!({"text": "Delivery Window", "image_id": shot, "x": 400, "y": 100, "font_size": 16}),
+    )
+    .await;
+    assert!(!is_error(&label), "{}", text(&label));
+    let e = element(&dir, &id_in(&text(&label)));
+    // Pixel (400, 100) of the PNG is shown at (200, 50) on the half-size image.
+    assert_eq!(
+        (e["x"].as_f64(), e["y"].as_f64()),
+        (Some(200.0), Some(50.0))
+    );
+}

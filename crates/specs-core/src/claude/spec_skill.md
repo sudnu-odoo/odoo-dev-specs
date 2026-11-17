@@ -16,7 +16,8 @@ Never ask for, read or reproduce customer data. Verify behaviour only on the loc
 
 ## What a good spec looks like
 
-- Real Odoo screenshots, annotated in red: short red notes next to the screenshot, red arrows pointing at the exact field or button, red outlines around what is new or changes.
+- Real Odoo screenshots, annotated in red: short red notes next to the screenshot, arrows pointing at the exact field or button, red outlines around existing parts that change.
+- A new field is shown as if it were already there: its label is written on the screenshot where it will appear, with an arrow to a red note giving its technical name, type and an example value.
 - Short texts. Show, do not explain: put the expected result on the screenshot (e.g. the new total line with its value) rather than describing it in a paragraph. One idea per line, a few words each. If a part needs more than about 8 lines of text, split it or show it on a screenshot instead.
 - Vertical: everything stacked top to bottom in one column, read like a page. Side by side is only allowed to compare documents or "today vs to-be".
 - No flow charts, no boxes-and-arrows diagrams of a process, no technical analysis, no planning, budget or costing.
@@ -35,9 +36,17 @@ Never ask for, read or reproduce customer data. Verify behaviour only on the loc
 
 - Call diagram_summary first when the diagram is not empty, and build on what is there.
 - Screenshots: take them with odoo_screenshot on a fresh local database (Odoo 19.0 unless the user names another version, with the modules the feature needs). The database has demo data: open an existing record that shows the feature with real values (e.g. a quotation with order lines, "/odoo/sales/<id>"), not an empty new form. Open the PNG file to see where things are, then place it with diagram_add_image (width 900).
-- A field or column that does not exist yet: outline the place it goes on the real screenshot and write "NEW: ..." next to it, with its example values. Do not redraw a screen or a table inside a box.
+- A new field, column or button (it does not exist yet), always the same way:
+  1. Write its label on the screenshot where it will appear: diagram_add_text with image_id and the pixel position of that spot, font_size 16, no colour, so it reads like part of the screen (e.g. "Delivery Window" in the empty space under "Expiration"). A new list column: its header inside the header row and an example value in the first rows, in the column's place; never below or beside the list.
+  2. Write a red note to the right of the screenshot, exactly three lines:
+     New field: x_delivery_window
+     type: date
+     value: "Dec 20 -> Dec 27"
+     (one more short line only if really needed, e.g. "read-only after confirmation").
+  3. Connect them with diagram_add_arrow from the label to the note.
+  No outline box around a new field, and never redraw a screen or a table inside a box.
 - Layout: one column starting at x = 0. Leave 80px between sections. Put red notes to the right of the screenshot (x = 960 or more), level with what they describe, a few words each with real line breaks.
-- Annotate with diagram_add_text (color "red") for notes, diagram_add_pointer from the note to the spot (image_id + pixel coordinates as seen in the PNG), and diagram_add_highlight (image_id + pixel area) around new or changed parts.
+- Annotate existing parts with diagram_add_text (color "red") for notes, diagram_add_pointer from the note to the spot (image_id + pixel coordinates as seen in the PNG), and diagram_add_highlight (image_id + pixel area) around what changes.
 - Text sizes: title 36, section headings 28, everything else 20 (never smaller).
 - Plain text (no colour) for titles, context, the fields table, flows, test cases and limitations. Use boxes only for a small mockup of something that does not exist yet (e.g. a new button or field), never for process steps.
 - After adding, check positions with diagram_summary and fix overlaps with diagram_move.

@@ -43,6 +43,9 @@ pub struct AddBox {
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct AddText {
     pub text: String,
+    /// Screenshot to write on (e.g. a new field's label where it will appear). With it,
+    /// x and y are pixels of that PNG file; without it, canvas coordinates.
+    pub image_id: Option<String>,
     pub x: Option<f64>,
     pub y: Option<f64>,
     /// Default 20. Use 28-36 for titles.
@@ -223,12 +226,18 @@ impl DiagramServer {
     async fn diagram_add_text(&self, Parameters(p): Parameters<AddText>) -> CallToolResult {
         self.edit(|scene| {
             let color = p.color.as_deref().map(parse_color).transpose()?;
-            let id = scene.add_text(
-                &unescape(&p.text),
-                Placement { x: p.x, y: p.y },
-                p.font_size,
-                color,
-            );
+            let at = match (&p.image_id, p.x, p.y) {
+                (Some(image), Some(x), Some(y)) => {
+                    let (x, y) = scene.resolve(&target(Some(image.clone()), x, y))?;
+                    Placement {
+                        x: Some(x),
+                        y: Some(y),
+                    }
+                }
+                (Some(_), _, _) => bail!("Give x and y with image_id."),
+                (None, x, y) => Placement { x, y },
+            };
+            let id = scene.add_text(&unescape(&p.text), at, p.font_size, color);
             // It may have been moved down so as not to cover another text: say where.
             let at = scene
                 .summary()
