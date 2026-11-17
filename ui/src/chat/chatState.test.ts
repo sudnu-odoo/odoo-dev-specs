@@ -74,6 +74,16 @@ describe("chatReducer", () => {
     expect(chatReducer(s, { type: "loaded", transcript: [] }).plan).toEqual(plan);
   });
 
+  it("ignores Antigravity's conversation event instead of losing the chat", () => {
+    const s = event(running, { kind: "conversation", id: "c1" });
+    expect(s).toEqual(running);
+  });
+
+  it("ignores an event kind it does not know, so a newer backend cannot crash it", () => {
+    const s = event(running, { kind: "something_new" } as unknown as ChatEvent);
+    expect(s).toEqual(running);
+  });
+
   it("keeps the usage total when a new transcript loads", () => {
     const withUsage = { ...running, usage: { inputTokens: 500, outputTokens: 80 } };
     const loaded = chatReducer(withUsage, { type: "loaded", transcript: [] });

@@ -114,5 +114,11 @@ function applyEvent(state: ChatState, event: ChatEvent): ChatState {
           ? [...items, { role: "error", message: event.message ?? "Something went wrong." }]
           : items,
       };
+    case "conversation":
+      // Only the backend needs it (to resume the conversation).
+      return state;
+    default:
+      // An event this UI does not know yet: never lose the chat over it.
+      return state;
   }
 }

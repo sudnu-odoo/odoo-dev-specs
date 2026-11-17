@@ -32,6 +32,8 @@ export type ChatEvent =
   | { kind: "tool_started"; id: string; name: string; input: unknown }
   | { kind: "tool_finished"; id: string; is_error: boolean }
   | { kind: "usage"; input_tokens: number; output_tokens: number }
+  /** The provider's own conversation id (Antigravity); the backend stores it. */
+  | { kind: "conversation"; id: string }
   | {
       kind: "plan_usage";
       five_hour: { utilization: number; resets_at: number } | null;
