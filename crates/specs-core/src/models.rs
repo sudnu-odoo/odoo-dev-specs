@@ -14,12 +14,18 @@ pub struct Model {
     pub id: String,
     /// Short human label, e.g. "Sonnet (balanced)".
     pub label: String,
+    /// Provider name, used to group the picker.
+    pub provider: String,
+    /// The provider is not logged in, so the model cannot be chosen yet.
+    pub locked: bool,
 }
 
-fn model(id: &str, label: &str) -> Model {
+fn model(provider: &str, id: &str, label: &str) -> Model {
     Model {
         id: id.into(),
         label: label.into(),
+        provider: provider.into(),
+        locked: false,
     }
 }
 
@@ -27,9 +33,9 @@ fn model(id: &str, label: &str) -> Model {
 pub fn models(provider: Provider) -> Vec<Model> {
     match provider {
         Provider::Claude => vec![
-            model("sonnet", "Sonnet (balanced)"),
-            model("opus", "Opus (most capable)"),
-            model("haiku", "Haiku (fastest)"),
+            model("Claude", "sonnet", "Sonnet (balanced)"),
+            model("Claude", "opus", "Opus (most capable)"),
+            model("Claude", "haiku", "Haiku (fastest)"),
         ],
     }
 }
@@ -58,6 +64,16 @@ mod tests {
         let claude = models(Provider::Claude);
         assert_eq!(claude.first().unwrap().id, "sonnet");
         assert_eq!(default_model(Provider::Claude), "sonnet");
+    }
+
+    #[test]
+    fn models_carry_their_provider_and_start_unlocked() {
+        let m = &models(Provider::Claude)[0];
+        assert_eq!(m.provider, "Claude");
+        assert!(!m.locked);
+        let json = serde_json::to_value(m).unwrap();
+        assert_eq!(json["provider"], "Claude");
+        assert_eq!(json["locked"], false);
     }
 
     #[test]
