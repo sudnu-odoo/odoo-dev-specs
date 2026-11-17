@@ -1,10 +1,11 @@
-//! odoo_screenshot end to end: fake odev whose `run` serves a static fake Odoo,
+//! odoo_screenshot end to end: a runtime whose fake `odoo-bin` serves a static fake Odoo,
 //! the real server management and real headless Chrome.
 
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::time::Duration;
 
+use odoo_runtime::runtime::{Runtime, Tools, VENV_READY};
 use rmcp::model::{CallToolRequestParams, ClientConfig};
 use rmcp::{ClientHandler, ServiceExt};
 use serde_json::json;
@@ -34,29 +35,52 @@ fn fake_odoo_site(root: &std::path::Path) {
     .unwrap();
 }
 
+/// A runtime whose Odoo 19.0 is already set up (source + ready virtualenv), so no
+/// git or pip runs. `psql` lists one database; `odoo-bin` serves `site` on its port.
+fn fake_runtime(work: &std::path::Path, site: &std::path::Path) -> Runtime {
+    let bin = work.join("bin");
+    fs::create_dir_all(&bin).unwrap();
+    let write = |name: &str, body: String| {
+        let p = bin.join(name);
+        fs::write(&p, format!("#!/bin/sh\n{body}\n")).unwrap();
+        fs::set_permissions(&p, fs::Permissions::from_mode(0o755)).unwrap();
+        p
+    };
+    let psql = write("psql", "echo specs_19_0_sale_management".into());
+    let python = write(
+        "python",
+        format!(
+            r#"port=""; prev=""
+for a in "$@"; do [ "$prev" = "--http-port" ] && port="$a"; prev="$a"; done
+cd '{}' && exec /usr/bin/python3 -m http.server "$port" --bind 127.0.0.1"#,
+            site.display()
+        ),
+    );
+    let runtime = Runtime::new(
+        work.join("runtime"),
+        Tools {
+            git: "/bin/false".into(),
+            python: python.clone(),
+            psql,
+            dropdb: "/bin/true".into(),
+        },
+    );
+    let source = runtime.source_dir("19.0");
+    fs::create_dir_all(&source).unwrap();
+    fs::write(source.join("odoo-bin"), "").unwrap();
+    let venv_bin = work.join("runtime/venvs/19.0/bin");
+    fs::create_dir_all(&venv_bin).unwrap();
+    std::os::unix::fs::symlink(&python, venv_bin.join("python")).unwrap();
+    fs::write(work.join("runtime/venvs/19.0").join(VENV_READY), "").unwrap();
+    runtime
+}
+
 #[tokio::test]
 async fn takes_a_screenshot_of_a_fresh_local_odoo_into_the_session() {
     let work = tempfile::tempdir().unwrap();
     let site = work.path().join("site");
     fake_odoo_site(&site);
-    let odev = work.path().join("odev");
-    fs::write(
-        &odev,
-        format!(
-            r#"#!/bin/sh
-echo "$*" >> '{log}'
-case "$1" in
-  list) echo specs_19_0_sale_management ;;
-  run) port=$5; cd '{site}' && exec python3 -m http.server "$port" --bind 127.0.0.1 ;;
-esac
-"#,
-            log = work.path().join("calls.log").display(),
-            site = site.display(),
-        ),
-    )
-    .unwrap();
-    fs::set_permissions(&odev, fs::Permissions::from_mode(0o755)).unwrap();
-
+    let runtime = fake_runtime(work.path(), &site);
     let session = work.path().join("session");
     fs::create_dir_all(session.join("screenshots")).unwrap();
     fs::write(
@@ -64,8 +88,7 @@ esac
         r#"{"type":"excalidraw","elements":[],"files":{}}"#,
     )
     .unwrap();
-    let server = DiagramServer::new(&session).with_odoo(&odev, work.path().join("state"));
-    let state = work.path().join("state");
+    let server = DiagramServer::new(&session).with_runtime(runtime.clone());
 
     let (server_io, client_io) = tokio::io::duplex(1 << 16);
     tokio::spawn(async move { server.serve(server_io).await.unwrap().waiting().await });
@@ -88,9 +111,7 @@ esac
         .filter_map(|c| c.as_text())
         .map(|t| t.text.clone())
         .collect();
-    odev_core::server::Odev::new(&odev, &state)
-        .stop_all()
-        .unwrap();
+    runtime.stop_all().unwrap();
 
     assert_ne!(result.is_error, Some(true), "{answer}");
     assert!(answer.contains("screenshots/sales_orders.png"), "{answer}");
@@ -115,8 +136,14 @@ esac
 #[tokio::test]
 async fn screenshot_names_stay_inside_the_session() {
     let work = tempfile::tempdir().unwrap();
-    let server =
-        DiagramServer::new(work.path()).with_odoo("/nonexistent/odev", work.path().join("state"));
+    let missing = Tools {
+        git: "/nonexistent/git".into(),
+        python: "/nonexistent/python".into(),
+        psql: "/nonexistent/psql".into(),
+        dropdb: "/nonexistent/dropdb".into(),
+    };
+    let server = DiagramServer::new(work.path())
+        .with_runtime(Runtime::new(work.path().join("runtime"), missing));
     let (server_io, client_io) = tokio::io::duplex(1 << 16);
     tokio::spawn(async move { server.serve(server_io).await.unwrap().waiting().await });
     let client = Client.serve(client_io).await.unwrap();
@@ -138,7 +165,7 @@ async fn screenshot_names_stay_inside_the_session() {
         if name.is_empty() {
             assert_eq!(r.is_error, Some(true), "empty name accepted");
         } else {
-            // Sanitised to a plain file name: the failure is about odev, not the path.
+            // Sanitised to a plain file name: the failure is about the runtime, not the path.
             assert!(!answer.contains(".."), "{answer}");
         }
     }

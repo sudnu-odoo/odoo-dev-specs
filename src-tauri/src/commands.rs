@@ -4,7 +4,8 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-use odev_core::doctor::{self, Probe, Report};
+use odoo_runtime::doctor::{self, Probe, Report};
+use odoo_runtime::runtime::{Runtime as OdooRuntime, Tools};
 use serde::Serialize;
 use specs_core::chat::{self, ClaudeConfig};
 use specs_core::events::ChatEvent;
@@ -189,6 +190,10 @@ pub fn send_message<R: Runtime>(
     let current = state.settings.load();
     claude.provider = current.provider;
     claude.demo_data = current.demo_data;
+    // The assistant reads the Odoo source downloaded so far (it grows with use).
+    if let Some(root) = &claude.runtime_dir {
+        claude.read_dirs = OdooRuntime::new(root, Tools::default()).source_dirs();
+    }
     // Use the model chosen for this message, if it belongs to the active provider.
     claude.model = model.filter(|m| models::is_valid(claude.provider, m));
     if text.trim().is_empty() {
@@ -273,7 +278,7 @@ pub fn save_settings(state: State<'_, AppState>, settings: Settings) -> CmdResul
     state.settings.save(&settings).map_err(user_error)
 }
 
-/// The first-run / Settings environment report (odev, PostgreSQL, source, Chrome, AI).
+/// The first-run / Settings environment report (Python, git, PostgreSQL, source, Chrome, AI).
 #[tauri::command]
 pub fn check_environment(state: State<'_, AppState>) -> Report {
     doctor::check(&(state.probe)())

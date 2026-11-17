@@ -57,7 +57,7 @@ export interface Settings {
   demoData: boolean;
 }
 
-/** One environment requirement (mirrors odev_core::doctor::Check). */
+/** One environment requirement (mirrors odoo_runtime::doctor::Check). */
 export interface EnvCheck {
   key: string;
   label: string;
@@ -67,7 +67,7 @@ export interface EnvCheck {
   required: boolean;
 }
 
-/** Mirrors odev_core::doctor::Report. */
+/** Mirrors odoo_runtime::doctor::Report. */
 export interface EnvReport {
   checks: EnvCheck[];
 }

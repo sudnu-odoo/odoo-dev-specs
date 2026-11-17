@@ -38,8 +38,8 @@ pub struct TurnSpec {
 pub struct DiagramTools {
     pub program: PathBuf,
     pub session_dir: PathBuf,
-    /// odev executable, enabling Odoo screenshots.
-    pub odev: Option<PathBuf>,
+    /// Local Odoo runtime folder, enabling Odoo screenshots.
+    pub runtime_dir: Option<PathBuf>,
     /// Load Odoo demo data into screenshot databases (realistic records).
     pub demo_data: bool,
 }
@@ -52,8 +52,8 @@ fn mcp_args(tools: &DiagramTools) -> Vec<String> {
         "--session-dir".to_string(),
         tools.session_dir.display().to_string(),
     ];
-    if let Some(odev) = &tools.odev {
-        args.extend(["--odev".to_string(), odev.display().to_string()]);
+    if let Some(runtime) = &tools.runtime_dir {
+        args.extend(["--runtime-dir".to_string(), runtime.display().to_string()]);
     }
     if !tools.demo_data {
         args.push("--no-demo-data".to_string());
@@ -130,7 +130,7 @@ mod tests {
         s.diagram_tools = Some(DiagramTools {
             program: "/app/specs-mcp".into(),
             session_dir: "/home/u/OdooSpecs/Acme/abc".into(),
-            odev: None,
+            runtime_dir: None,
             demo_data: true,
         });
         let a = args(&s);
@@ -159,12 +159,12 @@ mod tests {
     }
 
     #[test]
-    fn odev_is_passed_on_for_screenshots() {
+    fn the_runtime_is_passed_on_for_screenshots() {
         let mut s = spec(false);
         s.diagram_tools = Some(DiagramTools {
             program: "/app/specs-mcp".into(),
             session_dir: "/s".into(),
-            odev: Some("/home/u/.local/bin/odev".into()),
+            runtime_dir: Some("/home/u/.local/share/odoo-dev-specs/runtime".into()),
             demo_data: true,
         });
         let a = args(&s);
@@ -172,7 +172,12 @@ mod tests {
             serde_json::from_str(value_after(&a, "--mcp-config").unwrap()).unwrap();
         assert_eq!(
             config["mcpServers"]["specs"]["args"],
-            serde_json::json!(["--session-dir", "/s", "--odev", "/home/u/.local/bin/odev"])
+            serde_json::json!([
+                "--session-dir",
+                "/s",
+                "--runtime-dir",
+                "/home/u/.local/share/odoo-dev-specs/runtime"
+            ])
         );
         assert!(SYSTEM_PROMPT.contains("odoo_screenshot"));
         assert!(
@@ -187,14 +192,20 @@ mod tests {
         s.diagram_tools = Some(DiagramTools {
             program: "/app/specs-mcp".into(),
             session_dir: "/s".into(),
-            odev: Some("/odev".into()),
+            runtime_dir: Some("/rt".into()),
             demo_data: false,
         });
         let config: serde_json::Value =
             serde_json::from_str(value_after(&args(&s), "--mcp-config").unwrap()).unwrap();
         assert_eq!(
             config["mcpServers"]["specs"]["args"],
-            serde_json::json!(["--session-dir", "/s", "--odev", "/odev", "--no-demo-data"])
+            serde_json::json!([
+                "--session-dir",
+                "/s",
+                "--runtime-dir",
+                "/rt",
+                "--no-demo-data"
+            ])
         );
     }
 

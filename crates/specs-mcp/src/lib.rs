@@ -2,6 +2,9 @@
 //! (`<session>/spec.excalidraw`). Claude Code starts it per chat turn.
 
 pub mod browser;
+mod options;
+
+pub use options::{parse_args, Options};
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -10,7 +13,7 @@ use std::sync::Arc;
 use anyhow::{bail, ensure, Context, Result};
 use browser::Viewport;
 use excalidraw::{Color, Placement, Scene};
-use odev_core::server::Odev;
+use odoo_runtime::runtime::Runtime;
 use rmcp::handler::server::wrapper::Parameters;
 use rmcp::model::{CallToolResult, ContentBlock};
 use rmcp::{tool, tool_handler, tool_router, ServerHandler};
@@ -116,8 +119,8 @@ pub struct DiagramServer {
     session_dir: PathBuf,
     /// One edit at a time: each tool reads, changes and writes the whole file.
     lock: Arc<tokio::sync::Mutex<()>>,
-    /// Local Odoo servers for screenshots; `None` when odev is not available.
-    odev: Option<Arc<Odev>>,
+    /// Local Odoo for screenshots; `None` when screenshots are not enabled.
+    runtime: Option<Arc<Runtime>>,
     /// Create screenshot databases with Odoo demo data (realistic records).
     demo_data: bool,
 }
@@ -127,14 +130,14 @@ impl DiagramServer {
         Self {
             session_dir: session_dir.into(),
             lock: Arc::default(),
-            odev: None,
+            runtime: None,
             demo_data: true,
         }
     }
 
-    /// Enable Odoo screenshots through this odev executable.
-    pub fn with_odoo(mut self, odev: impl Into<PathBuf>, state_dir: impl Into<PathBuf>) -> Self {
-        self.odev = Some(Arc::new(Odev::new(odev, state_dir)));
+    /// Enable Odoo screenshots through this runtime.
+    pub fn with_runtime(mut self, runtime: Runtime) -> Self {
+        self.runtime = Some(Arc::new(runtime));
         self
     }
 
@@ -279,14 +282,14 @@ diagram_add_image."
 impl DiagramServer {
     async fn take_screenshot(&self, p: Screenshot) -> Result<String> {
         let file = format!("{}.png", file_stem(&p.name)?);
-        let odev = self
-            .odev
+        let runtime = self
+            .runtime
             .clone()
-            .context("Odoo screenshots are not available: odev was not found on this computer.")?;
+            .context("Odoo screenshots are not available: the local Odoo runtime is not set up.")?;
         let (version, modules, demo_data) = (p.version.clone(), p.modules.clone(), self.demo_data);
         let running = tokio::task::spawn_blocking(move || {
-            let database = odev.ensure_database(&version, &modules, demo_data)?;
-            odev.ensure_running(&version, &database)
+            let database = runtime.ensure_database(&version, &modules, demo_data)?;
+            runtime.ensure_running(&version, &database)
         })
         .await
         .context("starting Odoo")??;

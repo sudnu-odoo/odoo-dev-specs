@@ -13,7 +13,7 @@ const mocked = vi.mocked(api);
 const settings: Settings = { provider: "claude", defaultVersion: "19.0", demoData: true };
 const healthy: EnvReport = {
   checks: [
-    { key: "odev", label: "odev", status: "ok", detail: "/bin/odev", hint: null, required: true },
+    { key: "git", label: "Git", status: "ok", detail: "/usr/bin/git", hint: null, required: true },
     { key: "ai", label: "AI assistant", status: "ok", detail: "Claude Code", hint: null, required: true },
   ],
 };
@@ -28,7 +28,7 @@ beforeEach(() => {
 describe("SettingsPanel", () => {
   it("shows the environment checks and current settings", async () => {
     render(<SettingsPanel onClose={vi.fn()} />);
-    expect(await screen.findByText("/bin/odev")).toBeInTheDocument();
+    expect(await screen.findByText("/usr/bin/git")).toBeInTheDocument();
     // The AI check reports which CLI is installed, in its detail line.
     expect(screen.getByText("AI assistant").closest(".env-row")).toHaveTextContent("Claude Code");
     expect(await screen.findByLabelText("Default Odoo version")).toHaveValue("19.0");

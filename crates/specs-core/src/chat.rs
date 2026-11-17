@@ -14,7 +14,7 @@ use crate::transcript::{TranscriptEntry, TurnRecorder};
 use crate::workspace::Workspace;
 
 /// How to run the AI assistant on this machine. The same shared context (source
-/// dirs, diagram tools, odev, demo data) is used whichever provider answers.
+/// dirs, diagram tools, Odoo runtime, demo data) is used whichever provider answers.
 #[derive(Debug, Clone)]
 pub struct ClaudeConfig {
     /// The `claude` executable.
@@ -26,8 +26,8 @@ pub struct ClaudeConfig {
     pub model: Option<String>,
     /// The `specs-mcp` program giving the assistant diagram tools, when found.
     pub diagram_tools: Option<PathBuf>,
-    /// odev, for screenshots of a fresh local Odoo, when found.
-    pub odev: Option<PathBuf>,
+    /// Local Odoo runtime folder, for screenshots of a fresh local Odoo.
+    pub runtime_dir: Option<PathBuf>,
     /// Load Odoo demo data into screenshot databases (realistic records).
     pub demo_data: bool,
 }
@@ -64,7 +64,7 @@ pub async fn send_message(
         diagram_tools: claude.diagram_tools.clone().map(|program| DiagramTools {
             program,
             session_dir: cwd.clone(),
-            odev: claude.odev.clone(),
+            runtime_dir: claude.runtime_dir.clone(),
             demo_data: claude.demo_data,
         }),
     };

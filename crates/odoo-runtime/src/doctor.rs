@@ -1,5 +1,5 @@
 //! First-run environment check: reports whether everything the app needs is in
-//! place (odev, PostgreSQL, the Odoo source, Chrome, an AI CLI), with a short
+//! place (Python, git, PostgreSQL, the Odoo source, Chrome, an AI CLI), with a short
 //! hint for whatever is missing. Pure logic: all system access is injected, so
 //! the whole report is testable without touching the real machine.
 
@@ -23,9 +23,9 @@ pub enum Status {
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Check {
-    /// Stable identifier, e.g. "odev" or "postgresql".
+    /// Stable identifier, e.g. "git" or "postgresql".
     pub key: String,
-    /// Short human label, e.g. "odev".
+    /// Short human label, e.g. "PostgreSQL".
     pub label: String,
     pub status: Status,
     /// What was found (a version, a path, "not found"…).
@@ -56,13 +56,15 @@ impl Report {
 /// module stays pure. Each field answers one probe.
 #[derive(Debug, Clone, Default)]
 pub struct Probe {
-    /// Path of the `odev` executable, if found.
-    pub odev: Option<PathBuf>,
+    /// Path of `python3`, if found (runs Odoo).
+    pub python: Option<PathBuf>,
+    /// Path of `git`, if found (downloads the Odoo source).
+    pub git: Option<PathBuf>,
     /// True when PostgreSQL accepts connections (`pg_isready` succeeded).
     pub postgres_ready: bool,
     /// Whether `pg_isready`/`psql` tools exist at all.
     pub postgres_client: bool,
-    /// Odoo source directories found via odev.cfg (community first, then enterprise).
+    /// Odoo source folders already downloaded (`.../sources/<version>/odoo`).
     pub odoo_sources: Vec<PathBuf>,
     /// Path of a Chrome/Chromium executable, if found.
     pub chrome: Option<PathBuf>,
@@ -74,7 +76,18 @@ pub struct Probe {
 pub fn check(probe: &Probe) -> Report {
     Report {
         checks: vec![
-            check_odev(probe),
+            check_program(
+                &probe.python,
+                "python",
+                "Python 3",
+                "Install Python 3 (3.10 or newer). It runs the local Odoo.",
+            ),
+            check_program(
+                &probe.git,
+                "git",
+                "Git",
+                "Install git. It downloads the Odoo source the first time a version is used.",
+            ),
             check_postgres(probe),
             check_source(probe),
             check_chrome(probe),
@@ -112,17 +125,10 @@ fn problem(
     }
 }
 
-fn check_odev(p: &Probe) -> Check {
-    match &p.odev {
-        Some(path) => ok("odev", "odev", path.display().to_string(), true),
-        None => problem(
-            "odev",
-            "odev",
-            Status::Missing,
-            "not found".into(),
-            "Install odev and make sure it is on your PATH. It creates and runs the local Odoo databases.",
-            true,
-        ),
+fn check_program(path: &Option<PathBuf>, key: &str, label: &str, hint: &str) -> Check {
+    match path {
+        Some(path) => ok(key, label, path.display().to_string(), true),
+        None => problem(key, label, Status::Missing, "not found".into(), hint, true),
     }
 }
 
@@ -140,7 +146,7 @@ fn check_postgres(p: &Probe) -> Check {
             "PostgreSQL",
             Status::Missing,
             "not accepting connections".into(),
-            "Start the PostgreSQL service (e.g. `sudo service postgresql start`). odev stores the local databases in it.",
+            "Start the PostgreSQL service (e.g. `sudo service postgresql start`). It stores the local Odoo databases.",
             true,
         )
     } else {
@@ -149,36 +155,30 @@ fn check_postgres(p: &Probe) -> Check {
             "PostgreSQL",
             Status::Missing,
             "not installed".into(),
-            "Install PostgreSQL. odev stores the local databases in it.",
+            "Install PostgreSQL. It stores the local Odoo databases.",
             true,
         )
     }
 }
 
 fn check_source(p: &Probe) -> Check {
-    let has = |name: &str| {
-        p.odoo_sources
-            .iter()
-            .any(|s| s.file_name().is_some_and(|n| n == name))
-    };
-    match (has("odoo"), has("enterprise")) {
-        (true, true) => ok("odoo_source", "Odoo source", "community and enterprise".into(), true),
-        (true, false) => problem(
+    // `.../sources/<version>/odoo`: the version is the parent folder's name.
+    let versions: Vec<String> = p
+        .odoo_sources
+        .iter()
+        .filter_map(|s| Some(s.parent()?.file_name()?.to_string_lossy().into_owned()))
+        .collect();
+    if versions.is_empty() {
+        problem(
             "odoo_source",
             "Odoo source",
             Status::Warning,
-            "community only".into(),
-            "The enterprise source was not found. Enterprise features cannot be read or screenshotted until it is checked out through odev.",
-            true,
-        ),
-        _ => problem(
-            "odoo_source",
-            "Odoo source",
-            Status::Missing,
-            "not found".into(),
-            "Check out the Odoo source with odev (set [paths] repositories in odev.cfg). The assistant reads it and runs it for screenshots.",
-            true,
-        ),
+            "not downloaded yet".into(),
+            "Downloaded automatically the first time a screenshot of a version is taken (a few hundred MB).",
+            false,
+        )
+    } else {
+        ok("odoo_source", "Odoo source", versions.join(", "), false)
     }
 }
 
@@ -221,10 +221,14 @@ mod tests {
 
     fn full() -> Probe {
         Probe {
-            odev: Some("/home/u/.local/bin/odev".into()),
+            python: Some("/usr/bin/python3".into()),
+            git: Some("/usr/bin/git".into()),
             postgres_ready: true,
             postgres_client: true,
-            odoo_sources: vec!["/src/odoo".into(), "/src/enterprise".into()],
+            odoo_sources: vec![
+                "/rt/sources/18.0/odoo".into(),
+                "/rt/sources/19.0/odoo".into(),
+            ],
             chrome: Some("/usr/bin/google-chrome".into()),
             claude: Some("/home/u/.local/bin/claude".into()),
         }
@@ -242,9 +246,12 @@ mod tests {
     fn a_full_setup_is_ready() {
         let report = check(&full());
         assert!(report.is_ready());
-        for key in ["odev", "postgresql", "odoo_source", "chrome", "ai"] {
-            assert_eq!(get(&report, key).status, Status::Ok, "{key}");
-        }
+        let keys: Vec<&str> = report.checks.iter().map(|c| c.key.as_str()).collect();
+        assert_eq!(
+            keys,
+            ["python", "git", "postgresql", "odoo_source", "chrome", "ai"]
+        );
+        assert!(report.checks.iter().all(|c| c.status == Status::Ok));
         // Every non-ok check offers a hint; ok checks do not need one.
         for c in &report.checks {
             assert_eq!(c.hint.is_some(), c.status != Status::Ok, "{}", c.key);
@@ -252,16 +259,29 @@ mod tests {
     }
 
     #[test]
-    fn missing_odev_blocks_and_explains() {
-        let report = check(&Probe {
-            odev: None,
-            ..full()
-        });
-        let odev = get(&report, "odev");
-        assert_eq!(odev.status, Status::Missing);
-        assert!(odev.required);
-        assert!(odev.hint.as_ref().unwrap().contains("odev"));
-        assert!(!report.is_ready());
+    fn missing_python_or_git_blocks_and_explains() {
+        for (probe, key) in [
+            (
+                Probe {
+                    python: None,
+                    ..full()
+                },
+                "python",
+            ),
+            (
+                Probe {
+                    git: None,
+                    ..full()
+                },
+                "git",
+            ),
+        ] {
+            let report = check(&probe);
+            let c = get(&report, key);
+            assert_eq!(c.status, Status::Missing, "{key}");
+            assert!(c.required && c.hint.is_some(), "{key}");
+            assert!(!report.is_ready(), "{key}");
+        }
     }
 
     #[test]
@@ -283,31 +303,21 @@ mod tests {
     }
 
     #[test]
-    fn enterprise_source_missing_is_only_a_warning() {
-        let report = check(&Probe {
-            odoo_sources: vec!["/src/odoo".into()],
-            ..full()
-        });
-        let src = get(&report, "odoo_source");
-        assert_eq!(src.status, Status::Warning);
-        assert!(src
-            .hint
-            .as_ref()
-            .unwrap()
-            .to_lowercase()
-            .contains("enterprise"));
-        // A warning never blocks first run.
-        assert!(report.is_ready());
+    fn downloaded_versions_are_listed() {
+        assert_eq!(get(&check(&full()), "odoo_source").detail, "18.0, 19.0");
     }
 
     #[test]
-    fn no_odoo_source_at_all_is_missing() {
+    fn no_source_yet_is_only_a_warning() {
         let report = check(&Probe {
             odoo_sources: vec![],
             ..full()
         });
-        assert_eq!(get(&report, "odoo_source").status, Status::Missing);
-        assert!(!report.is_ready());
+        let src = get(&report, "odoo_source");
+        assert_eq!(src.status, Status::Warning);
+        assert!(src.hint.as_ref().unwrap().contains("automatically"));
+        // Downloaded on first use: never blocks the first run.
+        assert!(report.is_ready());
     }
 
     #[test]

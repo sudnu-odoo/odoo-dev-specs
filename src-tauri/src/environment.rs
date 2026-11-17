@@ -1,9 +1,10 @@
-//! Gathers what the machine looks like into a [`Probe`], so `odev_core::doctor`
+//! Gathers what the machine looks like into a [`Probe`], so `odoo_runtime::doctor`
 //! can turn it into the environment report shown on first run and in Settings.
 
 use std::process::Command;
 
-use odev_core::doctor::Probe;
+use odoo_runtime::doctor::Probe;
+use odoo_runtime::runtime::{Runtime, Tools};
 use specs_core::locate::{find_executable, user_bin_dirs};
 
 /// Chrome/Chromium executable names, in the order we prefer them.
@@ -22,12 +23,11 @@ pub fn probe() -> Probe {
     let find = |name: &str| find_executable(name, path.as_deref(), &bins);
 
     Probe {
-        odev: find("odev"),
+        python: find("python3"),
+        git: find("git"),
         postgres_ready: postgres_ready(),
         postgres_client: find("pg_isready").is_some() || find("psql").is_some(),
-        odoo_sources: odev_core::pruning::default_config_path()
-            .map(|cfg| odev_core::paths::odoo_source_dirs(&cfg))
-            .unwrap_or_default(),
+        odoo_sources: Runtime::new(Runtime::default_root(), Tools::default()).source_dirs(),
         chrome: CHROME_NAMES.iter().find_map(|name| find(name)),
         claude: find("claude"),
     }

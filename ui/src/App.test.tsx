@@ -258,11 +258,11 @@ describe("App", () => {
     mocked.checkEnvironment.mockResolvedValue({
       checks: [
         {
-          key: "odev",
-          label: "odev",
+          key: "git",
+          label: "Git",
           status: "missing",
           detail: "not found",
-          hint: "Install odev.",
+          hint: "Install git.",
           required: true,
         },
       ],
@@ -276,7 +276,9 @@ describe("App", () => {
 
   it("shows no setup warning when everything is ready", async () => {
     mocked.checkEnvironment.mockResolvedValue({
-      checks: [{ key: "odev", label: "odev", status: "ok", detail: "/bin/odev", hint: null, required: true }],
+      checks: [
+        { key: "git", label: "Git", status: "ok", detail: "/usr/bin/git", hint: null, required: true },
+      ],
     });
     render(<App />);
     await screen.findByRole("button", { name: "Settings" });

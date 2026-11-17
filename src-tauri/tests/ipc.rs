@@ -7,8 +7,8 @@ use std::sync::mpsc;
 use std::sync::OnceLock;
 use std::time::Duration;
 
-use odev_core::doctor::Probe;
 use odoo_dev_specs_lib::{register, AppState, CHAT_EVENT, DIAGRAM_SESSION_EVENT, DIAGRAM_WINDOW};
+use odoo_runtime::doctor::Probe;
 use serde_json::{json, Value};
 use specs_core::chat::ClaudeConfig;
 use specs_core::settings::SettingsStore;
@@ -17,7 +17,8 @@ use specs_core::workspace::Workspace;
 /// A fully healthy machine, so `check_environment` reports ready unless a test says otherwise.
 fn test_probe() -> Probe {
     Probe {
-        odev: Some("/bin/odev".into()),
+        python: Some("/bin/python3".into()),
+        git: Some("/bin/git".into()),
         postgres_ready: true,
         postgres_client: true,
         odoo_sources: vec!["/src/odoo".into(), "/src/enterprise".into()],
@@ -70,7 +71,7 @@ fn harness(with_claude: bool) -> Harness {
         read_dirs: vec![],
         model: None,
         diagram_tools: None,
-        odev: None,
+        runtime_dir: None,
         demo_data: true,
     });
     let dir = tempfile::tempdir().unwrap();
@@ -382,7 +383,10 @@ fn check_environment_reports_each_requirement() {
     let report = h.call("check_environment", json!({})).unwrap();
     let checks = report["checks"].as_array().unwrap();
     let keys: Vec<&str> = checks.iter().map(|c| c["key"].as_str().unwrap()).collect();
-    assert_eq!(keys, ["odev", "postgresql", "odoo_source", "chrome", "ai"]);
+    assert_eq!(
+        keys,
+        ["python", "git", "postgresql", "odoo_source", "chrome", "ai"]
+    );
     assert!(checks.iter().all(|c| c["status"] == "ok"), "{report}");
 }
 

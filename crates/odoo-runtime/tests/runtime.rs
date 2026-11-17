@@ -1,0 +1,313 @@
+//! The Odoo runtime against fake `git`, `python`, `psql` and `dropdb` programs:
+//! no network, PostgreSQL or real Odoo needed. The fake Odoo "server" is Python's
+//! static web server on the requested port.
+
+use std::fs;
+use std::net::TcpStream;
+use std::os::unix::fs::PermissionsExt;
+use std::path::Path;
+use std::sync::{Mutex, MutexGuard};
+
+use odoo_runtime::runtime::{Runtime, Tools};
+use tempfile::TempDir;
+
+/// Tests write scripts and then run them; one at a time avoids "Text file busy".
+fn serial() -> MutexGuard<'static, ()> {
+    static LOCK: Mutex<()> = Mutex::new(());
+    LOCK.lock().unwrap_or_else(|p| p.into_inner())
+}
+
+fn script(path: &Path, body: &str) {
+    fs::write(path, format!("#!/bin/sh\n{body}\n")).unwrap();
+    fs::set_permissions(path, fs::Permissions::from_mode(0o755)).unwrap();
+}
+
+struct Env {
+    rt: Runtime,
+    dir: TempDir,
+    _serial: MutexGuard<'static, ()>,
+}
+
+impl Env {
+    /// `existing`: databases PostgreSQL already has. `fail_create`: odoo-bin fails to init.
+    fn new(existing: &[&str], fail_create: bool) -> Env {
+        let serial = serial();
+        let dir = tempfile::tempdir().unwrap();
+        let d = dir.path();
+        let (log, dbs, bin) = (d.join("calls.log"), d.join("databases.txt"), d.join("bin"));
+        fs::create_dir_all(&bin).unwrap();
+        fs::write(
+            &dbs,
+            existing
+                .iter()
+                .map(|n| format!("{n}\n"))
+                .collect::<String>(),
+        )
+        .unwrap();
+        let log = log.display();
+        let dbs = dbs.display();
+
+        // git clone --depth 1 --branch V URL DEST: a tiny "Odoo" checkout.
+        script(
+            &bin.join("git"),
+            &format!(
+                r#"echo "git $*" >> '{log}'
+for last; do :; done
+mkdir -p "$last/addons" "$last/odoo/addons"
+echo '#!/bin/sh' > "$last/odoo-bin"
+printf 'psycopg2==2.9.9\npython-ldap==3.4.4\nlxml==5.2.1\n' > "$last/requirements.txt""#
+            ),
+        );
+        // python: -m venv DIR | -m pip install -r FILE | <odoo-bin> args...
+        let fail = if fail_create { "exit 1" } else { ":" };
+        script(
+            &bin.join("python3"),
+            &format!(
+                r#"if [ "$1" = "-m" ] && [ "$2" = "venv" ]; then
+  echo "python -m venv" >> '{log}'
+  mkdir -p "$3/bin"; ln -sf "$0" "$3/bin/python"; exit 0
+fi
+if [ "$1" = "-m" ] && [ "$2" = "pip" ]; then
+  echo "pip $*" >> '{log}'
+  for last; do :; done
+  cp "$last" '{d}/pip-requirements.txt'; exit 0
+fi
+echo "odoo $*" >> '{log}'
+db=""; port=""; init=""; prev=""
+for a in "$@"; do
+  [ "$prev" = "-d" ] && db="$a"; [ "$prev" = "--http-port" ] && port="$a"
+  [ "$a" = "--stop-after-init" ] && init=1; prev="$a"
+done
+if [ -n "$init" ]; then
+  echo "$db" >> '{dbs}'
+  {fail}
+  exit 0
+fi
+exec /usr/bin/python3 -m http.server "$port" --bind 127.0.0.1"#,
+                d = d.display()
+            ),
+        );
+        script(
+            &bin.join("psql"),
+            &format!(r#"echo "psql" >> '{log}'; cat '{dbs}'"#),
+        );
+        script(
+            &bin.join("dropdb"),
+            &format!(
+                r#"echo "dropdb $*" >> '{log}'
+for last; do :; done
+grep -vx "$last" '{dbs}' > '{dbs}.tmp'; mv '{dbs}.tmp' '{dbs}'"#
+            ),
+        );
+
+        let tools = Tools {
+            git: bin.join("git"),
+            python: bin.join("python3"),
+            psql: bin.join("psql"),
+            dropdb: bin.join("dropdb"),
+        };
+        let rt = Runtime::new(d.join("runtime"), tools)
+            .with_odoo_git_url("https://example.invalid/odoo.git");
+        Env {
+            rt,
+            dir,
+            _serial: serial,
+        }
+    }
+
+    fn calls(&self) -> Vec<String> {
+        fs::read_to_string(self.dir.path().join("calls.log"))
+            .unwrap_or_default()
+            .lines()
+            .map(String::from)
+            .collect()
+    }
+
+    fn count(&self, prefix: &str) -> usize {
+        self.calls()
+            .iter()
+            .filter(|c| c.starts_with(prefix))
+            .count()
+    }
+}
+
+impl Drop for Env {
+    fn drop(&mut self) {
+        let _ = self.rt.stop_all();
+    }
+}
+
+#[test]
+fn first_use_of_a_version_gets_the_source_and_a_virtualenv_once() {
+    let env = Env::new(&[], false);
+    let db = env
+        .rt
+        .ensure_database("19.0", &["sale_management".into()], true)
+        .unwrap();
+    assert_eq!(db, "specs_19_0_sale_management");
+
+    assert_eq!(
+        env.calls()
+            .into_iter()
+            .find(|c| c.starts_with("git"))
+            .unwrap(),
+        "git clone --depth 1 --branch 19.0 https://example.invalid/odoo.git ".to_string()
+            + &env.rt.source_dir("19.0").display().to_string()
+    );
+    assert!(env.rt.source_dir("19.0").join("odoo-bin").is_file());
+    assert_eq!(env.count("python -m venv"), 1);
+    // Requirements are installed adjusted for pre-built wheels.
+    let installed = fs::read_to_string(env.dir.path().join("pip-requirements.txt")).unwrap();
+    assert_eq!(installed, "psycopg2-binary==2.9.9\nlxml==5.2.1\n");
+
+    // A second database of the same version reuses source and virtualenv.
+    env.rt
+        .ensure_database("19.0", &["stock".into()], true)
+        .unwrap();
+    assert_eq!(env.count("git"), 1);
+    assert_eq!(env.count("python -m venv"), 1);
+}
+
+#[test]
+fn creates_the_database_with_odoo_bin() {
+    let env = Env::new(&[], false);
+    env.rt
+        .ensure_database("19.0", &["sale".into(), "stock".into()], false)
+        .unwrap();
+    let create = env
+        .calls()
+        .into_iter()
+        .find(|c| c.starts_with("odoo "))
+        .unwrap();
+    let src = env.rt.source_dir("19.0");
+    assert!(
+        create.contains(&format!("{}/odoo-bin", src.display())),
+        "{create}"
+    );
+    assert!(
+        create.contains("-d specs_19_0_sale_stock_nodemo"),
+        "{create}"
+    );
+    assert!(create.contains("-i sale,stock"), "{create}");
+    assert!(create.contains("--without-demo=all"), "{create}");
+    assert!(create.contains("--stop-after-init"), "{create}");
+    assert!(
+        create.contains(&format!("--addons-path {}/addons", src.display())),
+        "{create}"
+    );
+    assert!(create.contains("--data-dir"), "{create}");
+}
+
+#[test]
+fn an_existing_database_is_reused_without_setup() {
+    let env = Env::new(&["specs_19_0_base", "someone_elses_db"], false);
+    assert_eq!(
+        env.rt.databases().unwrap(),
+        ["specs_19_0_base"],
+        "only our databases"
+    );
+    env.rt.ensure_database("19.0", &[], true).unwrap();
+    assert_eq!(env.calls(), ["psql", "psql"]);
+}
+
+#[test]
+fn a_failed_creation_is_cleaned_up() {
+    let env = Env::new(&[], true);
+    let err = env
+        .rt
+        .ensure_database("19.0", &["sale".into()], true)
+        .unwrap_err();
+    assert!(format!("{err:#}").contains("Could not create"), "{err:#}");
+    assert_eq!(
+        env.calls().last().unwrap(),
+        "dropdb --if-exists specs_19_0_sale"
+    );
+    assert!(env.rt.databases().unwrap().is_empty());
+}
+
+#[test]
+fn delete_removes_the_database_and_its_files() {
+    let env = Env::new(&["specs_19_0_base"], false);
+    let filestore = env.rt.data_dir().join("filestore").join("specs_19_0_base");
+    fs::create_dir_all(&filestore).unwrap();
+    env.rt.delete_database("specs_19_0_base").unwrap();
+    assert!(env.rt.databases().unwrap().is_empty());
+    assert!(!filestore.exists());
+    // Never touches databases that are not ours.
+    assert!(env.rt.delete_database("someone_elses_db").is_err());
+}
+
+#[test]
+fn runs_reuses_and_stops_a_server() {
+    let env = Env::new(&["specs_19_0_base"], false);
+    let first = env.rt.ensure_running("19.0", "specs_19_0_base").unwrap();
+    assert!(TcpStream::connect(("127.0.0.1", first.port)).is_ok());
+    let run = env
+        .calls()
+        .into_iter()
+        .find(|c| c.contains("--http-port"))
+        .unwrap();
+    assert!(
+        run.contains("-d specs_19_0_base") && !run.contains("--stop-after-init"),
+        "{run}"
+    );
+
+    let again = env.rt.ensure_running("19.0", "specs_19_0_base").unwrap();
+    assert_eq!(again, first);
+    assert_eq!(
+        env.calls()
+            .iter()
+            .filter(|c| c.contains("--http-port"))
+            .count(),
+        1
+    );
+
+    env.rt.stop_all().unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(300));
+    assert!(TcpStream::connect(("127.0.0.1", first.port)).is_err());
+}
+
+#[test]
+fn rejects_versions_that_are_not_odoo_branches() {
+    let env = Env::new(&[], false);
+    for bad in ["", "19", "--upload-pack=x", "19.0; rm -rf /", "../19.0"] {
+        assert!(
+            env.rt.ensure_database(bad, &[], true).is_err(),
+            "accepted {bad:?}"
+        );
+    }
+    assert_eq!(env.count("git"), 0);
+}
+
+#[test]
+fn an_enterprise_folder_is_added_to_the_addons_path() {
+    let env = Env::new(&[], false);
+    let enterprise = env.dir.path().join("enterprise-19");
+    fs::create_dir_all(&enterprise).unwrap();
+    let rt = Runtime::new(env.dir.path().join("runtime"), env.rt.tools().clone())
+        .with_odoo_git_url("https://example.invalid/odoo.git")
+        .with_enterprise("19.0", &enterprise);
+    rt.ensure_database("19.0", &[], true).unwrap();
+    let create = env
+        .calls()
+        .into_iter()
+        .find(|c| c.starts_with("odoo "))
+        .unwrap();
+    let src = rt.source_dir("19.0");
+    assert!(
+        create.contains(&format!(
+            "--addons-path {},{}/addons",
+            enterprise.display(),
+            src.display()
+        )),
+        "{create}"
+    );
+}
+
+#[test]
+fn source_dirs_lists_the_downloaded_versions_for_the_assistant() {
+    let env = Env::new(&[], false);
+    assert!(env.rt.source_dirs().is_empty());
+    env.rt.ensure_database("19.0", &[], true).unwrap();
+    assert_eq!(env.rt.source_dirs(), [env.rt.source_dir("19.0")]);
+}

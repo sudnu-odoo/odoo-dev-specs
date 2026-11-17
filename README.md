@@ -32,7 +32,7 @@ make build     # .deb + AppImage in target/release/bundle/
 | Path | What |
 |---|---|
 | `src-tauri/` | Desktop app core (Rust): window, commands, startup tasks |
-| `crates/odev-core/` | odev integration: config patching, Odoo source paths |
+| `crates/odoo-runtime/` | odev integration: config patching, Odoo source paths |
 | `crates/specs-core/` | Sessions on disk, AI CLI adapters (Claude Code), chat turns |
 | `crates/excalidraw/` | Reading and editing `.excalidraw` documents (boxes, arrows, frames, images) |
 | `crates/specs-mcp/` | MCP server giving the assistant diagram tools for one session (`specs-mcp --session-dir`) |

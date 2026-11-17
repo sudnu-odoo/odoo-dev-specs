@@ -56,7 +56,7 @@ fn env() -> Env {
         read_dirs: vec!["/src/odoo".into()],
         model: None,
         diagram_tools: Some("/app/specs-mcp".into()),
-        odev: None,
+        runtime_dir: None,
         demo_data: true,
     };
     Env {

@@ -19,7 +19,7 @@ fn real_claude() -> ClaudeConfig {
         read_dirs: vec![],
         model: Some("haiku".into()),
         diagram_tools: None,
-        odev: None,
+        runtime_dir: None,
         demo_data: true,
     }
 }
@@ -142,21 +142,21 @@ async fn real_claude_draws_with_the_diagram_tools() {
 }
 
 #[tokio::test]
-#[ignore = "calls the real Claude Code, odev and Chrome; run with `make test-live`"]
+#[ignore = "calls the real Claude Code, the Odoo runtime and Chrome; run with `make test-live`"]
 async fn real_claude_screenshots_a_fresh_odoo_and_places_it() {
     let mcp =
         std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/debug/specs-mcp");
-    let home = dirs::home_dir().unwrap();
-    let path = std::env::var("PATH").ok();
-    let odev = find_executable("odev", path.as_deref(), &user_bin_dirs(&home))
-        .expect("odev is not installed");
+    let runtime = odoo_runtime::runtime::Runtime::new(
+        odoo_runtime::runtime::Runtime::default_root(),
+        Default::default(),
+    );
     let dir = tempfile::tempdir().unwrap();
     let ws = Workspace::new(dir.path());
     ws.create_project("P").unwrap();
     let id = ws.create_session("P", "live", "claude").unwrap().id;
     let claude = ClaudeConfig {
         diagram_tools: Some(mcp),
-        odev: Some(odev.clone()),
+        runtime_dir: Some(odoo_runtime::runtime::Runtime::default_root()),
         ..real_claude()
     };
 
@@ -168,9 +168,7 @@ async fn real_claude_screenshots_a_fresh_odoo_and_places_it() {
          sale_management, place it on the diagram, then reply: done",
     )
     .await;
-    odev_core::server::Odev::new(&odev, odev_core::server::Odev::default_state_dir())
-        .stop_all()
-        .unwrap();
+    runtime.stop_all().unwrap();
     assert_eq!(
         done,
         ChatEvent::Finished {
@@ -201,14 +199,14 @@ async fn real_claude_screenshots_a_fresh_odoo_and_places_it() {
 }
 
 #[tokio::test]
-#[ignore = "calls the real Claude Code, odev and Chrome; run with `make test-live`"]
+#[ignore = "calls the real Claude Code, the Odoo runtime and Chrome; run with `make test-live`"]
 async fn real_claude_starts_a_screen_change_from_a_screenshot() {
     let mcp =
         std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/debug/specs-mcp");
-    let home = dirs::home_dir().unwrap();
-    let path = std::env::var("PATH").ok();
-    let odev = find_executable("odev", path.as_deref(), &user_bin_dirs(&home))
-        .expect("odev is not installed");
+    let runtime = odoo_runtime::runtime::Runtime::new(
+        odoo_runtime::runtime::Runtime::default_root(),
+        Default::default(),
+    );
     let dir = tempfile::tempdir().unwrap();
     let ws = Workspace::new(dir.path());
     ws.create_project("P").unwrap();
@@ -216,7 +214,7 @@ async fn real_claude_starts_a_screen_change_from_a_screenshot() {
     // The model the business team gets by default, not the cheap one.
     let claude = ClaudeConfig {
         diagram_tools: Some(mcp),
-        odev: Some(odev.clone()),
+        runtime_dir: Some(odoo_runtime::runtime::Runtime::default_root()),
         model: None,
         ..real_claude()
     };
@@ -228,9 +226,7 @@ async fn real_claude_starts_a_screen_change_from_a_screenshot() {
         "Add a new button beside the Confirm button of sale orders called \"Revise Quotation\"",
     )
     .await;
-    odev_core::server::Odev::new(&odev, odev_core::server::Odev::default_state_dir())
-        .stop_all()
-        .unwrap();
+    runtime.stop_all().unwrap();
     assert_eq!(
         done,
         ChatEvent::Finished {

@@ -5,27 +5,11 @@ mod environment;
 pub use commands::{register, AppState, ChatEventPayload, CHAT_EVENT};
 pub use diagram_window::{DIAGRAM_DOCKED_EVENT, DIAGRAM_SESSION_EVENT, DIAGRAM_WINDOW};
 
-use odev_core::pruning::{self, Outcome};
-use odev_core::server::Odev;
+use odoo_runtime::runtime::{Runtime, Tools};
 use specs_core::chat::ClaudeConfig;
 use specs_core::locate::{find_executable, user_bin_dirs};
 use specs_core::settings::SettingsStore;
 use specs_core::workspace::Workspace;
-
-/// Keep odev from prompting about old databases (it would block headless runs).
-fn patch_odev_pruning() {
-    match pruning::ensure_default() {
-        Ok(Outcome::Updated { old, new }) => {
-            eprintln!(
-                "odev pruning date updated: {} -> {new}",
-                old.as_deref().unwrap_or("<missing>")
-            )
-        }
-        Ok(Outcome::AlreadyOk(date)) => eprintln!("odev pruning date ok ({date})"),
-        Ok(Outcome::NoConfig) => eprintln!("odev config not found; is odev installed?"),
-        Err(e) => eprintln!("could not patch odev config: {e:#}"),
-    }
-}
 
 /// The AI assistants on this machine, with the Odoo source as read-only context.
 fn detect_claude(settings: &specs_core::settings::Settings) -> Option<ClaudeConfig> {
@@ -33,33 +17,30 @@ fn detect_claude(settings: &specs_core::settings::Settings) -> Option<ClaudeConf
     let path_var = std::env::var("PATH").ok();
     let bins = user_bin_dirs(&home);
     let program = find_executable("claude", path_var.as_deref(), &bins)?;
-    let read_dirs = pruning::default_config_path()
-        .map(|cfg| odev_core::paths::odoo_source_dirs(&cfg))
-        .unwrap_or_default();
     let diagram_tools = sibling_program("specs-mcp");
-    let odev = find_executable("odev", path_var.as_deref(), &bins);
+    let runtime_dir = Runtime::default_root();
     eprintln!(
-        "claude: {} (read-only: {read_dirs:?}, diagram tools: {diagram_tools:?}, odev: {odev:?})",
-        program.display()
+        "claude: {} (diagram tools: {diagram_tools:?}, odoo runtime: {})",
+        program.display(),
+        runtime_dir.display()
     );
     Some(ClaudeConfig {
         program,
         provider: settings.provider,
-        read_dirs,
+        // Filled per message from the downloaded sources (see send_message).
+        read_dirs: vec![],
         model: None,
         diagram_tools,
-        odev,
+        runtime_dir: Some(runtime_dir),
         demo_data: settings.demo_data,
     })
 }
 
 /// Odoo servers started for screenshots keep running between chat turns; stop
 /// them when the app closes.
-fn stop_odoo_servers(odev: Option<&std::path::Path>) {
-    if let Some(odev) = odev {
-        if let Err(e) = Odev::new(odev, Odev::default_state_dir()).stop_all() {
-            eprintln!("could not stop the local Odoo servers: {e:#}");
-        }
+fn stop_odoo_servers() {
+    if let Err(e) = Runtime::new(Runtime::default_root(), Tools::default()).stop_all() {
+        eprintln!("could not stop the local Odoo servers: {e:#}");
     }
 }
 
@@ -71,10 +52,8 @@ fn sibling_program(name: &str) -> Option<std::path::PathBuf> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    patch_odev_pruning();
     let settings = SettingsStore::new(SettingsStore::default_path());
     let claude = detect_claude(&settings.load());
-    let odev = claude.as_ref().and_then(|c| c.odev.clone());
     let state = AppState::new(Workspace::new(Workspace::default_root()), claude, settings);
     register(tauri::Builder::default(), state)
         .plugin(tauri_plugin_dialog::init())
@@ -83,7 +62,7 @@ pub fn run() {
         .expect("error while starting Odoo Dev Specs")
         .run(move |_, event| {
             if let tauri::RunEvent::Exit = event {
-                stop_odoo_servers(odev.as_deref());
+                stop_odoo_servers();
             }
         });
 }

@@ -289,7 +289,7 @@ async fn escaped_line_breaks_become_real_ones() {
 }
 
 #[tokio::test]
-async fn screenshots_need_odev() {
+async fn screenshots_need_the_runtime() {
     let dir = session();
     let client = connect(dir.path()).await;
     let result = call(
@@ -299,7 +299,7 @@ async fn screenshots_need_odev() {
     )
     .await;
     assert!(is_error(&result));
-    assert!(text(&result).contains("odev"), "{}", text(&result));
+    assert!(text(&result).contains("runtime"), "{}", text(&result));
 }
 
 #[tokio::test]

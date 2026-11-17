@@ -14,4 +14,4 @@ libc = "0.2"
 
 [dev-dependencies]
 tempfile.workspace = true
-odev-core = { path = "../odev-core" }
+odoo-runtime = { path = "../odoo-runtime" }

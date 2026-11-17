@@ -2588,25 +2588,12 @@ dependencies = [
 ]
 
 [[package]]
-name = "odev-core"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "chrono",
- "dirs 5.0.1",
- "libc",
- "serde",
- "serde_json",
- "tempfile",
-]
-
-[[package]]
 name = "odoo-dev-specs"
 version = "0.1.0"
 dependencies = [
  "anyhow",
  "dirs 5.0.1",
- "odev-core",
+ "odoo-runtime",
  "serde",
  "serde_json",
  "specs-core",
@@ -2616,6 +2603,19 @@ dependencies = [
  "tauri-plugin-opener",
  "tempfile",
  "tokio",
+]
+
+[[package]]
+name = "odoo-runtime"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "dirs 5.0.1",
+ "libc",
+ "serde",
+ "serde_json",
+ "tempfile",
 ]
 
 [[package]]
@@ -3713,7 +3713,7 @@ dependencies = [
  "anyhow",
  "dirs 5.0.1",
  "libc",
- "odev-core",
+ "odoo-runtime",
  "serde",
  "serde_json",
  "tempfile",
@@ -3729,7 +3729,7 @@ dependencies = [
  "chromiumoxide",
  "excalidraw",
  "futures",
- "odev-core",
+ "odoo-runtime",
  "rmcp",
  "schemars 1.2.3",
  "serde",
