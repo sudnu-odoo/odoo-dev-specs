@@ -41,6 +41,9 @@ pub struct ElementSummary {
     pub width: f64,
     pub height: f64,
     pub frame: Option<String>,
+    /// For arrows and pointers: where the tip is. Then x and y are where it starts.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub end: Option<(f64, f64)>,
 }
 
 /// A spot on the canvas: either canvas coordinates, or a pixel of a screenshot as the
@@ -130,6 +133,7 @@ impl Scene {
                     width: r.w,
                     height: r.h,
                     frame: e["frameId"].as_str().map(String::from),
+                    end: arrow_tip(e),
                 }
             })
             .collect()
@@ -189,6 +193,7 @@ impl Scene {
         let size = font_size.unwrap_or(text::FONT_SIZE);
         let (w, h) = text::measure(content, size);
         let (x, y) = self.position(at);
+        let y = self.below_overlapping_text(Rect { x, y, w, h });
         let mut e = base("text", x, y, w, h);
         if let Some(c) = color {
             e["strokeColor"] = json!(c.stroke());
@@ -235,6 +240,23 @@ impl Scene {
             bump(e);
         }
         Ok(id)
+    }
+
+    /// A free text must not cover another one (e.g. two notes beside a screenshot):
+    /// push it down below every free text it would overlap, keeping its column.
+    fn below_overlapping_text(&self, mut r: Rect) -> f64 {
+        const NOTE_GAP: f64 = 12.0;
+        loop {
+            let hit = self
+                .live()
+                .filter(|e| e["type"] == "text" && !is_label(e))
+                .map(Rect::of)
+                .find(|o| r.x < o.x + o.w && o.x < r.x + r.w && r.y < o.y + o.h && o.y < r.y + r.h);
+            match hit {
+                Some(o) => r.y = o.y + o.h + NOTE_GAP,
+                None => return r.y,
+            }
+        }
     }
 
     /// Canvas coordinates of a target. A screenshot pixel is scaled by how large the
@@ -711,6 +733,18 @@ fn edge_towards(r: Rect, target: (f64, f64)) -> (f64, f64) {
     let half_h = r.h / 2.0 + ARROW_GAP;
     let t = (half_w / dx.abs()).min(half_h / dy.abs()).min(1.0);
     (cx + dx * t, cy + dy * t)
+}
+
+/// Absolute position of an arrow's last point.
+fn arrow_tip(e: &Value) -> Option<(f64, f64)> {
+    if e["type"] != "arrow" {
+        return None;
+    }
+    let last = e["points"].as_array()?.last()?;
+    Some((
+        e["x"].as_f64()? + last[0].as_f64()?,
+        e["y"].as_f64()? + last[1].as_f64()?,
+    ))
 }
 
 fn is_label(e: &Value) -> bool {

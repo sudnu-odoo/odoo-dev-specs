@@ -520,3 +520,50 @@ fn a_highlight_outlines_part_of_a_screenshot() {
     );
     assert!(h["boundElements"].is_null(), "no label inside a highlight");
 }
+
+#[test]
+fn the_summary_gives_a_pointers_start_and_tip() {
+    let (mut s, img) = scene_with_screenshot();
+    let note = s.add_text("Note", at(700.0, 0.0), None, Some(Color::Red));
+    let id = s
+        .add_pointer(
+            &note,
+            &Target::OnImage {
+                image: img,
+                x: 400.0,
+                y: 100.0,
+            },
+            None,
+        )
+        .unwrap();
+    let p = s.summary().into_iter().find(|e| e.id == id).unwrap();
+    // Read as "from (x, y) to end", not as a box: the tip is where it points.
+    assert_eq!(p.end, Some((300.0, 250.0)));
+    let note_summary = s.summary().into_iter().find(|e| e.id == note).unwrap();
+    assert_eq!(note_summary.end, None);
+}
+
+#[test]
+fn a_note_placed_on_another_note_moves_below_it() {
+    let mut s = empty();
+    let first = s.add_text(
+        "Line one\nLine two\nLine three",
+        at(900.0, 100.0),
+        None,
+        Some(Color::Red),
+    );
+    let first_bottom = s
+        .summary()
+        .into_iter()
+        .find(|e| e.id == first)
+        .map(|e| e.y + e.height)
+        .unwrap();
+    let second = s.add_text("Second note", at(900.0, 120.0), None, Some(Color::Red));
+    let e = s.summary().into_iter().find(|e| e.id == second).unwrap();
+    assert!(e.y >= first_bottom, "overlaps: {} < {first_bottom}", e.y);
+    assert_eq!(e.x, 900.0, "stays in its column");
+    // Text elsewhere is left where it was asked.
+    let apart = s.add_text("Apart", at(0.0, 120.0), None, None);
+    let e = s.summary().into_iter().find(|e| e.id == apart).unwrap();
+    assert_eq!((e.x, e.y), (0.0, 120.0));
+}

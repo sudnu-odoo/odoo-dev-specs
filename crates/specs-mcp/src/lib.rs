@@ -229,7 +229,14 @@ impl DiagramServer {
                 p.font_size,
                 color,
             );
-            Ok(format!("Added text {id}."))
+            // It may have been moved down so as not to cover another text: say where.
+            let at = scene
+                .summary()
+                .into_iter()
+                .find(|e| e.id == id)
+                .map(|e| format!(" at ({}, {})", e.x, e.y))
+                .unwrap_or_default();
+            Ok(format!("Added text {id}{at}."))
         })
         .await
     }

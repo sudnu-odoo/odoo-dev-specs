@@ -413,3 +413,33 @@ async fn annotation_mistakes_are_readable() {
         text(&colour)
     );
 }
+
+/// The spec-writing skill names tools; each must exist, or the assistant is told to
+/// call something that is not there.
+#[tokio::test]
+async fn every_tool_the_spec_skill_names_exists() {
+    let skill = include_str!("../../specs-core/src/claude/spec_skill.md");
+    let dir = session();
+    let client = connect(dir.path()).await;
+    let offered: Vec<String> = client
+        .list_all_tools()
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|t| t.name.to_string())
+        .collect();
+    let named: std::collections::BTreeSet<&str> = skill
+        .split(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
+        .filter(|w| w.starts_with("diagram_") || w.starts_with("odoo_"))
+        .collect();
+    assert!(
+        named.len() >= 5,
+        "the skill should name the tools: {named:?}"
+    );
+    for tool in named {
+        assert!(
+            offered.iter().any(|t| t == tool),
+            "the skill names unknown tool {tool}"
+        );
+    }
+}
