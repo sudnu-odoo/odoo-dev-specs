@@ -11,12 +11,26 @@ export interface TokenUsage {
   outputTokens: number;
 }
 
+export interface PlanWindow {
+  /** Fraction of the window used, 0..1. */
+  utilization: number;
+  /** Unix seconds when the window resets. */
+  resets_at: number;
+}
+
+export interface PlanUsage {
+  five_hour: PlanWindow | null;
+  seven_day: PlanWindow | null;
+}
+
 export interface ChatState {
   items: ChatItem[];
   /** True while the assistant is answering. */
   running: boolean;
   /** Tokens used so far in this session. */
   usage: TokenUsage;
+  /** Subscription limit usage, once the CLI has reported it. Account-wide, so it survives session switches. */
+  plan?: PlanUsage;
 }
 
 export type ChatAction =
@@ -32,7 +46,12 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
   switch (action.type) {
     case "loaded":
       // Usage is live-only; the transcript on disk does not store it.
-      return { running: false, items: action.transcript.map(fromTranscript), usage: NO_USAGE };
+      return {
+        running: false,
+        items: action.transcript.map(fromTranscript),
+        usage: NO_USAGE,
+        plan: state.plan,
+      };
     case "sent":
       return { ...state, running: true, items: [...state.items, { role: "user", text: action.text }] };
     case "sendFailed":
@@ -85,6 +104,8 @@ function applyEvent(state: ChatState, event: ChatEvent): ChatState {
           outputTokens: state.usage.outputTokens + event.output_tokens,
         },
       };
+    case "plan_usage":
+      return { ...state, plan: { five_hour: event.five_hour, seven_day: event.seven_day } };
     case "finished":
       return {
         ...state,

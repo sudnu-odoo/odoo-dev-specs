@@ -193,6 +193,33 @@ describe("ChatPanel model picker and usage", () => {
     expect(screen.queryByText(/tokens/i)).not.toBeInTheDocument();
   });
 
+  it("shows plan-limit usage with the reset time instead of raw tokens", () => {
+    const resets = Math.floor(new Date("2026-11-17T18:30:00").getTime() / 1000);
+    setup({
+      usage: { inputTokens: 1234, outputTokens: 567 },
+      plan: { five_hour: { utilization: 0.21, resets_at: resets }, seven_day: null },
+    });
+    const meter = screen.getByRole("meter", { name: /5-hour limit/i });
+    expect(meter).toHaveAttribute("aria-valuenow", "21");
+    expect(meter).toHaveTextContent("21%");
+    expect(meter).toHaveAttribute("title", expect.stringMatching(/resets/i));
+    expect(screen.queryByText(/tokens/i)).not.toBeInTheDocument();
+  });
+
+  it("groups models by provider and pads a padlock on providers not logged in", () => {
+    setup({
+      models: [
+        { id: "sonnet", label: "Sonnet", provider: "Claude" },
+        { id: "gem", label: "Gemini Pro", provider: "Antigravity", locked: true },
+      ],
+    });
+    const claude = screen.getByRole("group", { name: "Claude" });
+    expect(claude).toContainElement(screen.getByRole("option", { name: "Sonnet" }));
+    const locked = screen.getByRole("group", { name: /Antigravity/ });
+    expect(locked).toHaveAttribute("label", expect.stringContaining("🔒"));
+    expect(screen.getByRole("option", { name: "Gemini Pro" })).toBeDisabled();
+  });
+
   it("disables the model picker while the assistant is answering", () => {
     setup({ running: true });
     expect(screen.getByRole("combobox", { name: "Model" })).toBeDisabled();

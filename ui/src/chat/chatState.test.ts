@@ -64,6 +64,16 @@ describe("chatReducer", () => {
     expect(s.usage).toEqual({ inputTokens: 150, outputTokens: 30 });
   });
 
+  it("records plan limits and keeps them when a transcript loads", () => {
+    const plan = {
+      five_hour: { utilization: 0.21, resets_at: 1794916800 },
+      seven_day: null,
+    };
+    const s = event(running, { kind: "plan_usage", ...plan });
+    expect(s.plan).toEqual(plan);
+    expect(chatReducer(s, { type: "loaded", transcript: [] }).plan).toEqual(plan);
+  });
+
   it("keeps the usage total when a new transcript loads", () => {
     const withUsage = { ...running, usage: { inputTokens: 500, outputTokens: 80 } };
     const loaded = chatReducer(withUsage, { type: "loaded", transcript: [] });

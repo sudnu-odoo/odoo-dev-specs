@@ -2,7 +2,7 @@
 
 use serde_json::Value;
 
-use crate::events::ChatEvent;
+use crate::events::{ChatEvent, PlanWindow};
 
 /// Parse one stdout line. Lines that are not JSON or carry nothing the UI
 /// shows (hooks, status, rate limits, full-message echoes of text) yield no events.
@@ -14,9 +14,27 @@ pub fn parse_line(line: &str) -> Vec<ChatEvent> {
         Some("stream_event") => text_delta(&v["event"]).into_iter().collect(),
         Some("assistant") => content_blocks(&v).filter_map(tool_started).collect(),
         Some("user") => content_blocks(&v).filter_map(tool_finished).collect(),
+        Some("rate_limit_event") => plan_usage(&v).into_iter().collect(),
         Some("result") => usage(&v).into_iter().chain([finished(&v)]).collect(),
         _ => vec![],
     }
+}
+
+/// Plan-limit windows from a `rate_limit_event`; none when it carries no windows.
+fn plan_usage(v: &Value) -> Option<ChatEvent> {
+    let windows = &v["rate_limit_info"]["unifiedWindows"];
+    let window = |key: &str| {
+        let w = &windows[key];
+        Some(PlanWindow {
+            utilization: w["utilization"].as_f64()?,
+            resets_at: w["resetsAt"].as_u64()?,
+        })
+    };
+    let (five_hour, seven_day) = (window("five_hour"), window("seven_day"));
+    (five_hour.is_some() || seven_day.is_some()).then_some(ChatEvent::PlanUsage {
+        five_hour,
+        seven_day,
+    })
 }
 
 /// Token usage from a Claude `result`. Input counts include cache tokens.
@@ -191,9 +209,28 @@ mod tests {
             "not json",
             r#"{"type":"system","subtype":"init","session_id":"s"}"#,
             r#"{"type":"rate_limit_event"}"#,
+            r#"{"type":"rate_limit_event","rate_limit_info":{"status":"allowed"}}"#,
             r#"{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"input_json_delta","partial_json":"{"}}}"#,
         ] {
             assert_eq!(parse_line(line), vec![], "line: {line}");
         }
+    }
+
+    #[test]
+    fn rate_limit_event_reports_plan_usage() {
+        let line = r#"{"type":"rate_limit_event","rate_limit_info":{"status":"allowed","unifiedWindows":{"five_hour":{"utilization":0.21,"resetsAt":1794916800,"status":"allowed"},"seven_day":{"utilization":0.71,"resetsAt":1794952800,"status":"allowed"}}}}"#;
+        assert_eq!(
+            parse_line(line),
+            vec![ChatEvent::PlanUsage {
+                five_hour: Some(PlanWindow {
+                    utilization: 0.21,
+                    resets_at: 1794916800
+                }),
+                seven_day: Some(PlanWindow {
+                    utilization: 0.71,
+                    resets_at: 1794952800
+                }),
+            }]
+        );
     }
 }

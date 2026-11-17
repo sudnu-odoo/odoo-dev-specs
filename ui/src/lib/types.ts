@@ -32,6 +32,11 @@ export type ChatEvent =
   | { kind: "tool_started"; id: string; name: string; input: unknown }
   | { kind: "tool_finished"; id: string; is_error: boolean }
   | { kind: "usage"; input_tokens: number; output_tokens: number }
+  | {
+      kind: "plan_usage";
+      five_hour: { utilization: number; resets_at: number } | null;
+      seven_day: { utilization: number; resets_at: number } | null;
+    }
   | { kind: "finished"; is_error: boolean; message: string | null };
 
 export interface ChatEventPayload {
@@ -76,4 +81,8 @@ export interface EnvReport {
 export interface Model {
   id: string;
   label: string;
+  /** Provider the model belongs to; models are grouped by it in the picker. */
+  provider?: string;
+  /** The provider isn't logged in: shown with a padlock and not selectable. */
+  locked?: boolean;
 }

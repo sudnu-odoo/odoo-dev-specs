@@ -2,6 +2,13 @@
 
 use serde::{Deserialize, Serialize};
 
+/// One rate-limit window: fraction used (0..=1) and when it resets (unix seconds).
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct PlanWindow {
+    pub utilization: f64,
+    pub resets_at: u64,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ChatEvent {
@@ -19,6 +26,11 @@ pub enum ChatEvent {
     Usage {
         input_tokens: u64,
         output_tokens: u64,
+    },
+    /// How much of the subscription's rate-limit windows is used (live-only).
+    PlanUsage {
+        five_hour: Option<PlanWindow>,
+        seven_day: Option<PlanWindow>,
     },
     /// The turn is over. `message` explains the failure when `is_error`.
     Finished {

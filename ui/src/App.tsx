@@ -31,6 +31,7 @@ export default function App() {
       selectedModel={app.selectedModel}
       onModelChange={app.setSelectedModel}
       usage={app.chat.usage}
+      plan={app.chat.plan}
     />
   );
 

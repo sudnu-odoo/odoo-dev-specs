@@ -198,31 +198,37 @@ body {
   margin: 0 0 8px;
 }
 .msg {
-  max-width: 92%;
-  width: fit-content;
-  margin: 0 0 12px;
-  padding: 8px 12px;
-  border-radius: 10px;
+  width: 100%;
+  margin: 0 0 14px;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+/* Your message: a bordered, full-width box. */
 .msg-user {
-  margin-left: auto;
-  background: var(--accent);
-  color: var(--accent-text);
-}
-.msg-assistant {
+  padding: 8px 12px;
   background: var(--surface);
   border: 1px solid var(--border);
+  border-radius: 8px;
+}
+/* The assistant's reply: plain text on the page. */
+.msg-assistant {
+  padding: 0 2px;
 }
 .msg-error {
+  padding: 8px 12px;
   border: 1px solid var(--danger);
+  border-radius: 8px;
   color: var(--danger);
 }
+/* Tool calls: one compact line each. */
 .msg-tool {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   font-size: 12px;
+  line-height: 1.4;
   color: var(--muted);
-  margin: 0 0 8px 4px;
+  margin: 0 0 6px 2px;
   font-family: ui-monospace, monospace;
 }
 .msg-tool[data-status="error"] {
