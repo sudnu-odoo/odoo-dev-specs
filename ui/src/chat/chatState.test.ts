@@ -3,7 +3,11 @@ import { chatReducer, emptyChat, type ChatState } from "./chatState";
 import type { ChatEvent } from "../lib/types";
 
 const event = (state: ChatState, e: ChatEvent) => chatReducer(state, { type: "event", event: e });
-const running: ChatState = { items: [{ role: "user", text: "hi" }], running: true };
+const running: ChatState = {
+  items: [{ role: "user", text: "hi" }],
+  running: true,
+  usage: { inputTokens: 0, outputTokens: 0 },
+};
 
 describe("chatReducer", () => {
   it("loads a saved transcript", () => {
@@ -18,6 +22,7 @@ describe("chatReducer", () => {
     });
     expect(state).toEqual({
       running: false,
+      usage: { inputTokens: 0, outputTokens: 0 },
       items: [
         { role: "user", text: "hi" },
         { role: "tool", name: "Read", status: "error" },
@@ -52,6 +57,19 @@ describe("chatReducer", () => {
     expect(s.items.at(-1)).toEqual({ role: "assistant", text: "after" });
   });
 
+  it("accumulates token usage across turns", () => {
+    let s = event(running, { kind: "usage", input_tokens: 100, output_tokens: 20 });
+    expect(s.usage).toEqual({ inputTokens: 100, outputTokens: 20 });
+    s = event(s, { kind: "usage", input_tokens: 50, output_tokens: 10 });
+    expect(s.usage).toEqual({ inputTokens: 150, outputTokens: 30 });
+  });
+
+  it("keeps the usage total when a new transcript loads", () => {
+    const withUsage = { ...running, usage: { inputTokens: 500, outputTokens: 80 } };
+    const loaded = chatReducer(withUsage, { type: "loaded", transcript: [] });
+    expect(loaded.usage).toEqual({ inputTokens: 0, outputTokens: 0 });
+  });
+
   it("stops running on success", () => {
     const s = event(running, { kind: "finished", is_error: false, message: null });
     expect(s).toEqual({ ...running, running: false });
@@ -67,6 +85,7 @@ describe("chatReducer", () => {
     const s = chatReducer(running, { type: "sendFailed", message: "Claude Code is not installed." });
     expect(s).toEqual({
       running: false,
+      usage: { inputTokens: 0, outputTokens: 0 },
       items: [...running.items, { role: "error", message: "Claude Code is not installed." }],
     });
   });

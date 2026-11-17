@@ -6,10 +6,17 @@ export type ChatItem =
   | { role: "tool"; id?: string; name: string; status: "running" | "ok" | "error" }
   | { role: "error"; message: string };
 
+export interface TokenUsage {
+  inputTokens: number;
+  outputTokens: number;
+}
+
 export interface ChatState {
   items: ChatItem[];
   /** True while the assistant is answering. */
   running: boolean;
+  /** Tokens used so far in this session. */
+  usage: TokenUsage;
 }
 
 export type ChatAction =
@@ -18,16 +25,22 @@ export type ChatAction =
   | { type: "sendFailed"; message: string }
   | { type: "event"; event: ChatEvent };
 
-export const emptyChat: ChatState = { items: [], running: false };
+const NO_USAGE: TokenUsage = { inputTokens: 0, outputTokens: 0 };
+export const emptyChat: ChatState = { items: [], running: false, usage: NO_USAGE };
 
 export function chatReducer(state: ChatState, action: ChatAction): ChatState {
   switch (action.type) {
     case "loaded":
-      return { running: false, items: action.transcript.map(fromTranscript) };
+      // Usage is live-only; the transcript on disk does not store it.
+      return { running: false, items: action.transcript.map(fromTranscript), usage: NO_USAGE };
     case "sent":
-      return { running: true, items: [...state.items, { role: "user", text: action.text }] };
+      return { ...state, running: true, items: [...state.items, { role: "user", text: action.text }] };
     case "sendFailed":
-      return { running: false, items: [...state.items, { role: "error", message: action.message }] };
+      return {
+        ...state,
+        running: false,
+        items: [...state.items, { role: "error", message: action.message }],
+      };
     case "event":
       return applyEvent(state, action.event);
   }
@@ -64,8 +77,17 @@ function applyEvent(state: ChatState, event: ChatEvent): ChatState {
             : item,
         ),
       };
+    case "usage":
+      return {
+        ...state,
+        usage: {
+          inputTokens: state.usage.inputTokens + event.input_tokens,
+          outputTokens: state.usage.outputTokens + event.output_tokens,
+        },
+      };
     case "finished":
       return {
+        ...state,
         running: false,
         items: event.is_error
           ? [...items, { role: "error", message: event.message ?? "Something went wrong." }]

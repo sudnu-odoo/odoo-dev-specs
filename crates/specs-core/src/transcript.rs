@@ -54,6 +54,8 @@ impl TurnRecorder {
                 self.entries.push(TranscriptEntry::Error { message });
             }
             ChatEvent::Finished { .. } => {}
+            // Usage is live-only UI info, not part of the saved conversation.
+            ChatEvent::Usage { .. } => {}
         }
     }
 

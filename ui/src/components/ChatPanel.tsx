@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
-import type { ChatItem } from "../chat/chatState";
+import type { ChatItem, TokenUsage } from "../chat/chatState";
+import type { Model } from "../lib/types";
 import Markdown from "./Markdown";
 
 export interface ChatPanelProps {
@@ -8,11 +9,32 @@ export interface ChatPanelProps {
   hasSession: boolean;
   onSend: (text: string) => void;
   onStop: () => void;
+  models?: Model[];
+  selectedModel?: string;
+  onModelChange?: (id: string) => void;
+  usage?: TokenUsage;
 }
+
+const NO_USAGE: TokenUsage = { inputTokens: 0, outputTokens: 0 };
 
 const TOOL_STATUS_LABEL = { running: "…", ok: "✓", error: "✗" } as const;
 
-export default function ChatPanel({ items, running, hasSession, onSend, onStop }: ChatPanelProps) {
+/** Group digits so large token counts stay readable (1234 -> "1,234"). */
+function formatTokens(n: number): string {
+  return n.toLocaleString("en-US");
+}
+
+export default function ChatPanel({
+  items,
+  running,
+  hasSession,
+  onSend,
+  onStop,
+  models = [],
+  selectedModel = "",
+  onModelChange,
+  usage = NO_USAGE,
+}: ChatPanelProps) {
   const [draft, setDraft] = useState("");
   const bottom = useRef<HTMLDivElement>(null);
   // Until the first words of the answer arrive, show that the assistant is working.
@@ -68,6 +90,7 @@ export default function ChatPanel({ items, running, hasSession, onSend, onStop }
       <form className="composer" onSubmit={send}>
         <textarea
           aria-label="Message"
+          title="Enter to send · Shift+Enter for a new line"
           placeholder={
             hasSession
               ? "Describe the feature, e.g. a delivery window on sales orders…"
@@ -80,7 +103,27 @@ export default function ChatPanel({ items, running, hasSession, onSend, onStop }
           onKeyDown={onKeyDown}
         />
         <div className="composer-bar">
-          <span className="composer-hint">Enter to send · Shift+Enter for a new line</span>
+          {models.length > 0 && (
+            <select
+              className="model-picker"
+              aria-label="Model"
+              value={selectedModel}
+              disabled={running || !hasSession}
+              onChange={(e) => onModelChange?.(e.target.value)}
+            >
+              {models.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.label}
+                </option>
+              ))}
+            </select>
+          )}
+          {usage.inputTokens + usage.outputTokens > 0 && (
+            <span className="usage" title="Tokens used in this session">
+              {formatTokens(usage.inputTokens)} in · {formatTokens(usage.outputTokens)} out tokens
+            </span>
+          )}
+          <span className="composer-spacer" />
           {running ? (
             <button
               type="button"

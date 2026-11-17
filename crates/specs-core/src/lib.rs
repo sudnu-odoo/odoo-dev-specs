@@ -7,6 +7,7 @@ pub mod events;
 mod fsutil;
 pub mod gemini;
 pub mod locate;
+pub mod models;
 pub mod runner;
 pub mod settings;
 pub mod transcript;

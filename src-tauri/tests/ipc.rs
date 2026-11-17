@@ -387,3 +387,30 @@ fn check_environment_reports_each_requirement() {
     assert_eq!(keys, ["odev", "postgresql", "odoo_source", "chrome", "ai"]);
     assert!(checks.iter().all(|c| c["status"] == "ok"), "{report}");
 }
+
+#[test]
+fn list_models_follows_the_selected_provider() {
+    let h = harness(true);
+    let claude_models = h.call("list_models", json!({})).unwrap();
+    let ids: Vec<&str> = claude_models
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|m| m["id"].as_str().unwrap())
+        .collect();
+    assert_eq!(ids.first(), Some(&"sonnet"));
+
+    h.call(
+        "save_settings",
+        json!({ "settings": {"provider": "gemini", "defaultVersion": "19.0", "demoData": true} }),
+    )
+    .unwrap();
+    let gemini_models = h.call("list_models", json!({})).unwrap();
+    let ids: Vec<&str> = gemini_models
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|m| m["id"].as_str().unwrap())
+        .collect();
+    assert!(ids.iter().all(|id| id.starts_with("gemini-")), "{ids:?}");
+}

@@ -24,6 +24,7 @@ vi.mock("./lib/api", () => ({
     getSettings: vi.fn(),
     checkEnvironment: vi.fn(),
     saveSettings: vi.fn(),
+    listModels: vi.fn(),
   },
 }));
 // Settings panel has its own test; here we only check it opens.
@@ -94,6 +95,10 @@ beforeEach(() => {
   });
   mocked.loadScene.mockResolvedValue('{"type":"excalidraw","elements":[]}');
   mocked.checkEnvironment.mockResolvedValue({ checks: [] });
+  mocked.listModels.mockResolvedValue([
+    { id: "sonnet", label: "Sonnet (balanced)" },
+    { id: "opus", label: "Opus (most capable)" },
+  ]);
   mocked.getSettings.mockResolvedValue({ provider: "claude", defaultVersion: "19.0", demoData: true });
   mocked.openDiagramWindow.mockResolvedValue(undefined);
   mocked.dockDiagramWindow.mockResolvedValue(undefined);
@@ -119,7 +124,11 @@ describe("App", () => {
     await screen.findByText("Earlier question");
     await userEvent.type(message(), "Add a field{Enter}");
 
-    expect(mocked.sendMessage).toHaveBeenCalledWith({ project: "Acme", sessionId: "s1" }, "Add a field");
+    expect(mocked.sendMessage).toHaveBeenCalledWith(
+      { project: "Acme", sessionId: "s1" },
+      "Add a field",
+      "sonnet",
+    );
     expect(screen.getByRole("button", { name: "Stop" })).toBeInTheDocument();
 
     emitEvent("s1", { kind: "text_delta", text: "Hel" });

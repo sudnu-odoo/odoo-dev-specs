@@ -26,9 +26,23 @@ pub fn parse_line(line: &str) -> Vec<ChatEvent> {
             id: str_field(&v, "tool_id"),
             is_error: v["status"] != "success",
         }],
-        Some("result") => vec![finished(&v)],
+        Some("result") => usage(&v).into_iter().chain([finished(&v)]).collect(),
         _ => vec![],
     }
+}
+
+/// Token usage from a Gemini `result`'s `stats`.
+fn usage(v: &Value) -> Option<ChatEvent> {
+    let stats = &v["stats"];
+    if !stats.is_object() {
+        return None;
+    }
+    let n = |key: &str| stats[key].as_u64().unwrap_or(0);
+    let (input, output) = (n("input_tokens"), n("output_tokens"));
+    (input > 0 || output > 0).then_some(ChatEvent::Usage {
+        input_tokens: input,
+        output_tokens: output,
+    })
 }
 
 fn finished(v: &Value) -> ChatEvent {
@@ -114,6 +128,24 @@ mod tests {
                 is_error: false,
                 message: None
             }]
+        );
+    }
+
+    #[test]
+    fn result_reports_usage_before_finishing() {
+        let line = r#"{"type":"result","status":"success","stats":{"input_tokens":8275,"output_tokens":51}}"#;
+        assert_eq!(
+            parse_line(line),
+            vec![
+                ChatEvent::Usage {
+                    input_tokens: 8275,
+                    output_tokens: 51
+                },
+                ChatEvent::Finished {
+                    is_error: false,
+                    message: None
+                },
+            ]
         );
     }
 

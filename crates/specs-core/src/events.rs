@@ -15,6 +15,11 @@ pub enum ChatEvent {
     },
     /// A tool call returned.
     ToolFinished { id: String, is_error: bool },
+    /// Token usage for the turn, reported by the CLI at the end.
+    Usage {
+        input_tokens: u64,
+        output_tokens: u64,
+    },
     /// The turn is over. `message` explains the failure when `is_error`.
     Finished {
         is_error: bool,

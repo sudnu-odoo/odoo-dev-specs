@@ -31,6 +31,7 @@ export type ChatEvent =
   | { kind: "text_delta"; text: string }
   | { kind: "tool_started"; id: string; name: string; input: unknown }
   | { kind: "tool_finished"; id: string; is_error: boolean }
+  | { kind: "usage"; input_tokens: number; output_tokens: number }
   | { kind: "finished"; is_error: boolean; message: string | null };
 
 export interface ChatEventPayload {
@@ -69,4 +70,10 @@ export interface EnvCheck {
 /** Mirrors odev_core::doctor::Report. */
 export interface EnvReport {
   checks: EnvCheck[];
+}
+
+/** A selectable AI model (mirrors specs_core::models::Model). */
+export interface Model {
+  id: string;
+  label: string;
 }

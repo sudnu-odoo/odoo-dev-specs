@@ -3,6 +3,11 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import ChatPanel, { type ChatPanelProps } from "./ChatPanel";
 
+const MODELS = [
+  { id: "sonnet", label: "Sonnet (balanced)" },
+  { id: "opus", label: "Opus (most capable)" },
+];
+
 function setup(overrides: Partial<ChatPanelProps> = {}) {
   const props: ChatPanelProps = {
     items: [],
@@ -10,6 +15,10 @@ function setup(overrides: Partial<ChatPanelProps> = {}) {
     hasSession: true,
     onSend: vi.fn(),
     onStop: vi.fn(),
+    models: MODELS,
+    selectedModel: "sonnet",
+    onModelChange: vi.fn(),
+    usage: { inputTokens: 0, outputTokens: 0 },
     ...overrides,
   };
   render(<ChatPanel {...props} />);
@@ -160,5 +169,32 @@ describe("ChatPanel progress", () => {
   it("shows the stop button as busy while answering", () => {
     render(<ChatPanel {...props} running items={[]} />);
     expect(screen.getByRole("button", { name: "Stop" })).toHaveAttribute("aria-busy", "true");
+  });
+});
+
+describe("ChatPanel model picker and usage", () => {
+  it("shows the model picker and changes model", async () => {
+    const props = setup();
+    const picker = screen.getByRole("combobox", { name: "Model" });
+    expect(picker).toHaveValue("sonnet");
+    await userEvent.selectOptions(picker, "opus");
+    expect(props.onModelChange).toHaveBeenCalledWith("opus");
+  });
+
+  it("shows token usage once there is any", () => {
+    setup({ usage: { inputTokens: 1234, outputTokens: 567 } });
+    const usage = screen.getByText(/tokens/i);
+    expect(usage).toHaveTextContent("1,234");
+    expect(usage).toHaveTextContent("567");
+  });
+
+  it("hides the usage line before any tokens are used", () => {
+    setup({ usage: { inputTokens: 0, outputTokens: 0 } });
+    expect(screen.queryByText(/tokens/i)).not.toBeInTheDocument();
+  });
+
+  it("disables the model picker while the assistant is answering", () => {
+    setup({ running: true });
+    expect(screen.getByRole("combobox", { name: "Model" })).toBeDisabled();
   });
 });

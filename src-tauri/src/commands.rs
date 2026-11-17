@@ -8,6 +8,7 @@ use odev_core::doctor::{self, Probe, Report};
 use serde::Serialize;
 use specs_core::chat::{self, ClaudeConfig};
 use specs_core::events::ChatEvent;
+use specs_core::models;
 use specs_core::settings::{Settings, SettingsStore};
 use specs_core::transcript::TranscriptEntry;
 use specs_core::workspace::{ProjectInfo, SessionMeta, Workspace};
@@ -176,6 +177,7 @@ pub fn send_message<R: Runtime>(
     project: String,
     session_id: String,
     text: String,
+    model: Option<String>,
 ) -> CmdResult<()> {
     let Some(mut claude) = state.claude.clone() else {
         return Err(
@@ -187,6 +189,8 @@ pub fn send_message<R: Runtime>(
     let current = state.settings.load();
     claude.provider = current.provider;
     claude.demo_data = current.demo_data;
+    // Use the model chosen for this message, if it belongs to the active provider.
+    claude.model = model.filter(|m| models::is_valid(claude.provider, m));
     if text.trim().is_empty() {
         return Err("The message is empty.".into());
     }
@@ -258,6 +262,12 @@ pub fn get_settings(state: State<'_, AppState>) -> Settings {
     state.settings.load()
 }
 
+/// The models the active provider offers, for the chat's model picker (default first).
+#[tauri::command]
+pub fn list_models(state: State<'_, AppState>) -> Vec<models::Model> {
+    models::models(state.settings.load().provider)
+}
+
 #[tauri::command]
 pub fn save_settings(state: State<'_, AppState>, settings: Settings) -> CmdResult<()> {
     state.settings.save(&settings).map_err(user_error)
@@ -288,6 +298,7 @@ pub fn register<R: Runtime>(builder: tauri::Builder<R>, state: AppState) -> taur
             get_settings,
             save_settings,
             check_environment,
+            list_models,
             diagram_window::open_diagram_window,
             diagram_window::dock_diagram_window,
         ])

@@ -3,7 +3,7 @@ import { chatReducer, emptyChat } from "../chat/chatState";
 import { DEFAULT_TITLE, titleFromMessage } from "../chat/title";
 import { api } from "../lib/api";
 import { confirmAction } from "../lib/confirm";
-import type { ProjectInfo, SessionData, SessionRef } from "../lib/types";
+import type { Model, ProjectInfo, SessionData, SessionRef } from "../lib/types";
 
 const sameRef = (a: SessionRef | null, b: SessionRef | null) =>
   !!a && !!b && a.project === b.project && a.sessionId === b.sessionId;
@@ -17,6 +17,20 @@ export function useSpecsApp() {
   const [error, setError] = useState<string | null>(null);
   // True while the diagram is shown in its own window instead of beside the chat.
   const [diagramDetached, setDiagramDetached] = useState(false);
+  // Models of the active provider, and the one chosen for the next message.
+  const [models, setModels] = useState<Model[]>([]);
+  const [selectedModel, setSelectedModel] = useState("");
+
+  const reloadModels = useCallback(async () => {
+    try {
+      const list = await api.listModels();
+      setModels(list);
+      // Keep the current choice if it still exists; otherwise fall back to the default.
+      setSelectedModel((current) => (list.some((m) => m.id === current) ? current : (list[0]?.id ?? "")));
+    } catch (e) {
+      setError(String(e));
+    }
+  }, []);
   // Read inside the event listener, which is registered only once.
   const selectedRef = useRef<SessionRef | null>(null);
   selectedRef.current = selected;
@@ -31,6 +45,7 @@ export function useSpecsApp() {
 
   useEffect(() => {
     refresh();
+    reloadModels();
     const unlisten = api.onChatEvent(({ sessionId, event }) => {
       if (sessionId !== selectedRef.current?.sessionId) return;
       dispatch({ type: "event", event });
@@ -41,7 +56,7 @@ export function useSpecsApp() {
       unlisten.then((stop) => stop());
       unlistenDocked.then((stop) => stop());
     };
-  }, [refresh]);
+  }, [refresh, reloadModels]);
 
   // The separate diagram window follows the open session and its title.
   const openTitle = session?.meta.title;
@@ -135,12 +150,12 @@ export function useSpecsApp() {
         api.renameSession(selected, title).then(refresh, () => {});
       }
       try {
-        await api.sendMessage(selected, text);
+        await api.sendMessage(selected, text, selectedModel || null);
       } catch (e) {
         dispatch({ type: "sendFailed", message: String(e) });
       }
     },
-    [chat.items, refresh, selected, session],
+    [chat.items, refresh, selected, selectedModel, session],
   );
 
   const stop = useCallback(() => {
@@ -170,5 +185,9 @@ export function useSpecsApp() {
     diagramDetached,
     detachDiagram,
     dockDiagram,
+    models,
+    selectedModel,
+    setSelectedModel,
+    reloadModels,
   };
 }

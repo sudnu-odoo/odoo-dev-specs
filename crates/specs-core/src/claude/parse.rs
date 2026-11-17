@@ -14,9 +14,24 @@ pub fn parse_line(line: &str) -> Vec<ChatEvent> {
         Some("stream_event") => text_delta(&v["event"]).into_iter().collect(),
         Some("assistant") => content_blocks(&v).filter_map(tool_started).collect(),
         Some("user") => content_blocks(&v).filter_map(tool_finished).collect(),
-        Some("result") => vec![finished(&v)],
+        Some("result") => usage(&v).into_iter().chain([finished(&v)]).collect(),
         _ => vec![],
     }
+}
+
+/// Token usage from a Claude `result`. Input counts include cache tokens.
+fn usage(v: &Value) -> Option<ChatEvent> {
+    let u = &v["usage"];
+    if !u.is_object() {
+        return None;
+    }
+    let n = |key: &str| u[key].as_u64().unwrap_or(0);
+    Some(ChatEvent::Usage {
+        input_tokens: n("input_tokens")
+            + n("cache_read_input_tokens")
+            + n("cache_creation_input_tokens"),
+        output_tokens: n("output_tokens"),
+    })
 }
 
 fn content_blocks(v: &Value) -> impl Iterator<Item = &Value> {
@@ -127,6 +142,24 @@ mod tests {
                 is_error: false,
                 message: None
             }]
+        );
+    }
+
+    #[test]
+    fn result_reports_usage_including_cache_tokens_before_finishing() {
+        let line = r#"{"type":"result","subtype":"success","is_error":false,"usage":{"input_tokens":4,"cache_read_input_tokens":100,"cache_creation_input_tokens":20,"output_tokens":9}}"#;
+        assert_eq!(
+            parse_line(line),
+            vec![
+                ChatEvent::Usage {
+                    input_tokens: 124,
+                    output_tokens: 9
+                },
+                ChatEvent::Finished {
+                    is_error: false,
+                    message: None
+                },
+            ]
         );
     }
 

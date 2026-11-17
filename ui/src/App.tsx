@@ -27,6 +27,10 @@ export default function App() {
       hasSession={!!app.session}
       onSend={app.send}
       onStop={app.stop}
+      models={app.models}
+      selectedModel={app.selectedModel}
+      onModelChange={app.setSelectedModel}
+      usage={app.chat.usage}
     />
   );
 
@@ -102,6 +106,8 @@ export default function App() {
         <SettingsPanel
           onClose={() => {
             setSettingsOpen(false);
+            // The provider may have changed: refresh the model picker.
+            app.reloadModels();
             // The user may have just fixed something; re-check.
             api.checkEnvironment().then(
               (report) => setSetupIncomplete(report.checks.some((c) => c.required && c.status === "missing")),

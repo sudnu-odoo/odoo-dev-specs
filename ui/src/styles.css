@@ -687,3 +687,26 @@ body {
   display: flex;
   justify-content: flex-end;
 }
+
+/* Model picker + usage in the composer */
+.model-picker {
+  font: inherit;
+  font-size: 12px;
+  color: var(--muted);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 3px 6px;
+  max-width: 200px;
+}
+.model-picker:disabled {
+  opacity: 0.5;
+}
+.usage {
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.composer-spacer {
+  flex: 1;
+}
