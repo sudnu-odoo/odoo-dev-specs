@@ -214,3 +214,26 @@ fn a_session_shows_its_database_and_keeps_it_through_other_changes() {
     ws.set_database("Acme", &s.id, None).unwrap();
     assert_eq!(ws.session("Acme", &s.id).unwrap().database, None);
 }
+
+#[test]
+fn a_new_session_starts_with_the_clients_latest_hosting() {
+    let (ws, _d) = workspace();
+    ws.create_project("Acme").unwrap();
+    let first = ws.create_session("Acme", "First", "claude").unwrap();
+    assert_eq!(first.hosting, None, "nothing to go by yet");
+    ws.set_hosting("Acme", &first.id, Some("online")).unwrap();
+    sleep(Duration::from_millis(5));
+    let second = ws.create_session("Acme", "Second", "claude").unwrap();
+    assert_eq!(second.hosting.as_deref(), Some("online"));
+    // The client moved to Odoo.sh: from then on, new sessions follow.
+    sleep(Duration::from_millis(5));
+    ws.set_hosting("Acme", &second.id, Some("sh")).unwrap();
+    let third = ws.create_session("Acme", "Third", "claude").unwrap();
+    assert_eq!(third.hosting.as_deref(), Some("sh"));
+    // Old specs keep theirs.
+    assert_eq!(
+        ws.session("Acme", &first.id).unwrap().hosting.as_deref(),
+        Some("online")
+    );
+    assert!(ws.set_hosting("Acme", &first.id, Some("cloud")).is_err());
+}

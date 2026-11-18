@@ -502,6 +502,21 @@ pub async fn stop_database(state: State<'_, AppState>, name: String) -> CmdResul
     with_odoo(&state, move |o| o.stop_database(&name)).await
 }
 
+/// Set where the client's Odoo runs for this session ("online" or "sh").
+#[tauri::command]
+pub fn set_session_hosting(
+    state: State<'_, AppState>,
+    project: String,
+    session_id: String,
+    hosting: Option<String>,
+) -> CmdResult<()> {
+    state
+        .workspace
+        .set_hosting(&project, &session_id, hosting.as_deref())
+        .map(|_| ())
+        .map_err(user_error)
+}
+
 /// Choose the database a session's screenshots use (`None` = Auto).
 #[tauri::command]
 pub fn set_session_database(
@@ -552,6 +567,7 @@ pub fn register<R: Runtime>(builder: tauri::Builder<R>, state: AppState) -> taur
             start_database,
             stop_database,
             set_session_database,
+            set_session_hosting,
             crate::update::check_update,
             crate::update::install_update,
             crate::setup::setup_status,

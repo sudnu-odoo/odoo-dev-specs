@@ -11,6 +11,7 @@ import type { ProviderStatus, SessionRef } from "./lib/types";
 const sameSession = (a: SessionRef | null, b: SessionRef | null) =>
   !!a && !!b && a.project === b.project && a.sessionId === b.sessionId;
 import DatabaseMenu from "./components/DatabaseMenu";
+import HostingMenu from "./components/HostingMenu";
 import DatabasesPage from "./components/DatabasesPage";
 import ChatPanel from "./components/ChatPanel";
 import SessionDiagram from "./components/SessionDiagram";
@@ -38,6 +39,9 @@ export default function App() {
     for (const s of sessions) if (s.database) count[s.database] = (count[s.database] ?? 0) + 1;
     return count;
   }, [sessions]);
+  const sessionHosting =
+    sessions.find((s) => s.project === app.selected?.project && s.id === app.selected?.sessionId)?.hosting ??
+    null;
   const sessionDatabase =
     sessions.find((s) => s.project === app.selected?.project && s.id === app.selected?.sessionId)?.database ??
     null;
@@ -83,20 +87,27 @@ export default function App() {
       usage={app.chat.usage}
       plan={app.chat.plan}
       composerExtras={
-        <DatabaseMenu
-          databases={dbs.databases}
-          selected={sessionDatabase}
-          disabled={app.chat.running}
-          onChange={(name) => app.setSessionDatabase(name)}
-          onManage={() => setView("databases")}
-          onCreate={() => setNewDatabaseFor(app.selected)}
-          creating={!!creatingFor && sameSession(creatingFor, app.selected)}
-          onOpen={() => {
-            const db = dbs.databases.find((d) => d.name === sessionDatabase);
-            if (db) dbs.open(db);
-          }}
-          opening={!!sessionDatabase && dbs.busy[sessionDatabase] === "starting"}
-        />
+        <>
+          <HostingMenu
+            hosting={sessionHosting}
+            disabled={app.chat.running}
+            onChange={app.setSessionHosting}
+          />
+          <DatabaseMenu
+            databases={dbs.databases}
+            selected={sessionDatabase}
+            disabled={app.chat.running}
+            onChange={(name) => app.setSessionDatabase(name)}
+            onManage={() => setView("databases")}
+            onCreate={() => setNewDatabaseFor(app.selected)}
+            creating={!!creatingFor && sameSession(creatingFor, app.selected)}
+            onOpen={() => {
+              const db = dbs.databases.find((d) => d.name === sessionDatabase);
+              if (db) dbs.open(db);
+            }}
+            opening={!!sessionDatabase && dbs.busy[sessionDatabase] === "starting"}
+          />
+        </>
       }
     />
   );

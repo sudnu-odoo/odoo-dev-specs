@@ -9,7 +9,11 @@ export interface SessionMeta {
   started: boolean;
   /** The local Odoo database its screenshots use; null = Auto (not chosen yet). */
   database?: string | null;
+  /** Where the client's Odoo runs: "online" (Odoo Online) or "sh" (Odoo.sh); null = not chosen. */
+  hosting?: Hosting | null;
 }
+
+export type Hosting = "online" | "sh";
 
 export interface ProjectInfo {
   name: string;

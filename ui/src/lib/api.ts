@@ -10,6 +10,7 @@ import type {
   SetupStatus,
   SetupTask,
   DatabaseInfo,
+  Hosting,
   NewDatabase,
   EnvReport,
   Model,
@@ -81,6 +82,8 @@ export const api = {
     invoke<void>("use_odoo_folder", { version, edition, path }),
   onSetupProgress: (handler: (update: { key: string; task: SetupTask }) => void): Promise<UnlistenFn> =>
     listen<{ key: string; task: SetupTask }>("setup-progress", (e) => handler(e.payload)),
+  setSessionHosting: (ref: SessionRef, hosting: Hosting | null) =>
+    invoke<void>("set_session_hosting", { ...ref, hosting }),
   /** In the diagram window: the main window selected another session. */
   onDiagramSession: (handler: (target: DiagramTarget) => void): Promise<UnlistenFn> =>
     listen<DiagramTarget>("diagram-session", (e) => handler(e.payload)),

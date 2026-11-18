@@ -41,7 +41,14 @@ pub struct SessionMeta {
     /// chosen yet). Kept in its own file, which the screenshot tool also writes.
     #[serde(default, skip_deserializing)]
     pub database: Option<String>,
+    /// Where the client's Odoo runs: "online" (Odoo Online) or "sh" (Odoo.sh);
+    /// `None` until chosen. The AI is told it with every message.
+    #[serde(default)]
+    pub hosting: Option<String>,
 }
+
+/// The hostings a session can be for.
+pub const HOSTINGS: [&str; 2] = ["online", "sh"];
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct ProjectInfo {
@@ -113,6 +120,9 @@ impl Workspace {
             started: false,
             conversation_id: None,
             database: None,
+            // Like the client's latest session: a client that moved hosting moves
+            // every new session with it, while older specs keep theirs.
+            hosting: self.latest_hosting(project),
         };
         let dir = project_dir.join(&meta.id);
         fs::create_dir_all(dir.join(SCREENSHOTS))?;
@@ -165,6 +175,30 @@ impl Workspace {
         self.update_meta(project, id, |m| {
             m.conversation_id = Some(conversation_id.to_string());
         })
+    }
+
+    /// Set where the client's Odoo runs for this session.
+    pub fn set_hosting(
+        &self,
+        project: &str,
+        id: &str,
+        hosting: Option<&str>,
+    ) -> Result<SessionMeta> {
+        if let Some(h) = hosting {
+            ensure!(HOSTINGS.contains(&h), "Unknown hosting: {h}");
+        }
+        self.update_meta(project, id, |m| m.hosting = hosting.map(String::from))
+    }
+
+    /// The hosting of the project's most recently changed session that has one.
+    fn latest_hosting(&self, project: &str) -> Option<String> {
+        let dir = self.project_dir(project).ok()?;
+        fs::read_dir(dir)
+            .ok()?
+            .filter_map(|e| read_meta(&e.ok()?.path()).ok())
+            .filter(|m| m.hosting.is_some())
+            .max_by_key(|m| (m.updated_at, m.created_at))
+            .and_then(|m| m.hosting)
     }
 
     /// Choose the database for the session's screenshots (`None` = Auto).

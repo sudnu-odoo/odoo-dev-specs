@@ -822,3 +822,30 @@ fn github_sign_in_opens_in_a_terminal_and_wrong_folders_are_explained() {
         .unwrap_err();
     assert!(err.contains("is not an Odoo source folder"), "{err}");
 }
+
+#[test]
+fn a_session_keeps_its_hosting_and_new_ones_follow_the_client() {
+    let h = harness(true);
+    let id = h.new_session();
+    h.call(
+        "set_session_hosting",
+        json!({"project": "Acme", "sessionId": id, "hosting": "online"}),
+    )
+    .unwrap();
+    let projects = h.call("list_projects", json!({})).unwrap();
+    assert_eq!(projects[0]["sessions"][0]["hosting"], "online");
+    let next = h
+        .call(
+            "create_session",
+            json!({"project": "Acme", "title": "Next"}),
+        )
+        .unwrap();
+    assert_eq!(next["hosting"], "online");
+    let err = h
+        .call(
+            "set_session_hosting",
+            json!({"project": "Acme", "sessionId": id, "hosting": "cloud"}),
+        )
+        .unwrap_err();
+    assert!(err.contains("Unknown hosting"), "{err}");
+}

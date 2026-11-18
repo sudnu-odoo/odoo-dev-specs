@@ -4,7 +4,7 @@ import { emptySessionChats, sessionChatsReducer } from "../chat/sessionChats";
 import { DEFAULT_TITLE, titleFromMessage } from "../chat/title";
 import { api } from "../lib/api";
 import { confirmAction } from "../lib/confirm";
-import type { Model, ProjectInfo, SessionData, SessionRef } from "../lib/types";
+import type { Model, ProjectInfo, SessionData, SessionRef, Hosting } from "../lib/types";
 
 const sameRef = (a: SessionRef | null, b: SessionRef | null) =>
   !!a && !!b && a.project === b.project && a.sessionId === b.sessionId;
@@ -230,6 +230,19 @@ export function useSpecsApp() {
     [refresh, selected],
   );
 
+  const setSessionHosting = useCallback(
+    async (hosting: Hosting | null) => {
+      if (!selected) return;
+      try {
+        await api.setSessionHosting(selected, hosting);
+        await refresh();
+      } catch (e) {
+        setError(String(e));
+      }
+    },
+    [refresh, selected],
+  );
+
   const login = useCallback((provider: string) => {
     api.loginProvider(provider).catch((e) => setError(String(e)));
   }, []);
@@ -269,6 +282,7 @@ export function useSpecsApp() {
     setEffort,
     login,
     setSessionDatabase,
+    setSessionHosting,
     sessionProvider,
   };
 }
