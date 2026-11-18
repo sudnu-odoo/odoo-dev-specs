@@ -207,7 +207,7 @@ pub fn script(fixes: &[Fix], user: &str) -> String {
     if github {
         // GitHub's own instructions (cli.github.com), so every Ubuntu gets a current gh.
         s.push_str(
-            "say Installing GitHub's tool\n\
+            "say \"Installing GitHub's tool\"\n\
              mkdir -p -m 755 /etc/apt/keyrings\n\
              wget -q -O /etc/apt/keyrings/githubcli-archive-keyring.gpg https://cli.github.com/packages/githubcli-archive-keyring.gpg\n\
              chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg\n\
@@ -442,6 +442,33 @@ mod tests {
         assert!(s.contains("apt-get install -y gh"), "{s}");
         // Python 3.10 is new enough.
         assert!(report(&jammy).requirements[1].ok);
+    }
+
+    #[test]
+    fn every_script_is_valid_bash() {
+        // Each fix on its own, all of them, and none: bash must accept the script.
+        let all = [
+            Fix::Packages(vec!["postgresql", "git"]),
+            Fix::GithubCli,
+            Fix::Chrome,
+            Fix::StartPostgres,
+            Fix::CreateUser,
+        ];
+        let mut cases: Vec<Vec<Fix>> = all.iter().map(|f| vec![f.clone()]).collect();
+        cases.push(all.to_vec());
+        cases.push(vec![]);
+        for fixes in cases {
+            let script = script(&fixes, "ana.maria-2");
+            let out = std::process::Command::new("bash")
+                .args(["-n", "-c", &script])
+                .output()
+                .unwrap();
+            assert!(
+                out.status.success(),
+                "{fixes:?}: {}\n{script}",
+                String::from_utf8_lossy(&out.stderr)
+            );
+        }
     }
 
     #[test]
