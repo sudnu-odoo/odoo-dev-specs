@@ -70,8 +70,9 @@ describe("ChatPanel", () => {
     });
     expect(screen.getByText("Add a delivery window")).toBeInTheDocument();
     expect(screen.getByText("Here is the spec.")).toBeInTheDocument();
-    expect(screen.getByText(/Read/)).toBeInTheDocument();
-    expect(screen.getByText(/Grep/)).toHaveAttribute("data-status", "running");
+    // The steps fold into one line showing the latest.
+    expect(screen.getByRole("button", { name: /2 steps/ })).toHaveTextContent("Searching the Odoo source");
+    expect(screen.getByRole("button", { name: /2 steps/ })).toHaveAttribute("data-status", "running");
     expect(screen.getByRole("alert")).toHaveTextContent("Not logged in");
   });
 

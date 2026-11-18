@@ -1594,3 +1594,60 @@ button.usage-line:hover {
   color: var(--muted);
   font-size: 12.5px;
 }
+
+/* The assistant's steps: one line that rolls to the latest step. */
+.tool-steps {
+  margin: 0 0 6px 2px;
+}
+.tool-steps .msg-tool {
+  margin: 0 0 2px;
+  font-family: inherit;
+}
+.tool-line {
+  border: 0;
+  background: none;
+  padding: 1px 0;
+  cursor: pointer;
+  text-align: left;
+  color: var(--muted);
+}
+.tool-line:hover .tool-ticker-text {
+  color: var(--text);
+}
+.tool-icon {
+  width: 12px;
+  text-align: center;
+}
+.tool-ticker {
+  display: inline-block;
+  height: 1.4em;
+  overflow: hidden;
+  vertical-align: bottom;
+}
+.tool-ticker-text {
+  display: inline-block;
+  animation: tool-roll 0.28s ease-out;
+}
+@keyframes tool-roll {
+  from {
+    transform: translateY(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .tool-ticker-text {
+    animation: none;
+  }
+}
+.tool-count {
+  opacity: 0.75;
+}
+.tool-list {
+  list-style: none;
+  margin: 4px 0 6px 18px;
+  padding: 0;
+}
