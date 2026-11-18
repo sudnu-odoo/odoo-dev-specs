@@ -131,3 +131,35 @@ export interface DatabaseForm {
   suggestedLabel: string;
   enterpriseAvailable: boolean;
 }
+
+/** One thing the computer must provide (mirrors odoo_runtime::system::Requirement). */
+export interface Requirement {
+  key: string;
+  label: string;
+  ok: boolean;
+  /** What is wrong, in plain words. */
+  problem: string;
+}
+
+export type SourceState = { state: "missing" } | { state: "ready"; linked: boolean };
+
+/** A long setup step (mirrors src-tauri setup::Task). */
+export interface SetupTask {
+  state: "running" | "done" | "failed" | "noAccess";
+  /** 0..100 while downloading; null while waiting without progress. */
+  progress: number | null;
+  message: string;
+}
+
+/** Everything the setup screen shows (mirrors src-tauri setup::SetupStatus). */
+export interface SetupStatus {
+  version: string;
+  system: { requirements: Requirement[]; ready: boolean };
+  community: SourceState;
+  enterprise: SourceState;
+  github: { installed: boolean; signedIn: boolean };
+  aiReady: boolean;
+  tasks: Record<string, SetupTask>;
+}
+
+export type Edition = "community" | "enterprise";

@@ -1,7 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { Panel, PanelGroup, PanelResizeHandle } from "react-resizable-panels";
 import { useDatabases } from "./app/useDatabases";
+import { useSetup } from "./app/useSetup";
 import { useSpecsApp } from "./app/useSpecsApp";
+import SetupScreen from "./components/SetupScreen";
+import type { ProviderStatus } from "./lib/types";
 import DatabaseMenu from "./components/DatabaseMenu";
 import DatabasesPage from "./components/DatabasesPage";
 import ChatPanel from "./components/ChatPanel";
@@ -34,15 +37,26 @@ export default function App() {
   useEffect(() => {
     reloadDatabases();
   }, [app.projects, reloadDatabases]);
-  // On first run, warn when a required tool is missing so the user fixes it.
-  const [setupIncomplete, setSetupIncomplete] = useState(false);
-
+  // First run: the setup shows by itself until the computer is ready.
+  const setup = useSetup();
+  const [setupOpen, setSetupOpen] = useState<boolean | null>(null);
+  const [providers, setProviders] = useState<ProviderStatus[]>([]);
   useEffect(() => {
-    api.checkEnvironment().then(
-      (report) => setSetupIncomplete(report.checks.some((c) => c.required && c.status === "missing")),
-      () => {},
-    );
-  }, []);
+    if (setupOpen === null && setup.status) setSetupOpen(!setup.complete);
+  }, [setup.status, setup.complete, setupOpen]);
+  useEffect(() => {
+    if (!setupOpen) return;
+    const load = () => api.providerStatus().then(setProviders, () => {});
+    load();
+    window.addEventListener("focus", load);
+    return () => window.removeEventListener("focus", load);
+  }, [setupOpen]);
+  const download = setup.downloading
+    ? {
+        label: setup.community?.state === "running" ? "Downloading Odoo" : "Downloading Enterprise",
+        percent: setup.downloading.progress,
+      }
+    : null;
 
   const chat = (
     <ChatPanel
@@ -82,6 +96,8 @@ export default function App() {
           app.open(ref);
         }}
         databasesOpen={view === "databases"}
+        download={download}
+        onOpenSetup={() => setSetupOpen(true)}
         onOpenDatabases={() => setView("databases")}
         onCreateProject={app.createProject}
         onCreateSession={(project) => {
@@ -101,11 +117,11 @@ export default function App() {
             </button>
           </div>
         )}
-        {setupIncomplete && !settingsOpen && (
+        {setupOpen === false && setup.status && !setup.complete && !setup.downloading && (
           <div role="alert" className="banner-warning">
-            The setup is incomplete, so some things will not work.
-            <button className="btn btn-small" onClick={() => setSettingsOpen(true)}>
-              Open settings
+            The setup is not finished, so some things will not work.
+            <button className="btn btn-small" onClick={() => setSetupOpen(true)}>
+              Open setup
             </button>
           </div>
         )}
@@ -150,17 +166,28 @@ export default function App() {
           </PanelGroup>
         )}
       </div>
+      {setupOpen && (
+        <SetupScreen
+          setup={setup}
+          providers={providers}
+          onLogin={app.login}
+          onDone={() => {
+            setSetupOpen(false);
+            app.reloadModels();
+          }}
+        />
+      )}
       {settingsOpen && (
         <SettingsPanel
           onClose={() => {
             setSettingsOpen(false);
             // A provider may have been logged in: refresh the model picker.
             app.reloadModels();
-            // The user may have just fixed something; re-check.
-            api.checkEnvironment().then(
-              (report) => setSetupIncomplete(report.checks.some((c) => c.required && c.status === "missing")),
-              () => {},
-            );
+            setup.refresh();
+          }}
+          onOpenSetup={() => {
+            setSettingsOpen(false);
+            setSetupOpen(true);
           }}
         />
       )}

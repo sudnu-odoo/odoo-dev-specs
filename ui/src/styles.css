@@ -1335,3 +1335,225 @@ button.usage-line:hover {
   opacity: 0.45;
   cursor: not-allowed;
 }
+
+/* First-run setup: one centred card, four rows, one main button. */
+.setup {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  overflow-y: auto;
+  background: var(--bg);
+}
+.setup-card {
+  width: 100%;
+  max-width: 560px;
+  padding: 32px 32px 20px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  box-shadow: 0 8px 40px rgb(0 0 0 / 0.08);
+}
+.setup-loading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--muted);
+}
+.setup h1 {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 600;
+}
+.setup-lead {
+  margin: 6px 0 20px;
+  color: var(--muted);
+  font-size: 14px;
+}
+.setup-error {
+  margin-bottom: 14px;
+  border-radius: 8px;
+  white-space: pre-wrap;
+}
+.setup-rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+.setup-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px 16px;
+}
+.setup-row + .setup-row {
+  border-top: 1px solid var(--border);
+}
+.setup-icon {
+  width: 22px;
+  height: 22px;
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  border: 1.5px solid var(--border);
+  font-size: 12px;
+  font-weight: 700;
+}
+.setup-row[data-state="done"] .setup-icon {
+  border-color: #2f9e44;
+  background: #2f9e44;
+  color: #fff;
+}
+.setup-row[data-state="attention"] .setup-icon {
+  border-color: var(--accent);
+}
+.setup-row[data-state="working"] .setup-icon {
+  border: 0;
+}
+.setup-row-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 14px;
+}
+.setup-row-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 500;
+}
+.setup-row-text small {
+  font-size: 12.5px;
+  color: var(--muted);
+  white-space: pre-wrap;
+}
+.setup-row[data-state="optional"] .setup-row-title {
+  color: var(--muted);
+}
+.setup-tag {
+  font-size: 11px;
+  font-weight: 500;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--bg);
+  color: var(--muted);
+}
+.setup-row-action {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-self: center;
+}
+.setup-bar {
+  height: 4px;
+  margin-top: 6px;
+  border-radius: 999px;
+  background: var(--bg);
+  overflow: hidden;
+}
+.setup-bar i {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  border-radius: inherit;
+  transition: width 0.3s ease;
+}
+.setup-bar-moving i {
+  width: 35%;
+  animation: setup-move 1.4s ease-in-out infinite;
+}
+@keyframes setup-move {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(300%);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .setup-bar-moving i {
+    animation: none;
+    width: 100%;
+    opacity: 0.4;
+  }
+}
+.setup-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  margin-top: 20px;
+}
+.setup-main {
+  padding: 11px 16px;
+  font-size: 15px;
+  font-weight: 600;
+}
+.setup-note {
+  margin: 0;
+  text-align: center;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+.setup-footer {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 16px;
+}
+.link-btn {
+  border: 0;
+  background: none;
+  padding: 4px 0;
+  font: inherit;
+  font-size: 12.5px;
+  color: var(--muted);
+  cursor: pointer;
+}
+.link-btn:hover {
+  color: var(--text);
+  text-decoration: underline;
+}
+.setup-folders {
+  margin-top: 10px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  background: var(--bg);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.setup-folder {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 13px;
+}
+
+/* Sidebar: a download still going on */
+.sidebar-download {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: auto 8px 8px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--bg);
+  border: 0;
+  font: inherit;
+  font-size: 12px;
+  color: var(--muted);
+  text-align: left;
+  cursor: pointer;
+}
+.download-ring {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}

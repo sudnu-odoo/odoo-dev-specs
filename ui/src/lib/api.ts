@@ -5,6 +5,9 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type {
   ChatEventPayload,
   DatabaseForm,
+  Edition,
+  SetupStatus,
+  SetupTask,
   DatabaseInfo,
   NewDatabase,
   EnvReport,
@@ -62,6 +65,17 @@ export const api = {
   /** The database a session's screenshots use; null = Auto. */
   setSessionDatabase: (ref: SessionRef, database: string | null) =>
     invoke<void>("set_session_database", { ...ref, database }),
+  setupStatus: (version: string) => invoke<SetupStatus>("setup_status", { version }),
+  /** Install and start what the computer is missing (one password prompt). */
+  installTools: () => invoke<void>("install_tools"),
+  /** Start a background download; progress arrives through onSetupProgress. */
+  downloadOdoo: (version: string, edition: Edition) => invoke<void>("download_odoo", { version, edition }),
+  /** Open GitHub's sign-in (for Enterprise) in a terminal window. */
+  githubSignIn: () => invoke<void>("github_sign_in"),
+  useOdooFolder: (version: string, edition: Edition, path: string) =>
+    invoke<void>("use_odoo_folder", { version, edition, path }),
+  onSetupProgress: (handler: (update: { key: string; task: SetupTask }) => void): Promise<UnlistenFn> =>
+    listen<{ key: string; task: SetupTask }>("setup-progress", (e) => handler(e.payload)),
   /** In the diagram window: the main window selected another session. */
   onDiagramSession: (handler: (target: DiagramTarget) => void): Promise<UnlistenFn> =>
     listen<DiagramTarget>("diagram-session", (e) => handler(e.payload)),

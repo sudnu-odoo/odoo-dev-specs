@@ -14,6 +14,9 @@ export interface SidebarProps {
   /** The Databases page is showing (instead of a session). */
   databasesOpen?: boolean;
   onOpenDatabases?: () => void;
+  /** A setup download still going on; clicking it opens the setup. */
+  download?: { label: string; percent: number | null } | null;
+  onOpenSetup?: () => void;
 }
 
 export default function Sidebar({
@@ -27,6 +30,8 @@ export default function Sidebar({
   onOpenSettings,
   databasesOpen = false,
   onOpenDatabases,
+  download,
+  onOpenSetup,
 }: SidebarProps) {
   return (
     <aside className="sidebar">
@@ -90,6 +95,28 @@ export default function Sidebar({
           </div>
         ))}
       </nav>
+      {download && (
+        <button className="sidebar-download" onClick={onOpenSetup} title="Open the setup">
+          <svg className="download-ring" viewBox="0 0 16 16" aria-hidden="true">
+            <circle cx="8" cy="8" r="6.5" fill="none" stroke="var(--border)" strokeWidth="2" />
+            <circle
+              cx="8"
+              cy="8"
+              r="6.5"
+              fill="none"
+              stroke="var(--accent)"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeDasharray={`${((download.percent ?? 25) / 100) * 40.8} 40.8`}
+              transform="rotate(-90 8 8)"
+            />
+          </svg>
+          <span role="status">
+            {download.label}
+            {download.percent !== null ? ` · ${download.percent}%` : "…"}
+          </span>
+        </button>
+      )}
     </aside>
   );
 }
