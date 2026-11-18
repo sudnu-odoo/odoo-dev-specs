@@ -760,7 +760,7 @@ fn a_cancelled_password_is_reported_and_can_be_retried() {
     assert_eq!(status["tasks"]["tools"]["state"], "failed");
     fs::remove_file(h._dir.path().join("fail-install")).unwrap();
     h.call("install_tools", json!({})).unwrap();
-    assert_eq!(h.machine.lock().unwrap().postgres_user, true);
+    assert!(h.machine.lock().unwrap().postgres_user);
 }
 
 fn wait_for_task(h: &Harness, key: &str) -> Value {
