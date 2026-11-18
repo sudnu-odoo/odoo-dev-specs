@@ -217,10 +217,11 @@ export function useSpecsApp() {
   );
 
   const setSessionDatabase = useCallback(
-    async (database: string | null) => {
-      if (!selected) return;
+    /** `ref`: the session to change, when it may no longer be the open one. */
+    async (database: string | null, ref: SessionRef | null = selected) => {
+      if (!ref) return;
       try {
-        await api.setSessionDatabase(selected, database);
+        await api.setSessionDatabase(ref, database);
         await refresh();
       } catch (e) {
         setError(String(e));

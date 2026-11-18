@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
@@ -33,6 +33,8 @@ vi.mock("./lib/api", () => ({
     providerStatus: vi.fn(),
     installTools: vi.fn(),
     downloadOdoo: vi.fn(),
+    databaseForm: vi.fn(),
+    createDatabase: vi.fn(),
   },
 }));
 // Settings panel has its own test; here we only check it opens.
@@ -449,5 +451,33 @@ describe("App", () => {
     render(<App />);
     await screen.findByRole("button", { name: "Delivery window" });
     expect(screen.queryByRole("heading", { name: "Get ready to write specs" })).not.toBeInTheDocument();
+  });
+
+  it("a session can make a new database, which then becomes its database", async () => {
+    mocked.databaseForm.mockResolvedValue({ suggestedLabel: "db-19-4", enterpriseAvailable: false });
+    mocked.createDatabase.mockResolvedValue({
+      name: "specs_db_19_4",
+      label: "db-19-4",
+      version: "19.0",
+      modules: [],
+      demoData: true,
+      enterprise: false,
+      auto: false,
+      createdAt: 0,
+      lastUsed: 0,
+      sizeBytes: 0,
+      running: false,
+    });
+    await openSession("Delivery window");
+    await userEvent.click(await screen.findByRole("button", { name: "Database: Auto" }));
+    await userEvent.click(screen.getByRole("menuitem", { name: "New database…" }));
+    const dialog = await screen.findByRole("dialog", { name: "New database" });
+    await within(dialog).findByDisplayValue("db-19-4");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Create" }));
+    expect(mocked.createDatabase).toHaveBeenCalledWith(expect.objectContaining({ label: "db-19-4" }));
+    expect(mocked.setSessionDatabase).toHaveBeenCalledWith(
+      { project: "Acme", sessionId: "s1" },
+      "specs_db_19_4",
+    );
   });
 });

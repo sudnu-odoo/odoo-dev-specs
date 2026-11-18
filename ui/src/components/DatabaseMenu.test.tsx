@@ -59,4 +59,33 @@ describe("DatabaseMenu", () => {
     setup("specs_db_gone");
     expect(chip()).toHaveTextContent("Deleted database");
   });
+
+  it("makes a new database for the session and opens the session's one in the browser", async () => {
+    const props = { onChange: vi.fn(), onManage: vi.fn(), onCreate: vi.fn(), onOpen: vi.fn() };
+    render(<DatabaseMenu databases={DBS} selected="specs_db_sales" {...props} />);
+    await userEvent.click(screen.getByRole("button", { name: "Open Sales demo in the browser" }));
+    expect(props.onOpen).toHaveBeenCalled();
+    await userEvent.click(chip());
+    await userEvent.click(screen.getByRole("menuitem", { name: "New database…" }));
+    expect(props.onCreate).toHaveBeenCalled();
+  });
+
+  it("has no Open button in Auto, and shows a database being made", () => {
+    const { rerender } = render(
+      <DatabaseMenu databases={DBS} selected={null} onChange={vi.fn()} onManage={vi.fn()} onOpen={vi.fn()} />,
+    );
+    expect(screen.queryByRole("button", { name: /^Open/ })).not.toBeInTheDocument();
+    rerender(
+      <DatabaseMenu
+        databases={DBS}
+        selected={null}
+        onChange={vi.fn()}
+        onManage={vi.fn()}
+        onOpen={vi.fn()}
+        creating
+      />,
+    );
+    expect(chip()).toHaveTextContent("Creating database…");
+    expect(chip()).toBeDisabled();
+  });
 });

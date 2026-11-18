@@ -3,8 +3,12 @@ import { Panel, PanelGroup, PanelResizeHandle } from "react-resizable-panels";
 import { useDatabases } from "./app/useDatabases";
 import { useSetup } from "./app/useSetup";
 import { useSpecsApp } from "./app/useSpecsApp";
+import NewDatabaseDialog from "./components/NewDatabaseDialog";
 import SetupScreen from "./components/SetupScreen";
-import type { ProviderStatus } from "./lib/types";
+import type { ProviderStatus, SessionRef } from "./lib/types";
+
+const sameSession = (a: SessionRef | null, b: SessionRef | null) =>
+  !!a && !!b && a.project === b.project && a.sessionId === b.sessionId;
 import DatabaseMenu from "./components/DatabaseMenu";
 import DatabasesPage from "./components/DatabasesPage";
 import ChatPanel from "./components/ChatPanel";
@@ -18,6 +22,9 @@ export default function App() {
   const dbs = useDatabases();
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [view, setView] = useState<"session" | "databases">("session");
+  // "New database…" from a session's chip: the form, then the session it is for.
+  const [newDatabaseFor, setNewDatabaseFor] = useState<SessionRef | null>(null);
+  const [creatingFor, setCreatingFor] = useState<SessionRef | null>(null);
 
   // Which database each session uses, from the session list (refreshed after each
   // answer, when the assistant may have picked one).
@@ -79,8 +86,15 @@ export default function App() {
           databases={dbs.databases}
           selected={sessionDatabase}
           disabled={app.chat.running}
-          onChange={app.setSessionDatabase}
+          onChange={(name) => app.setSessionDatabase(name)}
           onManage={() => setView("databases")}
+          onCreate={() => setNewDatabaseFor(app.selected)}
+          creating={!!creatingFor && sameSession(creatingFor, app.selected)}
+          onOpen={() => {
+            const db = dbs.databases.find((d) => d.name === sessionDatabase);
+            if (db) dbs.open(db);
+          }}
+          opening={!!sessionDatabase && dbs.busy[sessionDatabase] === "starting"}
         />
       }
     />
@@ -166,6 +180,22 @@ export default function App() {
           </PanelGroup>
         )}
       </div>
+      {newDatabaseFor && (
+        <NewDatabaseDialog
+          defaultVersion="19.0"
+          formFor={dbs.formFor}
+          onCancel={() => setNewDatabaseFor(null)}
+          onCreate={async (db) => {
+            const session = newDatabaseFor;
+            setNewDatabaseFor(null);
+            setCreatingFor(session);
+            const made = await dbs.create(db);
+            setCreatingFor(null);
+            // Made for this session, even if another one is open by now.
+            if (made) await app.setSessionDatabase(made.name, session);
+          }}
+        />
+      )}
       {setupOpen && (
         <SetupScreen
           setup={setup}

@@ -1557,3 +1557,15 @@ button.usage-line:hover {
   height: 16px;
   flex-shrink: 0;
 }
+
+/* The session's database: chip plus its Open button */
+.db-chip-group {
+  display: flex;
+  gap: 4px;
+}
+.db-open {
+  color: var(--muted);
+}
+.db-open:hover:not(:disabled) {
+  color: var(--text);
+}
