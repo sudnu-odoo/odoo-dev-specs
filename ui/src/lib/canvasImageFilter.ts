@@ -51,11 +51,15 @@ function darkCopy(source: Source): HTMLCanvasElement | null {
   return canvas;
 }
 
-type FilterCtx = CanvasRenderingContext2D & { filter?: string; __filters?: (string | undefined)[] };
+type FilterCtx = Omit<CanvasRenderingContext2D, "filter"> & {
+  filter?: string;
+  __filters?: (string | undefined)[];
+};
 
 /** Patch the 2D context where `filter` is missing (pass the prototype; tests pass a fake). */
-export function installImageFilterFallback(proto: CanvasRenderingContext2D) {
-  if ("filter" in proto) return;
+export function installImageFilterFallback(target: CanvasRenderingContext2D) {
+  if ("filter" in target) return;
+  const proto = target as unknown as FilterCtx;
   const { drawImage, save, restore } = proto;
   // Without native support, `filter` is a plain property: keep it in step with save/restore.
   proto.save = function (this: FilterCtx) {
