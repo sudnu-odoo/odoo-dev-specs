@@ -109,7 +109,6 @@ export default function App() {
       </div>
       {settingsOpen && (
         <SettingsPanel
-          plan={app.chat.plan}
           onClose={() => {
             setSettingsOpen(false);
             // A provider may have been logged in: refresh the model picker.

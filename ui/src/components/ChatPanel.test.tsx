@@ -177,10 +177,11 @@ describe("ChatPanel model picker and usage", () => {
 
   it("shows the chosen model on a chip and changes it from a menu", async () => {
     const props = setup();
-    expect(modelButton()).toHaveTextContent("Sonnet (balanced)");
+    expect(modelButton()).toHaveTextContent("Sonnet");
+    expect(modelButton()).not.toHaveTextContent("balanced");
     await userEvent.click(modelButton());
     const opus = screen.getByRole("menuitemradio", { name: "Opus (most capable)" });
-    expect(screen.getByRole("menuitemradio", { name: "Sonnet (balanced)" })).toHaveAttribute(
+    expect(screen.getByRole("menuitemradio", { name: /Sonnet \(balanced\)/ })).toHaveAttribute(
       "aria-checked",
       "true",
     );
@@ -196,25 +197,44 @@ describe("ChatPanel model picker and usage", () => {
     expect(screen.queryByRole("menu")).not.toBeInTheDocument();
   });
 
-  it("groups models by provider and locks providers that are not ready", async () => {
-    const props = setup({
-      models: [
-        { id: "sonnet", label: "Sonnet", provider: "Claude" },
-        { id: "gem", label: "Gemini Pro", provider: "Antigravity", locked: true },
-      ],
-    });
+  const TWO_SERVICES = [
+    { id: "sonnet", label: "Sonnet (balanced)", provider: "Claude" },
+    { id: "opus", label: "Opus (most capable)", provider: "Claude" },
+    { id: "gemini-3.8-flash-low", label: "Gemini 3.8 Flash (Low)", provider: "Antigravity" },
+  ];
+
+  it("first picks the AI service, then lists only that service's models", async () => {
+    const props = setup({ models: TWO_SERVICES, effort: "low", onEffortChange: vi.fn() });
     await userEvent.click(modelButton());
-    const claude = screen.getByRole("group", { name: "Claude" });
-    expect(claude).toContainElement(screen.getByRole("menuitemradio", { name: "Sonnet" }));
-    const locked = screen.getByRole("group", { name: /Antigravity.*not ready/i });
-    const gemini = screen.getByRole("menuitemradio", { name: /Gemini Pro/ });
-    expect(locked).toContainElement(gemini);
-    expect(gemini).toHaveAttribute("aria-disabled", "true");
-    await userEvent.click(gemini);
-    expect(props.onModelChange).not.toHaveBeenCalled();
+    const services = screen.getByRole("group", { name: "AI service" });
+    expect(services).toHaveTextContent(/Claude.*Antigravity/);
+    expect(screen.getByRole("group", { name: "Claude models" })).toHaveTextContent(/Sonnet.*Opus/);
+    expect(screen.queryByText(/Gemini/)).not.toBeInTheDocument();
+    expect(screen.getByRole("group", { name: "Effort" })).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("menuitemradio", { name: "Antigravity" }));
+    expect(screen.getByRole("group", { name: "Antigravity models" })).toHaveTextContent("Gemini 3.8 Flash");
+    expect(screen.queryByRole("menuitemradio", { name: /Sonnet/ })).not.toBeInTheDocument();
+    // Effort belongs to the chosen Claude model, not to another service's list.
+    expect(screen.queryByRole("group", { name: "Effort" })).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("menuitemradio", { name: /Gemini/ }));
+    expect(props.onModelChange).toHaveBeenCalledWith("gemini-3.8-flash-low");
   });
 
-  it("picks an effort level in the same menu and shows it on the chip", async () => {
+  it("a model with its level in its name has no effort, and the chip shows that level", async () => {
+    setup({
+      models: TWO_SERVICES,
+      selectedModel: "gemini-3.8-flash-low",
+      effort: "high",
+      onEffortChange: vi.fn(),
+    });
+    expect(modelButton()).toHaveTextContent(/^Gemini 3.8 FlashLow$/);
+    await userEvent.click(modelButton());
+    expect(screen.getByRole("group", { name: "Antigravity models" })).toBeInTheDocument();
+    expect(screen.queryByRole("group", { name: "Effort" })).not.toBeInTheDocument();
+  });
+
+  it("picks an effort level in one row of the same menu", async () => {
     const props = setup({ effort: "", onEffortChange: vi.fn() });
     await userEvent.click(modelButton());
     const effort = screen.getByRole("group", { name: "Effort" });
@@ -224,11 +244,11 @@ describe("ChatPanel model picker and usage", () => {
   });
 
   it("shows the chosen effort on the chip", () => {
-    setup({ effort: "high" });
-    expect(modelButton()).toHaveTextContent(/Sonnet \(balanced\).*High/);
+    setup({ effort: "high", onEffortChange: vi.fn() });
+    expect(modelButton()).toHaveTextContent(/Sonnet.*High/);
   });
 
-  it("marks each locked model with a padlock and offers to log in", async () => {
+  it("locks a service that is not logged in and offers to log in", async () => {
     const props = setup({
       models: [
         { id: "sonnet", label: "Sonnet", provider: "Claude" },
@@ -237,13 +257,17 @@ describe("ChatPanel model picker and usage", () => {
       onLogin: vi.fn(),
     });
     await userEvent.click(modelButton());
-    expect(screen.getByRole("menuitemradio", { name: "Gemini Pro" })).toHaveTextContent("🔒");
+    const agy = screen.getByRole("menuitemradio", { name: /Antigravity/ });
+    expect(agy).toHaveTextContent("🔒");
+    expect(agy).toHaveAttribute("aria-disabled", "true");
+    await userEvent.click(agy);
+    expect(screen.queryByText("Gemini Pro")).not.toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Log in to Antigravity" }));
     expect(props.onLogin).toHaveBeenCalledWith("antigravity");
   });
 
-  it("in a session tied to one provider, the other provider's models are unavailable", async () => {
-    const props = setup({
+  it("in a session tied to one service, the other service is unavailable", async () => {
+    setup({
       models: [
         { id: "sonnet", label: "Sonnet", provider: "Claude" },
         { id: "gem", label: "Gemini Pro", provider: "Antigravity", locked: true },
@@ -252,14 +276,11 @@ describe("ChatPanel model picker and usage", () => {
       onLogin: vi.fn(),
     });
     await userEvent.click(modelButton());
-    const other = screen.getByRole("group", { name: /Antigravity.*this session uses Claude/i });
-    const gemini = screen.getByRole("menuitemradio", { name: /Gemini Pro/ });
-    expect(other).toContainElement(gemini);
-    expect(gemini).toHaveAttribute("aria-disabled", "true");
+    const agy = screen.getByRole("menuitemradio", { name: /Antigravity/ });
+    expect(agy).toHaveTextContent("new session");
+    expect(agy).toHaveAttribute("aria-disabled", "true");
     // Not a login matter here: no Log in button.
     expect(screen.queryByRole("button", { name: /Log in/ })).not.toBeInTheDocument();
-    await userEvent.click(gemini);
-    expect(props.onModelChange).not.toHaveBeenCalled();
   });
 
   it("disables the model chip while the assistant is answering", () => {
