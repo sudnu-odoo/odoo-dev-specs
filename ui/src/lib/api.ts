@@ -4,6 +4,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type {
   ChatEventPayload,
+  AppRelease,
   DatabaseForm,
   Edition,
   SetupStatus,
@@ -65,6 +66,10 @@ export const api = {
   /** The database a session's screenshots use; null = Auto. */
   setSessionDatabase: (ref: SessionRef, database: string | null) =>
     invoke<void>("set_session_database", { ...ref, database }),
+  /** A newer version on GitHub, or null (always null in development builds). */
+  checkUpdate: () => invoke<AppRelease | null>("check_update"),
+  /** Install it with the password window; the app restarts when done. */
+  installUpdate: (release: AppRelease) => invoke<void>("install_update", { release }),
   setupStatus: (version: string) => invoke<SetupStatus>("setup_status", { version }),
   /** Install and start what the computer is missing (one password prompt). */
   installTools: () => invoke<void>("install_tools"),

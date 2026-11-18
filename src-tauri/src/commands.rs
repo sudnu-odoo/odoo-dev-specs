@@ -552,6 +552,8 @@ pub fn register<R: Runtime>(builder: tauri::Builder<R>, state: AppState) -> taur
             start_database,
             stop_database,
             set_session_database,
+            crate::update::check_update,
+            crate::update::install_update,
             crate::setup::setup_status,
             crate::setup::install_tools,
             crate::setup::download_odoo,

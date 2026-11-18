@@ -163,3 +163,11 @@ export interface SetupStatus {
 }
 
 export type Edition = "community" | "enterprise";
+
+/** A newer version of the app (mirrors src-tauri update::Release). */
+export interface AppRelease {
+  version: string;
+  /** What changed: one "- title" line per change. */
+  notes: string;
+  debUrl: string;
+}

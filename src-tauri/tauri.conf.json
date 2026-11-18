@@ -4,19 +4,49 @@
   "identifier": "com.odoo.devspecs",
   "build": {
     "beforeDevCommand": "cargo build -p specs-mcp && npm run dev",
-    "beforeBuildCommand": "npm run build",
+    "beforeBuildCommand": "cargo build --release -p specs-mcp && npm run build",
     "devUrl": "http://localhost:1420",
     "frontendDist": "../ui/dist"
   },
   "app": {
     "windows": [
-      { "title": "Odoo Dev Specs", "width": 1440, "height": 900, "minWidth": 960, "minHeight": 600 }
+      {
+        "title": "Odoo Dev Specs",
+        "width": 1440,
+        "height": 900,
+        "minWidth": 960,
+        "minHeight": 600
+      }
     ],
-    "security": { "csp": null }
+    "security": {
+      "csp": null
+    }
   },
   "bundle": {
     "active": true,
-    "targets": ["deb", "appimage"],
-    "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.png"]
+    "targets": [
+      "deb"
+    ],
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.png"
+    ],
+    "shortDescription": "Write Odoo development specs with AI, on real Odoo screenshots",
+    "category": "DeveloperTool",
+    "linux": {
+      "deb": {
+        "depends": [
+          "postgresql",
+          "python3-venv",
+          "git",
+          "gh"
+        ],
+        "files": {
+          "/usr/bin/specs-mcp": "../target/release/specs-mcp"
+        }
+      }
+    }
   }
 }

@@ -34,6 +34,7 @@ vi.mock("./lib/api", () => ({
     installTools: vi.fn(),
     downloadOdoo: vi.fn(),
     databaseForm: vi.fn(),
+    checkUpdate: vi.fn(),
     createDatabase: vi.fn(),
   },
 }));
@@ -138,6 +139,7 @@ beforeEach(() => {
     },
   ]);
   mocked.setupStatus.mockResolvedValue(readyComputer);
+  mocked.checkUpdate.mockResolvedValue(null);
   mocked.onSetupProgress.mockResolvedValue(() => {});
   mocked.providerStatus.mockResolvedValue([]);
   mocked.setSessionDatabase.mockImplementation(async (ref, database) => {

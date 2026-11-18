@@ -5,6 +5,7 @@ import { useSetup } from "./app/useSetup";
 import { useSpecsApp } from "./app/useSpecsApp";
 import NewDatabaseDialog from "./components/NewDatabaseDialog";
 import SetupScreen from "./components/SetupScreen";
+import UpdateBanner from "./components/UpdateBanner";
 import type { ProviderStatus, SessionRef } from "./lib/types";
 
 const sameSession = (a: SessionRef | null, b: SessionRef | null) =>
@@ -123,6 +124,7 @@ export default function App() {
         onOpenSettings={() => setSettingsOpen(true)}
       />
       <div className="main">
+        <UpdateBanner />
         {app.error && (
           <div role="alert" className="banner-error">
             {app.error}

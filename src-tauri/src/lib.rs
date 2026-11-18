@@ -2,6 +2,7 @@ mod commands;
 mod diagram_window;
 mod environment;
 mod setup;
+mod update;
 
 pub use commands::{register, AppState, ChatEventPayload, CHAT_EVENT};
 pub use diagram_window::{DIAGRAM_DOCKED_EVENT, DIAGRAM_SESSION_EVENT, DIAGRAM_WINDOW};
