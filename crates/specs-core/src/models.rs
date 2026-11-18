@@ -33,6 +33,18 @@ fn model(provider: &str, id: &str, label: &str) -> Model {
 pub const PROVIDERS: [Provider; 2] = [Provider::Claude, Provider::Antigravity];
 
 impl Provider {
+    /// Stored id, as in a session's `provider` field ("claude", "antigravity").
+    pub fn id(self) -> &'static str {
+        match self {
+            Provider::Claude => "claude",
+            Provider::Antigravity => "antigravity",
+        }
+    }
+
+    pub fn from_id(id: &str) -> Option<Provider> {
+        PROVIDERS.into_iter().find(|p| p.id() == id)
+    }
+
     /// Name shown in the picker.
     pub fn display_name(self) -> &'static str {
         match self {
@@ -85,6 +97,30 @@ pub const EFFORTS: [&str; 5] = ["low", "medium", "high", "xhigh", "max"];
 /// Keep only an effort level the CLIs understand.
 pub fn valid_effort(effort: Option<String>) -> Option<String> {
     effort.filter(|e| EFFORTS.contains(&e.as_str()))
+}
+
+/// Which provider answers a message. A session belongs to the provider of its first
+/// message (one AI per conversation: another one could not resume it), so once it
+/// has started, a model of another provider is refused. Before that, the chosen
+/// model decides, else `fallback`.
+pub fn session_provider(
+    session_provider: &str,
+    started: bool,
+    chosen: Option<Provider>,
+    fallback: Provider,
+) -> Result<Provider, String> {
+    if !started {
+        return Ok(chosen.unwrap_or(fallback));
+    }
+    let own = Provider::from_id(session_provider).unwrap_or(fallback);
+    match chosen {
+        Some(other) if other != own => Err(format!(
+            "This session uses {}. Start a new session to use {}.",
+            own.display_name(),
+            other.display_name()
+        )),
+        _ => Ok(own),
+    }
 }
 
 /// Which provider offers this model id, if any.
@@ -141,6 +177,54 @@ mod tests {
         assert_eq!(valid_effort(Some("high".into())).as_deref(), Some("high"));
         assert_eq!(valid_effort(Some("turbo".into())), None);
         assert_eq!(valid_effort(None), None);
+    }
+
+    #[test]
+    fn a_new_session_takes_the_provider_of_the_chosen_model() {
+        let p = session_provider(
+            "claude",
+            false,
+            Some(Provider::Antigravity),
+            Provider::Claude,
+        );
+        assert_eq!(p, Ok(Provider::Antigravity));
+        assert_eq!(
+            session_provider("claude", false, None, Provider::Claude),
+            Ok(Provider::Claude)
+        );
+    }
+
+    #[test]
+    fn a_started_session_stays_with_its_provider() {
+        assert_eq!(
+            session_provider("antigravity", true, None, Provider::Claude),
+            Ok(Provider::Antigravity)
+        );
+        assert_eq!(
+            session_provider(
+                "antigravity",
+                true,
+                Some(Provider::Antigravity),
+                Provider::Claude
+            ),
+            Ok(Provider::Antigravity)
+        );
+        let err = session_provider(
+            "claude",
+            true,
+            Some(Provider::Antigravity),
+            Provider::Claude,
+        )
+        .unwrap_err();
+        assert!(err.contains("This session uses Claude"), "{err}");
+    }
+
+    #[test]
+    fn provider_ids_round_trip() {
+        for p in PROVIDERS {
+            assert_eq!(Provider::from_id(p.id()), Some(p));
+        }
+        assert_eq!(Provider::from_id("nope"), None);
     }
 
     #[test]

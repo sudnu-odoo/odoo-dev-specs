@@ -70,6 +70,8 @@ pub struct Probe {
     pub chrome: Option<PathBuf>,
     /// Path of the `claude` executable, if found.
     pub claude: Option<PathBuf>,
+    /// Path of the Antigravity CLI (`agy`), if found.
+    pub antigravity: Option<PathBuf>,
 }
 
 /// Build the report from a gathered [`Probe`].
@@ -201,13 +203,16 @@ fn check_ai(p: &Probe) -> Check {
     if p.claude.is_some() {
         present.push("Claude Code");
     }
+    if p.antigravity.is_some() {
+        present.push("Antigravity");
+    }
     if present.is_empty() {
         problem(
             "ai",
             "AI assistant",
             Status::Missing,
             "none installed".into(),
-            "Install Claude Code (`claude`) and sign in. The assistant writes the specs.",
+            "Install Claude Code (`claude`) or Antigravity (`agy`) and sign in. The assistant writes the specs.",
             true,
         )
     } else {
@@ -231,6 +236,7 @@ mod tests {
             ],
             chrome: Some("/usr/bin/google-chrome".into()),
             claude: Some("/home/u/.local/bin/claude".into()),
+            antigravity: Some("/home/u/.local/bin/agy".into()),
         }
     }
 
@@ -335,10 +341,25 @@ mod tests {
     fn missing_ai_cli_blocks() {
         let none = check(&Probe {
             claude: None,
+            antigravity: None,
             ..full()
         });
         assert_eq!(get(&none, "ai").status, Status::Missing);
         assert!(!none.is_ready());
-        assert_eq!(get(&check(&full()), "ai").detail, "Claude Code");
+        assert_eq!(
+            get(&check(&full()), "ai").detail,
+            "Claude Code, Antigravity"
+        );
+    }
+
+    #[test]
+    fn either_assistant_is_enough() {
+        let only_agy = check(&Probe {
+            claude: None,
+            ..full()
+        });
+        assert_eq!(get(&only_agy, "ai").status, Status::Ok);
+        assert_eq!(get(&only_agy, "ai").detail, "Antigravity");
+        assert!(only_agy.is_ready());
     }
 }

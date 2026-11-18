@@ -25,6 +25,7 @@ fn test_probe() -> Probe {
         odoo_sources: vec!["/src/odoo".into(), "/src/enterprise".into()],
         chrome: Some("/bin/chrome".into()),
         claude: Some("/bin/claude".into()),
+        antigravity: Some("/bin/agy".into()),
     }
 }
 use tauri::ipc::{CallbackFn, InvokeBody};
@@ -51,6 +52,25 @@ fn fake_claude() -> PathBuf {
             "#!/bin/sh\ncat >/dev/null\nif [ -f slow ]; then exec sleep 30; fi\ncat '{FIXTURE}'\n"
         );
         fs::write(&path, script).unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
+        (dir, path)
+    })
+    .1
+    .clone()
+}
+
+const AGY_FIXTURE: &str = concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../crates/specs-core/tests/fixtures/agy_read_tool.jsonl"
+);
+
+/// Fake `agy`, replaying a recorded Antigravity run.
+fn fake_agy() -> PathBuf {
+    static FAKE: OnceLock<(TempDir, PathBuf)> = OnceLock::new();
+    FAKE.get_or_init(|| {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("agy");
+        fs::write(&path, format!("#!/bin/sh\ncat '{AGY_FIXTURE}'\n")).unwrap();
         fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
         (dir, path)
     })
@@ -93,7 +113,8 @@ fn harness_with(with_claude: bool, antigravity: Option<PathBuf>) -> Harness {
     ];
     let launched: Arc<Mutex<Vec<Vec<String>>>> = Arc::default();
     let record = launched.clone();
-    let claude = with_claude.then(|| ClaudeConfig {
+    // The shared assistant setup always exists; which CLI is installed is in `statuses`.
+    let claude = Some(ClaudeConfig {
         program: fake_claude(),
         provider: specs_core::settings::Provider::Claude,
         read_dirs: vec![],
@@ -334,7 +355,7 @@ fn missing_claude_is_reported() {
             json!({"project": "Acme", "sessionId": id, "text": "x"}),
         )
         .unwrap_err();
-    assert!(err.contains("Claude Code is not installed"), "{err}");
+    assert!(err.contains("Claude is not installed"), "{err}");
 }
 
 #[test]
@@ -518,4 +539,49 @@ fn a_message_can_carry_an_effort_level() {
         .unwrap();
     });
     assert!(events.last().unwrap()["event"]["kind"] == "finished");
+}
+
+#[test]
+fn with_only_antigravity_installed_a_gemini_message_works() {
+    let h = harness_with(false, Some(fake_agy()));
+    let id = h.new_session();
+    let events = h.events_until_finished(|| {
+        h.call(
+            "send_message",
+            json!({"project": "Acme", "sessionId": id, "text": "x", "model": "gemini-3.8-flash-low"}),
+        )
+        .unwrap();
+    });
+    assert_eq!(
+        events.last().unwrap()["event"],
+        json!({"kind": "finished", "is_error": false, "message": null})
+    );
+    let data = h
+        .call("load_session", json!({"project": "Acme", "sessionId": id}))
+        .unwrap();
+    assert_eq!(
+        data["meta"]["provider"], "antigravity",
+        "the session is now Antigravity's"
+    );
+    assert_eq!(data["meta"]["started"], true);
+}
+
+#[test]
+fn a_started_session_keeps_its_provider() {
+    let h = harness_with(true, Some(fake_agy()));
+    let id = h.new_session();
+    h.events_until_finished(|| {
+        h.call(
+            "send_message",
+            json!({"project": "Acme", "sessionId": id, "text": "x", "model": "sonnet"}),
+        )
+        .unwrap();
+    });
+    let err = h
+        .call(
+            "send_message",
+            json!({"project": "Acme", "sessionId": id, "text": "y", "model": "gemini-3.8-flash-low"}),
+        )
+        .unwrap_err();
+    assert!(err.contains("This session uses Claude"), "{err}");
 }

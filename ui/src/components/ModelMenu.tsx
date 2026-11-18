@@ -15,6 +15,8 @@ interface ModelMenuProps {
   onEffortChange?: (effort: string) => void;
   /** Start the login of a provider (its lower-case id, e.g. "antigravity"). */
   onLogin?: (provider: string) => void;
+  /** The provider this session is tied to (e.g. "Claude"); others are unavailable. */
+  sessionProvider?: string;
 }
 
 /** Group models by provider, keeping first-seen order; "" holds models with no provider. */
@@ -30,11 +32,13 @@ function groupByProvider(models: Model[]): [string, Model[]][] {
 function Item({
   checked,
   locked,
+  reason = "Log in to use this model",
   onPick,
   children,
 }: {
   checked: boolean;
   locked?: boolean;
+  reason?: string;
   onPick: () => void;
   children: ReactNode;
 }) {
@@ -45,7 +49,7 @@ function Item({
       aria-disabled={locked || undefined}
       tabIndex={locked ? -1 : 0}
       className="menu-item"
-      title={locked ? "Log in to use this model" : undefined}
+      title={locked ? reason : undefined}
       onClick={() => !locked && onPick()}
       onKeyDown={(e) => {
         if (!locked && (e.key === "Enter" || e.key === " ")) {
@@ -82,6 +86,7 @@ export default function ModelMenu({
   onChange,
   onEffortChange,
   onLogin,
+  sessionProvider,
 }: ModelMenuProps) {
   const [open, setOpen] = useState(false);
   const root = useRef<HTMLDivElement>(null);
@@ -124,13 +129,22 @@ export default function ModelMenu({
       {open && (
         <div className="menu menu-up" role="menu" aria-label="Model and effort">
           {groupByProvider(models).map(([provider, group]) => {
+            // A started session stays with its provider: the others are not a login matter.
+            const otherProvider = !!sessionProvider && !!provider && provider !== sessionProvider;
             const locked = group.every((m) => m.locked);
-            const name = provider ? (locked ? `${provider} (not ready)` : provider) : "Models";
+            const name = otherProvider
+              ? `${provider} (this session uses ${sessionProvider})`
+              : provider
+                ? locked
+                  ? `${provider} (not ready)`
+                  : provider
+                : "Models";
             return (
               <div key={provider} role="group" aria-label={name} className="menu-group">
                 <div className="menu-head">
                   <span aria-hidden="true">{provider || "Models"}</span>
-                  {locked && provider && (
+                  {otherProvider && <span className="menu-note">new session to use</span>}
+                  {locked && provider && !otherProvider && (
                     <button
                       type="button"
                       className="menu-login"
@@ -148,7 +162,12 @@ export default function ModelMenu({
                   <Item
                     key={m.id}
                     checked={m.id === selected}
-                    locked={m.locked}
+                    locked={m.locked || otherProvider}
+                    reason={
+                      otherProvider
+                        ? `This session uses ${sessionProvider}; start a new session to use ${provider}`
+                        : undefined
+                    }
                     onPick={() => {
                       onChange?.(m.id);
                       setOpen(false);

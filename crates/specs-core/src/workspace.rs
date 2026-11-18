@@ -145,6 +145,11 @@ impl Workspace {
         self.update_meta(project, id, |m| m.started = true)
     }
 
+    /// Tie the session to the provider answering its first message.
+    pub fn set_provider(&self, project: &str, id: &str, provider: &str) -> Result<SessionMeta> {
+        self.update_meta(project, id, |m| m.provider = provider.to_string())
+    }
+
     /// Remember the provider's conversation id, so later turns can resume it.
     pub fn set_conversation_id(
         &self,

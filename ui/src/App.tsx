@@ -33,6 +33,7 @@ export default function App() {
       effort={app.effort}
       onEffortChange={app.setEffort}
       onLogin={app.login}
+      sessionProvider={app.sessionProvider}
       usage={app.chat.usage}
       plan={app.chat.plan}
     />

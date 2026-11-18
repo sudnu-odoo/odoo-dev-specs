@@ -211,25 +211,42 @@ pub fn send_message<R: Runtime>(
     effort: Option<String>,
 ) -> CmdResult<()> {
     let Some(mut claude) = state.claude.clone() else {
-        return Err(
-            "Claude Code is not installed. Install it and run `claude` once to log in.".into(),
-        );
+        return Err("The assistant is not set up.".into());
     };
     // Apply the latest settings, so changing demo data takes effect without a restart.
     let current = state.settings.load();
     claude.demo_data = current.demo_data;
-    // The chosen model decides which assistant answers; without one, the saved default.
-    claude.provider = model
-        .as_deref()
-        .and_then(models::provider_of)
-        .unwrap_or(current.provider);
-    if claude.provider == Provider::Antigravity {
-        let status = (state.providers)()
-            .into_iter()
-            .find(|s| s.provider == Provider::Antigravity && s.ready());
-        claude.program = status
-            .and_then(|s| s.program)
-            .ok_or("Antigravity is not ready. Log in from the model menu or in Settings.")?;
+    // A session belongs to the provider of its first message; the chosen model
+    // decides only for a new session.
+    let meta = state
+        .workspace
+        .session(&project, &session_id)
+        .map_err(user_error)?;
+    claude.provider = models::session_provider(
+        &meta.provider,
+        meta.started,
+        model.as_deref().and_then(models::provider_of),
+        current.provider,
+    )?;
+    let status = (state.providers)()
+        .into_iter()
+        .find(|s| s.provider == claude.provider)
+        .ok_or("Unknown assistant.")?;
+    let name = status.name.clone();
+    claude.program = match status.program {
+        Some(program) if status.logged_in => program,
+        Some(_) => {
+            return Err(format!(
+                "{name} is not logged in. Log in from the model menu or in Settings."
+            ))
+        }
+        None => return Err(format!("{name} is not installed on this computer.")),
+    };
+    if !meta.started && meta.provider != claude.provider.id() {
+        state
+            .workspace
+            .set_provider(&project, &session_id, claude.provider.id())
+            .map_err(user_error)?;
     }
     claude.effort = models::valid_effort(effort);
     // The assistant reads the Odoo source downloaded so far (it grows with use).

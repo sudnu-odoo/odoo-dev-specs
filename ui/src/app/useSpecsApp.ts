@@ -57,6 +57,18 @@ export function useSpecsApp() {
       setError(String(e));
     }
   }, []);
+  // A session belongs to the provider of its first message ("Claude", "Antigravity").
+  const sessionProvider =
+    session?.meta.started && session.meta.provider ? displayName(session.meta.provider) : undefined;
+  // Keep the picker on a model of that provider when such a session is open.
+  useEffect(() => {
+    if (!sessionProvider) return;
+    setSelectedModel((current) => {
+      const own = models.filter((m) => m.provider === sessionProvider && !m.locked);
+      return own.some((m) => m.id === current) ? current : (own[0]?.id ?? current);
+    });
+  }, [sessionProvider, models]);
+
   // Read inside the event listener, which is registered only once.
   const selectedRef = useRef<SessionRef | null>(null);
   selectedRef.current = selected;
@@ -181,6 +193,15 @@ export function useSpecsApp() {
       if (!selected || !session) return;
       const sessionId = selected.sessionId;
       dispatch({ type: "chat", sessionId, action: { type: "sent", text } });
+      // The first message ties the session to the provider of the chosen model.
+      const provider = models.find((m) => m.id === selectedModel)?.provider;
+      if (!session.meta.started && provider) {
+        setSession((s) =>
+          s && sameRef(selected, selectedRef.current)
+            ? { ...s, meta: { ...s.meta, started: true, provider: provider.toLowerCase() } }
+            : s,
+        );
+      }
       const isFirstMessage = !chat.items.some((i) => i.role === "user");
       const title = titleFromMessage(text);
       if (isFirstMessage && session.meta.title === DEFAULT_TITLE && title) {
@@ -192,7 +213,7 @@ export function useSpecsApp() {
         dispatch({ type: "chat", sessionId, action: { type: "sendFailed", message: String(e) } });
       }
     },
-    [chat.items, effort, refresh, selected, selectedModel, session],
+    [chat.items, effort, models, refresh, selected, selectedModel, session],
   );
 
   const login = useCallback((provider: string) => {
@@ -233,5 +254,11 @@ export function useSpecsApp() {
     effort,
     setEffort,
     login,
+    sessionProvider,
   };
+}
+
+/** "antigravity" -> "Antigravity", as providers are named in the model list. */
+function displayName(providerId: string) {
+  return providerId.charAt(0).toUpperCase() + providerId.slice(1);
 }

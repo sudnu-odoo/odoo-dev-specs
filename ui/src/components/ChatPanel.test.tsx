@@ -242,6 +242,26 @@ describe("ChatPanel model picker and usage", () => {
     expect(props.onLogin).toHaveBeenCalledWith("antigravity");
   });
 
+  it("in a session tied to one provider, the other provider's models are unavailable", async () => {
+    const props = setup({
+      models: [
+        { id: "sonnet", label: "Sonnet", provider: "Claude" },
+        { id: "gem", label: "Gemini Pro", provider: "Antigravity", locked: true },
+      ],
+      sessionProvider: "Claude",
+      onLogin: vi.fn(),
+    });
+    await userEvent.click(modelButton());
+    const other = screen.getByRole("group", { name: /Antigravity.*this session uses Claude/i });
+    const gemini = screen.getByRole("menuitemradio", { name: /Gemini Pro/ });
+    expect(other).toContainElement(gemini);
+    expect(gemini).toHaveAttribute("aria-disabled", "true");
+    // Not a login matter here: no Log in button.
+    expect(screen.queryByRole("button", { name: /Log in/ })).not.toBeInTheDocument();
+    await userEvent.click(gemini);
+    expect(props.onModelChange).not.toHaveBeenCalled();
+  });
+
   it("disables the model chip while the assistant is answering", () => {
     setup({ running: true });
     expect(modelButton()).toBeDisabled();

@@ -121,6 +121,45 @@ describe("App", () => {
     expect(mocked.loadSession).toHaveBeenCalledWith({ project: "Acme", sessionId: "s1" });
   });
 
+  it("opening a session tied to Antigravity switches to one of its models", async () => {
+    mocked.listModels.mockResolvedValue([
+      { id: "sonnet", label: "Sonnet", provider: "Claude" },
+      { id: "gemini-3.8-flash-high", label: "Gemini Flash (High)", provider: "Antigravity" },
+    ]);
+    projects = [
+      {
+        name: "Acme",
+        sessions: [{ ...meta("s1", "Delivery window"), provider: "antigravity", started: true }],
+      },
+    ];
+    await openSession("Delivery window");
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: /^Model/ })).toHaveTextContent("Gemini Flash (High)"),
+    );
+    await userEvent.type(message(), "x{Enter}");
+    expect(mocked.sendMessage).toHaveBeenCalledWith(
+      { project: "Acme", sessionId: "s1" },
+      "x",
+      "gemini-3.8-flash-high",
+      null,
+    );
+  });
+
+  it("after the first message, the session keeps that provider", async () => {
+    mocked.listModels.mockResolvedValue([
+      { id: "sonnet", label: "Sonnet", provider: "Claude" },
+      { id: "gemini-3.8-flash-high", label: "Gemini Flash (High)", provider: "Antigravity" },
+    ]);
+    await openSession("New spec");
+    await userEvent.type(message(), "x{Enter}");
+    emitEvent("s2", { kind: "finished", is_error: false, message: null });
+    await userEvent.click(screen.getByRole("button", { name: /^Model/ }));
+    expect(screen.getByRole("menuitemradio", { name: /Gemini Flash/ })).toHaveAttribute(
+      "aria-disabled",
+      "true",
+    );
+  });
+
   it("never defaults to a locked model", async () => {
     mocked.listModels.mockResolvedValue([
       { id: "gem", label: "Gemini", provider: "Antigravity", locked: true },

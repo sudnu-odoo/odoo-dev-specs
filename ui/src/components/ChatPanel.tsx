@@ -19,6 +19,8 @@ export interface ChatPanelProps {
   onEffortChange?: (effort: string) => void;
   /** Log in to a provider whose models are locked. */
   onLogin?: (provider: string) => void;
+  /** Provider the open session is tied to (after its first message). */
+  sessionProvider?: string;
   usage?: TokenUsage;
   /** Subscription limit usage; when known it replaces the raw token count. */
   plan?: PlanUsage;
@@ -40,6 +42,7 @@ export default function ChatPanel({
   effort = "",
   onEffortChange,
   onLogin,
+  sessionProvider,
   usage = NO_USAGE,
   plan,
 }: ChatPanelProps) {
@@ -120,6 +123,7 @@ export default function ChatPanel({
               effort={effort}
               onEffortChange={onEffortChange}
               onLogin={onLogin}
+              sessionProvider={sessionProvider}
             />
           )}
           <span className="composer-spacer" />

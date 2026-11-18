@@ -925,3 +925,7 @@ button.usage-line:hover {
   flex-direction: column;
   gap: 4px;
 }
+.menu-note {
+  margin-left: auto;
+  font-weight: 400;
+}
