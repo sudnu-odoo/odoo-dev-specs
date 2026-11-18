@@ -8,6 +8,7 @@ import { layoutChanged } from "../diagram/fit";
 import { mergeElements } from "../diagram/merge";
 import { parseScene, sceneFingerprint } from "../diagram/scene";
 import { saveFile } from "../lib/saveFile";
+import { useResolvedCanvasTheme } from "../lib/canvasTheme";
 
 /** Wait this long after the last edit before saving to disk. */
 const AUTOSAVE_MS = 800;
@@ -45,6 +46,7 @@ export default function ExcalidrawPanel({
   incoming,
   holdSaves,
 }: ExcalidrawPanelProps) {
+  const theme = useResolvedCanvasTheme();
   const [api, setApi] = useState<ExcalidrawImperativeAPI | null>(null);
   const [error, setError] = useState<string | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
@@ -175,9 +177,9 @@ export default function ExcalidrawPanel({
       <div className="artifact-canvas">
         <Excalidraw
           excalidrawAPI={setApi}
-          // Always light, like paper and the PNG export: Excalidraw's dark theme inverts
-          // colours, which would show Odoo screenshots as a dark Odoo.
-          theme="light"
+          // Light by default, like paper and the PNG export. Dark (chosen in Settings)
+          // inverts the whole canvas, Odoo screenshots included.
+          theme={theme}
           initialData={initialData}
           onChange={(elements, appState, files) =>
             autosave.change(sceneFingerprint(elements, files), () =>

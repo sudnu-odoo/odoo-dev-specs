@@ -103,4 +103,14 @@ describe("SettingsPanel", () => {
     await userEvent.click(screen.getByRole("button", { name: "Log in to Antigravity" }));
     expect(mocked.loginProvider).toHaveBeenCalledWith("antigravity");
   });
+
+  it("chooses the diagram theme, light by default", async () => {
+    localStorage.clear();
+    render(<SettingsPanel onClose={vi.fn()} />);
+    const theme = await screen.findByRole("radiogroup", { name: "Diagram theme" });
+    expect(theme.querySelector('[aria-checked="true"]')).toHaveTextContent("Light");
+    await userEvent.click(screen.getByRole("radio", { name: "Dark" }));
+    expect(localStorage.getItem("canvasTheme")).toBe("dark");
+    expect(screen.getByText(/inverts the colours of the screenshots/)).toBeInTheDocument();
+  });
 });

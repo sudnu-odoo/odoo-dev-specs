@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../lib/api";
+import { setCanvasTheme, useCanvasTheme, type CanvasTheme } from "../lib/canvasTheme";
 import type { EnvCheck, EnvReport, ProviderStatus, Settings } from "../lib/types";
 
 export interface SettingsPanelProps {
@@ -16,6 +17,7 @@ type Page = "general" | "ai";
  */
 export default function SettingsPanel({ onClose }: SettingsPanelProps) {
   const [page, setPage] = useState<Page>("general");
+  const canvasTheme = useCanvasTheme();
   const [report, setReport] = useState<EnvReport | null>(null);
   const [assistants, setAssistants] = useState<ProviderStatus[] | null>(null);
   const [settings, setSettings] = useState<Settings | null>(null);
@@ -129,6 +131,30 @@ export default function SettingsPanel({ onClose }: SettingsPanelProps) {
                   </Row>
                 </div>
               )}
+              <h3>Diagram</h3>
+              <div className="settings-card">
+                <Row
+                  label="Theme"
+                  hint={
+                    canvasTheme === "light"
+                      ? "Light like paper, as the PNG export"
+                      : "Dark also inverts the colours of the screenshots"
+                  }
+                >
+                  <div className="segmented" role="radiogroup" aria-label="Diagram theme">
+                    {(["light", "dark", "system"] as CanvasTheme[]).map((t) => (
+                      <button
+                        key={t}
+                        role="radio"
+                        aria-checked={canvasTheme === t}
+                        onClick={() => setCanvasTheme(t)}
+                      >
+                        {t[0].toUpperCase() + t.slice(1)}
+                      </button>
+                    ))}
+                  </div>
+                </Row>
+              </div>
               {problems.length > 0 && (
                 <>
                   <h3>Needs attention</h3>
