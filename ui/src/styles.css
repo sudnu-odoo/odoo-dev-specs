@@ -1323,6 +1323,6 @@ button.usage-line:hover {
   background: none;
   font: inherit;
   font-size: 13px;
-  color: var(--accent);
+  color: var(--muted);
   text-align: left;
 }

@@ -521,6 +521,11 @@ fn two_databases_with_the_same_label_get_different_names() {
 #[test]
 fn databases_made_for_screenshots_are_listed_as_automatic() {
     let env = Env::new(&["specs_19_0_stock_demo"], false);
+    fs::write(
+        env.dir.path().join("modules-specs_19_0_stock_demo"),
+        "stock\n",
+    )
+    .unwrap();
     env.rt
         .ensure_database("19.0", &["sale".into()], true)
         .unwrap();
@@ -531,13 +536,19 @@ fn databases_made_for_screenshots_are_listed_as_automatic() {
         .unwrap();
     assert!(made.auto);
     assert_eq!(made.modules, ["sale"]);
-    // One the catalog never saw (made by an older app version) is still listed.
+    // One the catalog never saw (made by an older app version) is still listed,
+    // with the apps found in it, looked up only once.
     let older = list
         .iter()
         .find(|d| d.name == "specs_19_0_stock_demo")
         .unwrap();
     assert!(older.auto);
     assert_eq!(older.version, "19.0");
+    assert_eq!(older.modules, ["stock"]);
+    assert_eq!(older.label, "Auto 19.0: stock");
+    let asked = env.count("psql");
+    env.rt.list_databases().unwrap();
+    assert_eq!(env.count("psql"), asked + 1, "apps are looked up only once");
 }
 
 #[test]

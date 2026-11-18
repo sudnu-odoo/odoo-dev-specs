@@ -116,7 +116,7 @@ impl Runtime {
                 let mut info = catalog
                     .get(&name)
                     .cloned()
-                    .unwrap_or_else(|| self.unknown(&name));
+                    .unwrap_or_else(|| self.discover(&name));
                 info.size_bytes = size;
                 info.running = self.already_running(&name).is_some();
                 info
@@ -389,6 +389,24 @@ impl Runtime {
         Ok(())
     }
 
+    /// A database the catalog never saw (made by an older app version): its apps are
+    /// read once from the database and remembered, so it can be told apart and reset.
+    fn discover(&self, name: &str) -> DatabaseInfo {
+        let mut info = self.unknown(name);
+        if let Ok(apps) = self.installed_apps(name) {
+            if !apps.is_empty() {
+                info.label = format!("{}: {}", info.label, apps.join(", "));
+            }
+            info.modules = apps;
+            let known = info.clone();
+            let _ = self.edit_catalog(|c| {
+                c.entry(name.into()).or_insert(known);
+                Ok(())
+            });
+        }
+        info
+    }
+
     fn unknown(&self, name: &str) -> DatabaseInfo {
         let version = version_from_name(name);
         DatabaseInfo {
@@ -426,6 +444,25 @@ impl Runtime {
                 name.starts_with(DB_PREFIX)
                     .then(|| (name.to_string(), size))
             })
+            .collect())
+    }
+
+    /// The installed modules that are apps (Sales, Inventory…), not technical ones.
+    fn installed_apps(&self, name: &str) -> Result<Vec<String>> {
+        let out = self.run_to_end(
+            &self.tools.psql,
+            &[
+                "-d",
+                name,
+                "-At",
+                "-c",
+                "SELECT name FROM ir_module_module WHERE state = 'installed' AND application ORDER BY name",
+            ],
+        )?;
+        Ok(out
+            .lines()
+            .map(|l| l.trim().to_string())
+            .filter(|l| !l.is_empty())
             .collect())
     }
 
