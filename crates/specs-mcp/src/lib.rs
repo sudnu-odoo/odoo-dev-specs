@@ -443,7 +443,7 @@ impl DiagramServer {
         let session_dir = self.session_dir.clone();
         let (running, version, chosen) = tokio::task::spawn_blocking(move || {
             // The session's database, when it has one that still exists; otherwise
-            // a fresh one for the version and apps, which the session then keeps.
+            // one of the version (made when there is none), which the session keeps.
             let chosen = session_database(&session_dir)
                 .filter(|name| runtime.databases().is_ok_and(|all| all.contains(name)));
             let (database, version) = match &chosen {
@@ -458,7 +458,7 @@ impl DiagramServer {
                     (name.clone(), version)
                 }
                 None => {
-                    let name = runtime.ensure_database(&asked, &modules, demo_data)?;
+                    let name = runtime.database_for_version(&asked, &modules, demo_data)?;
                     set_session_database(&session_dir, Some(&name))?;
                     (name, asked)
                 }
@@ -489,7 +489,7 @@ impl DiagramServer {
         let whose = if chosen {
             "the session's database, chosen by the user"
         } else {
-            "a fresh database with demo data"
+            "a database of that version, picked automatically"
         };
         let mut answer = format!(
             "Odoo {version} ({whose}: {}). Place each with diagram_add_image; point at what is on it with `anchor`.\n",

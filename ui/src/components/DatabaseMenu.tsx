@@ -32,7 +32,7 @@ const DbIcon = () => (
 );
 
 /**
- * The session's database, as a quiet chip next to the model: "Auto" until the
+ * The session's database, as a quiet chip next to the model: "Automatic" until the
  * first screenshots (or the user) pick one. The menu lists every database.
  */
 export default function DatabaseMenu({
@@ -61,7 +61,11 @@ export default function DatabaseMenu({
   }, [open]);
 
   const current = databases.find((d) => d.name === selected);
-  const label = creating ? "Creating database…" : selected ? (current?.label ?? "Deleted database") : "Auto";
+  const label = creating
+    ? "Creating database…"
+    : selected
+      ? (current?.label ?? "Deleted database")
+      : "Automatic";
   const pick = (name: string | null) => {
     setOpen(false);
     if (name !== selected) onChange(name);
@@ -121,8 +125,8 @@ export default function DatabaseMenu({
             <Choice
               checked={!selected}
               onPick={() => pick(null)}
-              title="Auto"
-              detail="A fresh demo database for the feature"
+              title="Automatic"
+              detail="Any database of the Odoo version; a new one if there is none"
             />
           </div>
           {groups

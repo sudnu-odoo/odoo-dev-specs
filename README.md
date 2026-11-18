@@ -27,9 +27,10 @@ databases on your own computer, filled with Odoo's demo data.
 - **Local Odoo databases**: create, open, stop, rename, copy, reset and
   delete them from the **Databases** page. Community or Enterprise, with the
   apps you choose and demo data.
-- **One database per session**: each spec uses its own database, or
-  **Auto** to let the assistant make a fresh one. Set the database up like
-  your client, and the screenshots show it.
+- **One database per session**: pick one for each spec, or leave it on
+  **Automatic**: the assistant uses a database of the right Odoo version, and
+  makes one (`db-19-1`) only when there is none. Set a database up like your
+  client, and the screenshots show it.
 - **Edit by hand**: the diagram is a normal Excalidraw canvas. Change
   anything, open it in its own window, export a PNG or the `.excalidraw`
   file.
@@ -103,7 +104,7 @@ Under the message box:
 | Chip | What it does |
 |---|---|
 | **Model** | Pick the AI service, then the model, and for Claude the effort (Low to Max). A session keeps the AI service of its first message. |
-| **Database** | The Odoo database this session's screenshots use: **Auto**, one of yours, or **New database…**. **Open** opens it in your browser (user `admin`, password `admin`). |
+| **Database** | The Odoo database this session's screenshots use: **Automatic**, one of yours, or **New database…**. **Open** opens it in your browser (user `admin`, password `admin`). |
 
 The **Databases** page lists every local database with its version, apps,
 edition, size and how many sessions use it. **New database** suggests a name

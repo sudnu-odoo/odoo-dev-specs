@@ -4,7 +4,7 @@ Reply in the language of the user's latest message, in their tone; when unsure, 
 
 ## Data rule
 
-Never ask for, read or reproduce customer data. Verify behaviour only on the local Odoo you screenshot (a fresh database with demo data). If the user mentions client people, use their role or group instead of names. Use no internal people's names either.
+Never ask for, read or reproduce customer data. Verify behaviour only on the local Odoo you screenshot (a local database with demo data, never a client's). If the user mentions client people, use their role or group instead of names. Use no internal people's names either.
 
 ## Before drawing
 

@@ -913,3 +913,70 @@ fn reads_saas_versions_from_release_files() {
         Some("saas-18.2")
     );
 }
+
+// --- A session without a chosen database ---
+
+#[test]
+fn a_database_of_the_version_is_reused_with_the_missing_apps_installed() {
+    let env = Env::new(&[], false);
+    let older = env.rt.create_database(&new_db("Older", &["sale"])).unwrap();
+    let recent = env
+        .rt
+        .create_database(&new_db("Recent", &["sale"]))
+        .unwrap();
+    env.rt.touch_database(&recent.name).unwrap();
+    let made_before = env.count("odoo ");
+
+    let chosen = env
+        .rt
+        .database_for_version("19.0", &["sale".into(), "stock".into()], true)
+        .unwrap();
+    assert_eq!(chosen, recent.name, "the most recently used one");
+    assert_ne!(chosen, older.name);
+    let installs: Vec<_> = env
+        .calls()
+        .into_iter()
+        .filter(|c| c.starts_with("odoo "))
+        .skip(made_before)
+        .collect();
+    assert_eq!(installs.len(), 1, "only the missing app: {installs:?}");
+    assert!(installs[0].contains("-i stock "), "{installs:?}");
+}
+
+#[test]
+fn without_a_database_of_the_version_a_numbered_one_is_made() {
+    let env = Env::new(&[], false);
+    env.rt
+        .create_database(&new_db("Other version", &[]))
+        .unwrap(); // 19.0
+    let mut v18 = new_db("x", &[]);
+    v18.version = "18.0".into();
+    let chosen = env
+        .rt
+        .database_for_version("18.0", &["sale".into()], true)
+        .unwrap();
+    assert_eq!(chosen, "specs_db_18_1");
+    let info = env.rt.database_info(&chosen).unwrap();
+    assert_eq!(
+        (info.label.as_str(), info.version.as_str()),
+        ("db-18-1", "18.0")
+    );
+    assert_eq!(info.modules, ["sale"]);
+    assert!(!info.auto, "a normal database, like one made by hand");
+}
+
+#[test]
+fn an_old_database_without_demo_data_is_not_picked_when_demo_data_is_wanted() {
+    // Made before demo data really loaded on Odoo 19: no suffix, empty.
+    let env = Env::new(
+        &["specs_19_0_sale_management", "specs_19_0_stock_nodemo"],
+        false,
+    );
+    let list = env.rt.list_databases().unwrap();
+    assert!(list.iter().all(|d| !d.demo_data), "{list:?}");
+    let chosen = env.rt.database_for_version("19.0", &[], true).unwrap();
+    assert_eq!(chosen, "specs_db_19_1", "a new one with demo data");
+    // Without demo data, an old one does.
+    let plain = env.rt.database_for_version("19.0", &[], false).unwrap();
+    assert!(plain.starts_with("specs_19_0_"), "{plain}");
+}

@@ -413,7 +413,7 @@ describe("App", () => {
 
   it("each session shows and changes the database its screenshots use", async () => {
     await openSession("Delivery window");
-    const chip = await screen.findByRole("button", { name: "Database: Auto" });
+    const chip = await screen.findByRole("button", { name: "Database: Automatic" });
     await userEvent.click(chip);
     await userEvent.click(screen.getByRole("menuitemradio", { name: "Sales demo" }));
     expect(mocked.setSessionDatabase).toHaveBeenCalledWith(
@@ -471,7 +471,7 @@ describe("App", () => {
       running: false,
     });
     await openSession("Delivery window");
-    await userEvent.click(await screen.findByRole("button", { name: "Database: Auto" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Database: Automatic" }));
     await userEvent.click(screen.getByRole("menuitem", { name: "New database…" }));
     const dialog = await screen.findByRole("dialog", { name: "New database" });
     await within(dialog).findByDisplayValue("db-19-4");
