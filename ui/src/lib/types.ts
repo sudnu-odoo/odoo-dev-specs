@@ -7,6 +7,8 @@ export interface SessionMeta {
   created_at: number;
   updated_at: number;
   started: boolean;
+  /** The local Odoo database its screenshots use; null = Auto (not chosen yet). */
+  database?: string | null;
 }
 
 export interface ProjectInfo {
@@ -95,4 +97,28 @@ export interface ProviderStatus {
   name: string;
   installed: boolean;
   loggedIn: boolean;
+}
+
+/** A local Odoo database (mirrors odoo_runtime::runtime::DatabaseInfo). */
+export interface DatabaseInfo {
+  name: string;
+  label: string;
+  version: string;
+  modules: string[];
+  demoData: boolean;
+  enterprise: boolean;
+  /** Made by the assistant for screenshots rather than by a person. */
+  auto: boolean;
+  createdAt: number;
+  lastUsed: number;
+  sizeBytes: number;
+  running: boolean;
+}
+
+/** The "New database" form (mirrors odoo_runtime::runtime::NewDatabase). */
+export interface NewDatabase {
+  label: string;
+  version: string;
+  modules: string[];
+  demoData: boolean;
 }

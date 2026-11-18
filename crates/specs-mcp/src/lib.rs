@@ -14,7 +14,7 @@ use std::sync::Arc;
 use anyhow::{bail, ensure, Context, Result};
 use browser::{Element, Shot, Viewport};
 use excalidraw::{Color, Placement, Scene, Target};
-use odoo_runtime::runtime::Runtime;
+use odoo_runtime::runtime::{session_database, set_session_database, Runtime};
 use rmcp::handler::server::wrapper::Parameters;
 use rmcp::model::{CallToolResult, ContentBlock};
 use rmcp::{tool, tool_handler, tool_router, ServerHandler};
@@ -147,9 +147,11 @@ pub struct DeleteElements {
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct Screenshots {
-    /// Odoo version, e.g. "19.0".
+    /// Odoo version, e.g. "19.0". When the session already has a database (the user's
+    /// choice, or the one its first screenshots used), that database's version is used.
     pub version: String,
-    /// Technical names of the modules to install, e.g. ["sale_management", "stock"].
+    /// Technical names of the modules the pages need, e.g. ["sale_management", "stock"];
+    /// missing ones are installed.
     pub modules: Vec<String>,
     /// Every page you need, taken in one go.
     pub pages: Vec<PageShot>,
@@ -437,10 +439,33 @@ impl DiagramServer {
             .runtime
             .clone()
             .context("Odoo screenshots are not available: the local Odoo runtime is not set up.")?;
-        let (version, modules, demo_data) = (p.version.clone(), p.modules.clone(), self.demo_data);
-        let running = tokio::task::spawn_blocking(move || {
-            let database = runtime.ensure_database(&version, &modules, demo_data)?;
-            runtime.ensure_running(&version, &database)
+        let (asked, modules, demo_data) = (p.version.clone(), p.modules.clone(), self.demo_data);
+        let session_dir = self.session_dir.clone();
+        let (running, version, chosen) = tokio::task::spawn_blocking(move || {
+            // The session's database, when it has one that still exists; otherwise
+            // a fresh one for the version and apps, which the session then keeps.
+            let chosen = session_database(&session_dir)
+                .filter(|name| runtime.databases().is_ok_and(|all| all.contains(name)));
+            let (database, version) = match &chosen {
+                Some(name) => {
+                    let info = runtime.database_info(name)?;
+                    runtime.install_missing(name, &modules)?;
+                    let version = if info.version.is_empty() {
+                        asked
+                    } else {
+                        info.version
+                    };
+                    (name.clone(), version)
+                }
+                None => {
+                    let name = runtime.ensure_database(&asked, &modules, demo_data)?;
+                    set_session_database(&session_dir, Some(&name))?;
+                    (name, asked)
+                }
+            };
+            let _ = runtime.touch_database(&database);
+            let running = runtime.ensure_running(&version, &database)?;
+            anyhow::Ok((running, version, chosen.is_some()))
         })
         .await
         .context("starting Odoo")??;
@@ -461,9 +486,14 @@ impl DiagramServer {
             .collect();
         let maps = browser::screenshots(&running.url(), &shots).await?;
 
+        let whose = if chosen {
+            "the session's database, chosen by the user"
+        } else {
+            "a fresh database with demo data"
+        };
         let mut answer = format!(
-            "Odoo {} (database {}). Place each with diagram_add_image; point at what is on it with `anchor`.\n",
-            p.version, running.database
+            "Odoo {version} ({whose}: {}). Place each with diagram_add_image; point at what is on it with `anchor`.\n",
+            running.database
         );
         for ((shot, stem), map) in shots.iter().zip(&files).zip(&maps) {
             write_atomic(

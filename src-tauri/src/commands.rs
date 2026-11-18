@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use odoo_runtime::doctor::{self, Probe, Report};
-use odoo_runtime::runtime::{Runtime as OdooRuntime, Tools};
+use odoo_runtime::runtime::{DatabaseInfo, NewDatabase, Runtime as OdooRuntime, Tools};
 use serde::Serialize;
 use specs_core::chat::{self, ClaudeConfig};
 use specs_core::events::ChatEvent;
@@ -42,6 +42,8 @@ pub struct AppState {
     pub settings: Arc<SettingsStore>,
     /// Gathers the machine state for the first-run check; swappable in tests.
     pub probe: Arc<dyn Fn() -> Probe + Send + Sync>,
+    /// The local Odoo databases the user manages; swappable in tests.
+    pub odoo: Arc<OdooRuntime>,
 }
 
 impl AppState {
@@ -58,7 +60,17 @@ impl AppState {
             launch: Arc::new(crate::environment::open_in_terminal),
             settings: Arc::new(settings),
             probe: Arc::new(crate::environment::probe),
+            odoo: Arc::new(OdooRuntime::new(
+                OdooRuntime::default_root(),
+                Tools::default(),
+            )),
         }
+    }
+
+    /// Use another runtime folder and tools (tests).
+    pub fn with_odoo(mut self, runtime: OdooRuntime) -> Self {
+        self.odoo = Arc::new(runtime);
+        self
     }
 
     /// Replace how provider readiness is checked (tests).
@@ -386,6 +398,97 @@ pub fn check_environment(state: State<'_, AppState>) -> Report {
     doctor::check(&(state.probe)())
 }
 
+// --- Local Odoo databases ---------------------------------------------------------
+
+/// Run a database action off the UI thread; creating one can take minutes.
+async fn with_odoo<T: Send + 'static>(
+    state: &AppState,
+    action: impl FnOnce(&OdooRuntime) -> anyhow::Result<T> + Send + 'static,
+) -> CmdResult<T> {
+    let odoo = state.odoo.clone();
+    tauri::async_runtime::spawn_blocking(move || action(&odoo))
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|e| format!("{e:#}"))
+}
+
+#[tauri::command]
+pub async fn list_databases(state: State<'_, AppState>) -> CmdResult<Vec<DatabaseInfo>> {
+    with_odoo(&state, |o| o.list_databases()).await
+}
+
+#[tauri::command]
+pub async fn create_database(
+    state: State<'_, AppState>,
+    database: NewDatabase,
+) -> CmdResult<DatabaseInfo> {
+    with_odoo(&state, move |o| o.create_database(&database)).await
+}
+
+#[tauri::command]
+pub async fn rename_database(
+    state: State<'_, AppState>,
+    name: String,
+    label: String,
+) -> CmdResult<()> {
+    with_odoo(&state, move |o| o.rename_database(&name, &label)).await
+}
+
+#[tauri::command]
+pub async fn duplicate_database(
+    state: State<'_, AppState>,
+    name: String,
+    label: String,
+) -> CmdResult<DatabaseInfo> {
+    with_odoo(&state, move |o| o.duplicate_database(&name, &label)).await
+}
+
+#[tauri::command]
+pub async fn reset_database(state: State<'_, AppState>, name: String) -> CmdResult<()> {
+    with_odoo(&state, move |o| o.reset_database(&name)).await
+}
+
+#[tauri::command]
+pub async fn delete_database(state: State<'_, AppState>, name: String) -> CmdResult<()> {
+    with_odoo(&state, move |o| o.delete_database(&name)).await
+}
+
+/// Start the database's Odoo (if needed) and return the address to open.
+#[tauri::command]
+pub async fn start_database(state: State<'_, AppState>, name: String) -> CmdResult<String> {
+    with_odoo(&state, move |o| {
+        let info = o.database_info(&name)?;
+        o.touch_database(&name)?;
+        Ok(format!(
+            "{}/web/login",
+            o.ensure_running(&info.version, &name)?.url()
+        ))
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn stop_database(state: State<'_, AppState>, name: String) -> CmdResult<()> {
+    with_odoo(&state, move |o| o.stop_database(&name)).await
+}
+
+/// Choose the database a session's screenshots use (`None` = Auto).
+#[tauri::command]
+pub fn set_session_database(
+    state: State<'_, AppState>,
+    project: String,
+    session_id: String,
+    database: Option<String>,
+) -> CmdResult<()> {
+    if state.running.lock().unwrap().contains_key(&session_id) {
+        return Err("Wait until the assistant has finished to change the database.".into());
+    }
+    state
+        .workspace
+        .set_database(&project, &session_id, database.as_deref())
+        .map_err(user_error)
+}
+
 /// Register state and every command on a builder (shared by the app and tests).
 pub fn register<R: Runtime>(builder: tauri::Builder<R>, state: AppState) -> tauri::Builder<R> {
     builder
@@ -409,6 +512,15 @@ pub fn register<R: Runtime>(builder: tauri::Builder<R>, state: AppState) -> taur
             list_models,
             provider_status,
             login_provider,
+            list_databases,
+            create_database,
+            rename_database,
+            duplicate_database,
+            reset_database,
+            delete_database,
+            start_database,
+            stop_database,
+            set_session_database,
             diagram_window::open_diagram_window,
             diagram_window::dock_diagram_window,
         ])

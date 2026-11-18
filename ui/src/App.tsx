@@ -1,6 +1,9 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Panel, PanelGroup, PanelResizeHandle } from "react-resizable-panels";
+import { useDatabases } from "./app/useDatabases";
 import { useSpecsApp } from "./app/useSpecsApp";
+import DatabaseMenu from "./components/DatabaseMenu";
+import DatabasesPage from "./components/DatabasesPage";
 import ChatPanel from "./components/ChatPanel";
 import SessionDiagram from "./components/SessionDiagram";
 import SettingsPanel from "./components/SettingsPanel";
@@ -9,7 +12,28 @@ import { api } from "./lib/api";
 
 export default function App() {
   const app = useSpecsApp();
+  const dbs = useDatabases();
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [view, setView] = useState<"session" | "databases">("session");
+
+  // Which database each session uses, from the session list (refreshed after each
+  // answer, when the assistant may have picked one).
+  const sessions = useMemo(
+    () => app.projects.flatMap((p) => p.sessions.map((s) => ({ project: p.name, ...s }))),
+    [app.projects],
+  );
+  const usage = useMemo(() => {
+    const count: Record<string, number> = {};
+    for (const s of sessions) if (s.database) count[s.database] = (count[s.database] ?? 0) + 1;
+    return count;
+  }, [sessions]);
+  const sessionDatabase =
+    sessions.find((s) => s.project === app.selected?.project && s.id === app.selected?.sessionId)?.database ??
+    null;
+  const reloadDatabases = dbs.reload;
+  useEffect(() => {
+    reloadDatabases();
+  }, [app.projects, reloadDatabases]);
   // On first run, warn when a required tool is missing so the user fixes it.
   const [setupIncomplete, setSetupIncomplete] = useState(false);
 
@@ -36,6 +60,15 @@ export default function App() {
       sessionProvider={app.sessionProvider}
       usage={app.chat.usage}
       plan={app.chat.plan}
+      composerExtras={
+        <DatabaseMenu
+          databases={dbs.databases}
+          selected={sessionDatabase}
+          disabled={app.chat.running}
+          onChange={app.setSessionDatabase}
+          onManage={() => setView("databases")}
+        />
+      }
     />
   );
 
@@ -44,9 +77,17 @@ export default function App() {
       <Sidebar
         projects={app.projects}
         selected={app.selected}
-        onSelect={app.open}
+        onSelect={(ref) => {
+          setView("session");
+          app.open(ref);
+        }}
+        databasesOpen={view === "databases"}
+        onOpenDatabases={() => setView("databases")}
         onCreateProject={app.createProject}
-        onCreateSession={app.createSession}
+        onCreateSession={(project) => {
+          setView("session");
+          app.createSession(project);
+        }}
         onDeleteSession={app.deleteSession}
         onRenameSession={app.renameSession}
         onOpenSettings={() => setSettingsOpen(true)}
@@ -68,7 +109,9 @@ export default function App() {
             </button>
           </div>
         )}
-        {app.diagramDetached ? (
+        {view === "databases" ? (
+          <DatabasesPage dbs={dbs} usage={usage} />
+        ) : app.diagramDetached ? (
           <div className="main-panels detached">
             <div className="detached-bar">
               The diagram is open in its own window.

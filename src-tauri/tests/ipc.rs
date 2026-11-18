@@ -9,6 +9,7 @@ use std::time::Duration;
 
 use odoo_dev_specs_lib::{register, AppState, CHAT_EVENT, DIAGRAM_SESSION_EVENT, DIAGRAM_WINDOW};
 use odoo_runtime::doctor::Probe;
+use odoo_runtime::runtime::{Runtime as OdooRuntime, Tools};
 use serde_json::{json, Value};
 use specs_core::chat::ClaudeConfig;
 use specs_core::providers::ProviderStatus;
@@ -127,7 +128,23 @@ fn harness_with(with_claude: bool, antigravity: Option<PathBuf>) -> Harness {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().join("OdooSpecs");
     let settings = SettingsStore::new(dir.path().join("settings.json"));
+    // PostgreSQL with one database of ours and one that is not.
+    let psql = dir.path().join("psql");
+    fs::write(
+        &psql,
+        "#!/bin/sh\nprintf 'specs_19_0_sale_demo|5242880\\nother_db|1\\n'\n",
+    )
+    .unwrap();
+    fs::set_permissions(&psql, fs::Permissions::from_mode(0o755)).unwrap();
+    let odoo = OdooRuntime::new(
+        dir.path().join("runtime"),
+        Tools {
+            psql,
+            ..Tools::default()
+        },
+    );
     let state = AppState::new(Workspace::new(&root), claude, settings)
+        .with_odoo(odoo)
         .with_probe(test_probe)
         .with_providers(move || statuses.clone())
         .with_launcher(move |cmd| {
@@ -584,4 +601,54 @@ fn a_started_session_keeps_its_provider() {
         )
         .unwrap_err();
     assert!(err.contains("This session uses Claude"), "{err}");
+}
+
+#[test]
+fn databases_are_listed_and_a_session_keeps_its_choice() {
+    let h = harness(true);
+    let list = h.call("list_databases", json!({})).unwrap();
+    assert_eq!(
+        list.as_array().unwrap().len(),
+        1,
+        "only the app's own: {list}"
+    );
+    assert_eq!(list[0]["name"], "specs_19_0_sale_demo");
+    assert_eq!(list[0]["version"], "19.0");
+    assert_eq!(list[0]["sizeBytes"], 5242880);
+    assert_eq!(list[0]["auto"], true);
+
+    let id = h.new_session();
+    h.call(
+        "set_session_database",
+        json!({"project": "Acme", "sessionId": id, "database": "specs_19_0_sale_demo"}),
+    )
+    .unwrap();
+    let projects = h.call("list_projects", json!({})).unwrap();
+    assert_eq!(
+        projects[0]["sessions"][0]["database"],
+        "specs_19_0_sale_demo"
+    );
+    h.call(
+        "set_session_database",
+        json!({"project": "Acme", "sessionId": id, "database": null}),
+    )
+    .unwrap();
+    let projects = h.call("list_projects", json!({})).unwrap();
+    assert_eq!(projects[0]["sessions"][0]["database"], Value::Null);
+}
+
+#[test]
+fn database_mistakes_come_back_as_readable_messages() {
+    let h = harness(true);
+    let err = h
+        .call("delete_database", json!({"name": "other_db"}))
+        .unwrap_err();
+    assert!(err.contains("Only databases made by this app"), "{err}");
+    let err = h
+        .call(
+            "create_database",
+            json!({"database": {"label": " ", "version": "19.0", "modules": [], "demoData": true}}),
+        )
+        .unwrap_err();
+    assert!(err.contains("Give the database a name"), "{err}");
 }

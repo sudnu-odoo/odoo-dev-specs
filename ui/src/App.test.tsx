@@ -26,6 +26,8 @@ vi.mock("./lib/api", () => ({
     saveSettings: vi.fn(),
     listModels: vi.fn(),
     runningSessions: vi.fn(),
+    listDatabases: vi.fn(),
+    setSessionDatabase: vi.fn(),
   },
 }));
 // Settings panel has its own test; here we only check it opens.
@@ -104,6 +106,27 @@ beforeEach(() => {
   mocked.getSettings.mockResolvedValue({ provider: "claude", defaultVersion: "19.0", demoData: true });
   mocked.openDiagramWindow.mockResolvedValue(undefined);
   mocked.dockDiagramWindow.mockResolvedValue(undefined);
+  mocked.listDatabases.mockResolvedValue([
+    {
+      name: "specs_db_sales",
+      label: "Sales demo",
+      version: "19.0",
+      modules: ["sale_management"],
+      demoData: true,
+      enterprise: false,
+      auto: false,
+      createdAt: 0,
+      lastUsed: 0,
+      sizeBytes: 0,
+      running: false,
+    },
+  ]);
+  mocked.setSessionDatabase.mockImplementation(async (ref, database) => {
+    projects = projects.map((p) => ({
+      ...p,
+      sessions: p.sessions.map((s) => (s.id === ref.sessionId ? { ...s, database } : s)),
+    }));
+  });
 });
 
 async function openSession(title: string) {
@@ -365,5 +388,27 @@ describe("App", () => {
     render(<App />);
     await screen.findByRole("button", { name: "Settings" });
     expect(screen.queryByText(/setup is incomplete/i)).not.toBeInTheDocument();
+  });
+
+  it("shows the Databases page from the sidebar, and a session again when one is picked", async () => {
+    render(<App />);
+    await userEvent.click(await screen.findByRole("button", { name: "Databases" }));
+    expect(await screen.findByRole("heading", { name: "Databases" })).toBeInTheDocument();
+    expect(screen.getByRole("listitem", { name: "Sales demo" })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Delivery window" }));
+    expect(screen.queryByRole("heading", { name: "Databases" })).not.toBeInTheDocument();
+    expect(await screen.findByRole("textbox", { name: "Message" })).toBeInTheDocument();
+  });
+
+  it("each session shows and changes the database its screenshots use", async () => {
+    await openSession("Delivery window");
+    const chip = await screen.findByRole("button", { name: "Database: Auto" });
+    await userEvent.click(chip);
+    await userEvent.click(screen.getByRole("menuitemradio", { name: "Sales demo" }));
+    expect(mocked.setSessionDatabase).toHaveBeenCalledWith(
+      { project: "Acme", sessionId: "s1" },
+      "specs_db_sales",
+    );
+    expect(await screen.findByRole("button", { name: "Database: Sales demo" })).toBeInTheDocument();
   });
 });

@@ -64,7 +64,11 @@ fn fake_runtime(work: &std::path::Path, site: &std::path::Path) -> Runtime {
         fs::set_permissions(&p, fs::Permissions::from_mode(0o755)).unwrap();
         p
     };
-    let psql = write("psql", "echo specs_19_0_sale_management_demo".into());
+    // Lists one database, which has Sales installed.
+    let psql = write(
+        "psql",
+        r#"case "$*" in *ir_module_module*) echo sale_management;; *) echo specs_19_0_sale_management_demo;; esac"#.into(),
+    );
     let python = write(
         "python",
         format!(
@@ -135,6 +139,11 @@ async fn takes_a_screenshot_of_a_fresh_local_odoo_into_the_session() {
     runtime.stop_all().unwrap();
 
     assert_ne!(result.is_error, Some(true), "{answer}");
+    // In Auto, the session keeps the database its first screenshots used.
+    assert_eq!(
+        odoo_runtime::runtime::session_database(&session).as_deref(),
+        Some("specs_19_0_sale_management_demo")
+    );
     assert!(answer.contains("screenshots/sales_orders.png"), "{answer}");
     assert!(
         answer.contains("screenshots/quotation_form.png"),
@@ -230,4 +239,51 @@ async fn screenshot_names_stay_inside_the_session() {
             assert!(!answer.contains(".."), "{answer}");
         }
     }
+}
+
+#[tokio::test]
+async fn a_session_with_a_chosen_database_takes_its_screenshots_there() {
+    let work = tempfile::tempdir().unwrap();
+    let site = work.path().join("site");
+    fake_odoo_site(&site);
+    let runtime = fake_runtime(work.path(), &site);
+    let session = work.path().join("session");
+    fs::create_dir_all(&session).unwrap();
+    fs::write(
+        session.join(SCENE_FILE),
+        r#"{"type":"excalidraw","elements":[],"files":{}}"#,
+    )
+    .unwrap();
+    odoo_runtime::runtime::set_session_database(&session, Some("specs_19_0_sale_management_demo"))
+        .unwrap();
+    let server = DiagramServer::new(&session).with_runtime(runtime.clone());
+    let (server_io, client_io) = tokio::io::duplex(1 << 16);
+    tokio::spawn(async move { server.serve(server_io).await.unwrap().waiting().await });
+    let client = Client.serve(client_io).await.unwrap();
+
+    // Asked for another version: the session's database decides.
+    let args = json!({"version": "18.0", "modules": ["sale_management"], "pages": [
+        {"page": "/odoo/sales/3", "name": "quotation_form"}
+    ]});
+    let result = tokio::time::timeout(
+        Duration::from_secs(120),
+        client.call_tool(
+            CallToolRequestParams::new("odoo_screenshots")
+                .with_arguments(args.as_object().cloned().unwrap()),
+        ),
+    )
+    .await
+    .expect("timed out")
+    .unwrap();
+    let answer: String = result
+        .content
+        .iter()
+        .filter_map(|c| c.as_text())
+        .map(|t| t.text.clone())
+        .collect();
+    runtime.stop_all().unwrap();
+    assert_ne!(result.is_error, Some(true), "{answer}");
+    assert!(answer.contains("Odoo 19.0"), "{answer}");
+    assert!(answer.contains("the session's database"), "{answer}");
+    assert!(session.join("screenshots/quotation_form.png").exists());
 }

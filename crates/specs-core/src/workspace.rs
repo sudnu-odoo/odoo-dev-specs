@@ -37,6 +37,10 @@ pub struct SessionMeta {
     /// The provider's own conversation id, for CLIs that pick it themselves (Antigravity).
     #[serde(default)]
     pub conversation_id: Option<String>,
+    /// The local Odoo database the session's screenshots use (`None` = Auto, not
+    /// chosen yet). Kept in its own file, which the screenshot tool also writes.
+    #[serde(default, skip_deserializing)]
+    pub database: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -108,6 +112,7 @@ impl Workspace {
             updated_at: now,
             started: false,
             conversation_id: None,
+            database: None,
         };
         let dir = project_dir.join(&meta.id);
         fs::create_dir_all(dir.join(SCREENSHOTS))?;
@@ -160,6 +165,11 @@ impl Workspace {
         self.update_meta(project, id, |m| {
             m.conversation_id = Some(conversation_id.to_string());
         })
+    }
+
+    /// Choose the database for the session's screenshots (`None` = Auto).
+    pub fn set_database(&self, project: &str, id: &str, database: Option<&str>) -> Result<()> {
+        odoo_runtime::runtime::set_session_database(&self.session_dir(project, id)?, database)
     }
 
     pub fn read_scene(&self, project: &str, id: &str) -> Result<String> {
@@ -250,7 +260,10 @@ fn validate_title(title: &str) -> Result<String> {
 fn read_meta(dir: &Path) -> Result<SessionMeta> {
     let path = dir.join(META);
     let raw = fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
-    serde_json::from_str(&raw).with_context(|| format!("parsing {}", path.display()))
+    let mut meta: SessionMeta =
+        serde_json::from_str(&raw).with_context(|| format!("parsing {}", path.display()))?;
+    meta.database = odoo_runtime::runtime::session_database(dir);
+    Ok(meta)
 }
 
 fn write_meta(dir: &Path, meta: &SessionMeta) -> Result<()> {

@@ -26,6 +26,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::setup::adjust_requirements;
 
+mod databases;
+pub use databases::{session_database, set_session_database, DatabaseInfo, NewDatabase};
+
 /// Public community repository; enterprise is configured separately.
 pub const ODOO_GIT_URL: &str = "https://github.com/odoo/odoo.git";
 /// Prefix of every database the runtime owns.
@@ -375,40 +378,17 @@ impl Runtime {
         let _setup = self.setup_lock(version)?;
         let enterprise = self.enterprise_dir(version);
         let name = database_name(version, modules, demo_data, enterprise.is_some());
-        if self.databases()?.contains(&name) {
-            return Ok(name);
+        if !self.databases()?.contains(&name) {
+            self.install(version, &name, modules, demo_data)?;
         }
-        let python = self.ensure_venv(version)?;
-        let mods = if modules.is_empty() {
-            "base".to_string()
-        } else {
-            modules.join(",")
-        };
-        let mut args = self.odoo_args(version, &name);
-        args.extend(["-i".into(), mods.clone()]);
-        args.extend(demo_flags(version, demo_data));
-        args.push("--stop-after-init".into());
-        let args: Vec<&str> = args.iter().map(String::as_str).collect();
-        if let Err(e) = self.run_to_end(&python, &args) {
-            // odoo-bin creates the PostgreSQL database before installing modules:
-            // remove the half-made one so it is never taken for a ready database.
-            let _ = self.delete_database(&name);
-            return Err(e.context(format!(
-                "Could not create the Odoo {version} database with {mods}."
-            )));
-        }
+        self.remember_auto(&name, version, modules, demo_data, enterprise.is_some())?;
         Ok(name)
     }
 
-    /// Drop one of the runtime's databases and its files.
+    /// Drop one of the runtime's databases and its files, and forget it.
     pub fn delete_database(&self, name: &str) -> Result<()> {
-        ensure!(
-            name.starts_with(DB_PREFIX),
-            "Only databases made by this app can be deleted."
-        );
-        self.run_to_end(&self.tools.dropdb, &["--if-exists", name])?;
-        let _ = fs::remove_dir_all(self.data_dir().join("filestore").join(name));
-        Ok(())
+        self.drop_database(name)?;
+        self.forget(name)
     }
 
     /// Start the database's server (or reuse the running one) and wait until it answers.
