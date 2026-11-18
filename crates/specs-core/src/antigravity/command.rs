@@ -50,7 +50,13 @@ pub fn args(spec: &TurnSpec) -> Vec<String> {
     if let Some(model) = &spec.model {
         a.extend(["--model".to_string(), model.clone()]);
     }
-    if let Some(effort) = &spec.effort {
+    // Some models carry their effort in their id (e.g. gemini-3.8-flash-low): agy
+    // refuses a second one, so the chosen effort only applies to the others.
+    let model_sets_effort = spec
+        .model
+        .as_deref()
+        .is_some_and(|m| ["-low", "-medium", "-high"].iter().any(|s| m.ends_with(s)));
+    if let Some(effort) = spec.effort.as_ref().filter(|_| !model_sets_effort) {
         a.extend(["--effort".to_string(), effort.clone()]);
     }
     a
@@ -123,6 +129,25 @@ mod tests {
         let mut s = spec(None);
         s.effort = Some("low".into());
         assert_eq!(value_after(&args(&s), "--effort"), Some("low"));
+    }
+
+    #[test]
+    fn effort_is_left_out_for_models_whose_name_sets_it() {
+        // agy refuses "--model gemini-3.8-flash-low --effort medium".
+        for model in [
+            "gemini-3.8-flash-low",
+            "gemini-3.8-flash-high",
+            "gpt-oss-120b-medium",
+        ] {
+            let mut s = spec(None);
+            s.model = Some(model.into());
+            s.effort = Some("medium".into());
+            assert!(!args(&s).contains(&"--effort".to_string()), "{model}");
+        }
+        let mut s = spec(None);
+        s.model = Some("claude-sonnet-4-6".into());
+        s.effort = Some("high".into());
+        assert_eq!(value_after(&args(&s), "--effort"), Some("high"));
     }
 
     #[test]

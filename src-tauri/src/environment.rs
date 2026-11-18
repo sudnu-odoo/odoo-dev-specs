@@ -35,6 +35,7 @@ pub fn probe() -> Probe {
         odoo_sources: Runtime::new(Runtime::default_root(), Tools::default()).source_dirs(),
         chrome: CHROME_NAMES.iter().find_map(|name| find(name)),
         claude: find("claude"),
+        antigravity: find("agy"),
     }
 }
 

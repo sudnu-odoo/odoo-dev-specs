@@ -5,7 +5,7 @@ use std::net::TcpListener;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use specs_mcp::browser::{screenshot, Viewport};
+use specs_mcp::browser::{screenshot, screenshots, Shot, Viewport};
 
 const LOGIN: &str = r#"<html><body><form action="/after" method="get">
 <input name="login"><input name="password" type="password"><button type="submit">Log in</button>
@@ -16,6 +16,21 @@ const AFTER: &str = r#"<html><body style="background:#714b67"><div class="o_acti
 <script>setTimeout(() => {
   document.querySelector('.o_action_manager').innerHTML = '<div class="o_view_controller">Sales</div>';
 }, 300);</script></body></html>"#;
+
+/// An Odoo-like form and list at known positions (absolute, so they are exact).
+const FORM: &str = r#"<html><body style="margin:0"><div class="o_action_manager"><div class="o_view_controller">
+<label class="o_form_label" for="validity_date_0" style="position:absolute;left:470px;top:240px;width:80px;height:20px">Expiration</label>
+<div class="o_field_widget" name="validity_date" style="position:absolute;left:590px;top:236px;width:295px;height:24px">Dec 17</div>
+<button name="action_confirm" style="position:absolute;left:147px;top:116px;width:82px;height:36px">Confirm</button>
+<table style="position:absolute;left:20px;top:400px"><tr><th data-name="product_id" style="width:300px;height:30px">Product</th></tr></table>
+<div class="o_field_widget" name="hidden_one" style="display:none">x</div>
+</div></div></body></html>"#;
+
+/// A report: no Odoo fields, so its visible texts are what can be pointed at.
+const REPORT: &str = r#"<html><body style="margin:0"><div class="o_action_manager"><div class="o_view_controller">
+<h2 style="position:absolute;left:60px;top:500px;margin:0;font-size:20px">Quotation # S00003</h2>
+<span style="position:absolute;left:470px;top:440px">Ready Mat</span>
+</div></div></body></html>"#;
 
 /// Serves the fake Odoo; records the request lines it received.
 fn fake_odoo() -> (String, Arc<Mutex<Vec<String>>>) {
@@ -29,8 +44,12 @@ fn fake_odoo() -> (String, Arc<Mutex<Vec<String>>>) {
             let mut request = String::new();
             reader.read_line(&mut request).unwrap_or_default();
             log.lock().unwrap().push(request.trim().to_string());
-            let body = if request.contains(" /after") {
+            let body = if request.contains(" /after") || request.contains(" /odoo/sales") {
                 AFTER
+            } else if request.contains(" /form") {
+                FORM
+            } else if request.contains(" /report") {
+                REPORT
             } else if request.contains(" /web/login") {
                 LOGIN
             } else {
@@ -115,4 +134,74 @@ async fn only_paths_on_the_local_odoo_are_allowed() {
         .await;
         assert!(err.is_err(), "accepted {page}");
     }
+}
+
+#[tokio::test]
+async fn a_batch_uses_one_chrome_logs_in_once_and_maps_what_is_on_screen() {
+    let (url, seen) = fake_odoo();
+    let out = tempfile::tempdir().unwrap();
+    let shot = |page: &str, name: &str| Shot {
+        page: page.into(),
+        viewport: Viewport {
+            width: 1000,
+            height: 700,
+        },
+        out: out.path().join(name),
+    };
+    let maps = tokio::time::timeout(
+        Duration::from_secs(90),
+        screenshots(
+            &url,
+            &[shot("/form", "form.png"), shot("/report", "report.png")],
+        ),
+    )
+    .await
+    .expect("timed out")
+    .unwrap();
+
+    for name in ["form.png", "report.png"] {
+        assert_eq!(
+            png_size(&std::fs::read(out.path().join(name)).unwrap()),
+            (1000, 700)
+        );
+    }
+    let requests = seen.lock().unwrap().clone();
+    let logins = requests
+        .iter()
+        .filter(|r| r.contains("login=admin"))
+        .count();
+    assert_eq!(logins, 1, "logged in once for the batch: {requests:?}");
+
+    let form = &maps[0];
+    let find = |kind: &str, name: &str| {
+        form.iter()
+            .find(|e| e.kind == kind && e.name == name)
+            .unwrap_or_else(|| panic!("no {kind} {name} in {form:?}"))
+    };
+    let field = find("field", "validity_date");
+    assert_eq!(
+        (field.x, field.y, field.w, field.h),
+        (590.0, 236.0, 295.0, 24.0)
+    );
+    assert_eq!(field.text, "Dec 17");
+    let label = find("label", "validity_date");
+    assert_eq!((label.x, label.y), (470.0, 240.0));
+    assert_eq!(label.text, "Expiration");
+    assert_eq!(find("button", "action_confirm").text, "Confirm");
+    assert_eq!(find("column", "product_id").text, "Product");
+    assert!(
+        form.iter().all(|e| e.name != "hidden_one"),
+        "hidden elements are left out"
+    );
+
+    // A report has no fields: its visible texts are mapped instead.
+    let report = &maps[1];
+    let heading = report
+        .iter()
+        .find(|e| e.text == "Quotation # S00003")
+        .unwrap_or_else(|| panic!("{report:?}"));
+    assert_eq!(
+        (heading.kind.as_str(), heading.x, heading.y),
+        ("text", 60.0, 500.0)
+    );
 }

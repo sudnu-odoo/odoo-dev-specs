@@ -93,13 +93,15 @@ async fn offers_the_diagram_tools() {
             "diagram_add_arrow",
             "diagram_add_box",
             "diagram_add_frame",
+            "diagram_add_highlight",
             "diagram_add_image",
+            "diagram_add_pointer",
             "diagram_add_text",
             "diagram_delete",
             "diagram_move",
             "diagram_set_text",
             "diagram_summary",
-            "odoo_screenshot",
+            "odoo_screenshots",
         ]
     );
 }
@@ -294,8 +296,8 @@ async fn screenshots_need_the_runtime() {
     let client = connect(dir.path()).await;
     let result = call(
         &client,
-        "odoo_screenshot",
-        json!({"version": "19.0", "modules": [], "page": "/odoo", "name": "home"}),
+        "odoo_screenshots",
+        json!({"version": "19.0", "modules": [], "pages": [{"page": "/odoo", "name": "home"}]}),
     )
     .await;
     assert!(is_error(&result));
@@ -315,4 +317,286 @@ async fn box_answers_tell_the_real_size() {
         .await,
     );
     assert!(answer.ends_with("(120x40)."), "{answer}");
+}
+
+/// A 1000x500 screenshot in the session folder, placed at half size; returns its id.
+async fn screenshot_on_scene(dir: &TempDir, client: &RunningService<RoleClient, Client>) -> String {
+    let mut png = vec![0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A, 0, 0, 0, 13];
+    png.extend(b"IHDR");
+    png.extend(1000u32.to_be_bytes());
+    png.extend(500u32.to_be_bytes());
+    png.extend([8, 6, 0, 0, 0]);
+    fs::write(dir.path().join("screenshots/form.png"), &png).unwrap();
+    let added = call(
+        client,
+        "diagram_add_image",
+        json!({"path": "screenshots/form.png", "x": 0, "y": 0, "width": 500}),
+    )
+    .await;
+    id_in(&text(&added))
+}
+
+fn element(dir: &TempDir, id: &str) -> Value {
+    scene(dir)["elements"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|e| e["id"] == id)
+        .cloned()
+        .unwrap()
+}
+
+#[tokio::test]
+async fn annotations_point_at_spots_on_a_screenshot() {
+    let dir = session();
+    let client = connect(dir.path()).await;
+    let shot = screenshot_on_scene(&dir, &client).await;
+
+    let note = call(
+        &client,
+        "diagram_add_text",
+        json!({"text": "New field", "x": 600, "y": 0, "color": "red"}),
+    )
+    .await;
+    let note = id_in(&text(&note));
+    assert_eq!(element(&dir, &note)["strokeColor"], "#e03131");
+
+    let pointer = call(
+        &client,
+        "diagram_add_pointer",
+        json!({"from_id": note, "image_id": shot, "x": 400, "y": 100}),
+    )
+    .await;
+    assert!(!is_error(&pointer), "{}", text(&pointer));
+    let a = element(&dir, &id_in(&text(&pointer)));
+    let tip = a["points"].as_array().unwrap().last().unwrap().clone();
+    // Pixel (400, 100) of the PNG is shown at (200, 50) on the half-size image.
+    assert_eq!(a["x"].as_f64().unwrap() + tip[0].as_f64().unwrap(), 200.0);
+    assert_eq!(a["y"].as_f64().unwrap() + tip[1].as_f64().unwrap(), 50.0);
+
+    let highlight = call(
+        &client,
+        "diagram_add_highlight",
+        json!({"image_id": shot, "x": 200, "y": 100, "width": 300, "height": 50}),
+    )
+    .await;
+    assert!(!is_error(&highlight), "{}", text(&highlight));
+    let h = element(&dir, &id_in(&text(&highlight)));
+    assert_eq!(
+        (h["x"].as_f64(), h["width"].as_f64()),
+        (Some(100.0), Some(150.0))
+    );
+    assert_eq!(h["backgroundColor"], "transparent");
+}
+
+#[tokio::test]
+async fn annotation_mistakes_are_readable() {
+    let dir = session();
+    let client = connect(dir.path()).await;
+    let bad = call(
+        &client,
+        "diagram_add_pointer",
+        json!({"from_id": "nope", "x": 1, "y": 1}),
+    )
+    .await;
+    assert!(is_error(&bad));
+    assert!(text(&bad).contains("nope"), "{}", text(&bad));
+    let colour = call(
+        &client,
+        "diagram_add_text",
+        json!({"text": "x", "color": "pink"}),
+    )
+    .await;
+    assert!(
+        text(&colour).contains("Unknown colour"),
+        "{}",
+        text(&colour)
+    );
+}
+
+/// The spec-writing skill names tools; each must exist, or the assistant is told to
+/// call something that is not there.
+#[tokio::test]
+async fn every_tool_the_spec_skill_names_exists() {
+    let skill = include_str!("../../specs-core/src/claude/spec_skill.md");
+    let dir = session();
+    let client = connect(dir.path()).await;
+    let offered: Vec<String> = client
+        .list_all_tools()
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|t| t.name.to_string())
+        .collect();
+    let named: std::collections::BTreeSet<&str> = skill
+        .split(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
+        .filter(|w| w.starts_with("diagram_") || w.starts_with("odoo_"))
+        .collect();
+    assert!(
+        named.len() >= 5,
+        "the skill should name the tools: {named:?}"
+    );
+    for tool in named {
+        assert!(
+            offered.iter().any(|t| t == tool),
+            "the skill names unknown tool {tool}"
+        );
+    }
+}
+
+/// A new field is "written into" the screenshot where it will appear (a mockup label).
+#[tokio::test]
+async fn text_can_be_placed_on_a_screenshot_in_its_own_pixels() {
+    let dir = session();
+    let client = connect(dir.path()).await;
+    let shot = screenshot_on_scene(&dir, &client).await;
+    let label = call(
+        &client,
+        "diagram_add_text",
+        json!({"text": "Delivery Window", "image_id": shot, "x": 400, "y": 100, "font_size": 16}),
+    )
+    .await;
+    assert!(!is_error(&label), "{}", text(&label));
+    let e = element(&dir, &id_in(&text(&label)));
+    // Pixel (400, 100) of the PNG is shown at (200, 50) on the half-size image.
+    assert_eq!(
+        (e["x"].as_f64(), e["y"].as_f64()),
+        (Some(200.0), Some(50.0))
+    );
+}
+
+/// The assistant learns about an overlap the moment it makes one, and can fix it.
+#[tokio::test]
+async fn answers_warn_about_overlaps() {
+    let dir = session();
+    let client = connect(dir.path()).await;
+    let title = call(
+        &client,
+        "diagram_add_text",
+        json!({"text": "Title", "x": 0, "y": 0, "font_size": 36}),
+    )
+    .await;
+    let title = id_in(&text(&title));
+    let clean = call(
+        &client,
+        "diagram_add_box",
+        json!({"label": "Far away", "x": 0, "y": 500}),
+    )
+    .await;
+    assert!(!text(&clean).contains("overlaps"), "{}", text(&clean));
+    let boxed = call(
+        &client,
+        "diagram_add_box",
+        json!({"label": "Mockup", "x": 10, "y": 5}),
+    )
+    .await;
+    let answer = text(&boxed);
+    assert!(
+        answer.contains("overlaps") && answer.contains(&title),
+        "{answer}"
+    );
+    // Moving it away clears the warning.
+    let moved = call(
+        &client,
+        "diagram_move",
+        json!({"id": id_in(&answer), "x": 600, "y": 0}),
+    )
+    .await;
+    assert!(!text(&moved).contains("overlaps"), "{}", text(&moved));
+}
+
+/// A screenshot with its map of what is on it, as odoo_screenshots saves them.
+async fn mapped_screenshot(dir: &TempDir, client: &RunningService<RoleClient, Client>) -> String {
+    let image = screenshot_on_scene(dir, client).await; // 1000x500 PNG shown at 500 wide
+    fs::write(
+        dir.path().join("screenshots/form.json"),
+        json!([
+            {"kind": "label", "name": "validity_date", "text": "Expiration", "x": 470, "y": 240, "w": 80, "h": 20},
+            {"kind": "field", "name": "validity_date", "text": "Dec 17", "x": 590, "y": 236, "w": 300, "h": 24},
+        ])
+        .to_string(),
+    )
+    .unwrap();
+    image
+}
+
+#[tokio::test]
+async fn annotations_can_target_what_is_on_the_screenshot_by_name() {
+    let dir = session();
+    let client = connect(dir.path()).await;
+    let shot = mapped_screenshot(&dir, &client).await;
+
+    // Outline: the field's box, a little padded, scaled to the half-size image.
+    let h = call(
+        &client,
+        "diagram_add_highlight",
+        json!({"image_id": shot, "anchor": "validity_date"}),
+    )
+    .await;
+    assert!(!is_error(&h), "{}", text(&h));
+    let h = element(&dir, &id_in(&text(&h)));
+    assert_eq!(
+        (h["x"].as_f64(), h["y"].as_f64()),
+        (Some(293.0), Some(116.0))
+    );
+    assert_eq!(
+        (h["width"].as_f64(), h["height"].as_f64()),
+        (Some(154.0), Some(16.0))
+    );
+
+    // A new field's label goes just below an existing one.
+    let t = call(
+        &client,
+        "diagram_add_text",
+        json!({"text": "Delivery Window", "image_id": shot, "anchor": "label:validity_date", "place": "below", "font_size": 16}),
+    )
+    .await;
+    assert!(!is_error(&t), "{}", text(&t));
+    let t = element(&dir, &id_in(&text(&t)));
+    assert_eq!(
+        (t["x"].as_f64(), t["y"].as_f64()),
+        (Some(235.0), Some(134.0))
+    );
+
+    // A pointer's tip lands on the right edge of the field, half way down.
+    let note = call(
+        &client,
+        "diagram_add_text",
+        json!({"text": "note", "x": 700, "y": 0, "color": "red"}),
+    )
+    .await;
+    let p = call(
+        &client,
+        "diagram_add_pointer",
+        json!({"from_id": id_in(&text(&note)), "image_id": shot, "anchor": "validity_date"}),
+    )
+    .await;
+    assert!(!is_error(&p), "{}", text(&p));
+    let a = element(&dir, &id_in(&text(&p)));
+    let tip = a["points"].as_array().unwrap().last().unwrap().clone();
+    assert_eq!(a["x"].as_f64().unwrap() + tip[0].as_f64().unwrap(), 445.0);
+    assert_eq!(a["y"].as_f64().unwrap() + tip[1].as_f64().unwrap(), 124.0);
+}
+
+#[tokio::test]
+async fn an_unknown_anchor_says_what_can_be_targeted() {
+    let dir = session();
+    let client = connect(dir.path()).await;
+    let shot = mapped_screenshot(&dir, &client).await;
+    let r = call(
+        &client,
+        "diagram_add_highlight",
+        json!({"image_id": shot, "anchor": "partner_id"}),
+    )
+    .await;
+    assert!(is_error(&r));
+    assert!(text(&r).contains("field:validity_date"), "{}", text(&r));
+    let r = call(
+        &client,
+        "diagram_add_highlight",
+        json!({"anchor": "validity_date"}),
+    )
+    .await;
+    assert!(is_error(&r));
+    assert!(text(&r).contains("image_id"), "{}", text(&r));
 }

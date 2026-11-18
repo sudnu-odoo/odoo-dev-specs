@@ -37,7 +37,33 @@ const MAX_NAME: usize = 63;
 /// How much of a tool's output is shown when something fails.
 const OUTPUT_TAIL: usize = 1500;
 /// Written once a virtualenv has all its requirements installed.
-pub const VENV_READY: &str = ".requirements-installed";
+/// Marks a complete Python environment. Versioned: environments built before
+/// Python ran isolated (and might lack packages) carry the old name and are rebuilt.
+pub const VENV_READY: &str = ".requirements-installed-v2";
+
+/// Modules Odoo needs at startup; checked after installing, so a broken environment
+/// fails here with a clear message instead of when the server starts.
+const CORE_IMPORTS: &str = "import babel, lxml, psycopg2, werkzeug, PIL";
+
+/// Variables through which the launching shell would change what Python sees.
+const PYTHON_ENV: [&str; 5] = [
+    "PYTHONPATH",
+    "PYTHONHOME",
+    "PYTHONUSERBASE",
+    "PYTHONSTARTUP",
+    "VIRTUAL_ENV",
+];
+
+/// A command whose Python sees only its own environment, whoever launched the app:
+/// no inherited search paths and no user site-packages.
+fn isolated(program: &Path) -> Command {
+    let mut cmd = Command::new(program);
+    for var in PYTHON_ENV {
+        cmd.env_remove(var);
+    }
+    cmd.env("PYTHONNOUSERSITE", "1");
+    cmd
+}
 
 /// A running Odoo server.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -73,8 +99,32 @@ impl Default for Tools {
     }
 }
 
+/// odoo-bin flags that load (or skip) demo data. Odoo 19 turned demo data off by
+/// default and added `--with-demo`; older versions load it unless told not to.
+pub fn demo_flags(version: &str, demo_data: bool) -> Vec<String> {
+    if !demo_data {
+        return vec!["--without-demo=all".into()];
+    }
+    let major: u32 = version
+        .trim_start_matches("saas-")
+        .split('.')
+        .next()
+        .and_then(|m| m.parse().ok())
+        .unwrap_or(0);
+    if major >= 19 {
+        vec!["--with-demo".into()]
+    } else {
+        vec![]
+    }
+}
+
 /// Database name for an Odoo version and module set, e.g. `specs_19_0_sale_stock`.
-pub fn database_name(version: &str, modules: &[String], demo_data: bool) -> String {
+pub fn database_name(
+    version: &str,
+    modules: &[String],
+    demo_data: bool,
+    enterprise: bool,
+) -> String {
     let mut mods: Vec<&str> = modules
         .iter()
         .map(|m| m.trim())
@@ -86,8 +136,12 @@ pub fn database_name(version: &str, modules: &[String], demo_data: bool) -> Stri
         mods.push("base");
     }
     // Demo and no-demo data cannot share a database, so they get different names.
-    let suffix = if demo_data { "" } else { "_nodemo" };
-    let raw = format!("{DB_PREFIX}{version}_{}{suffix}", mods.join("_"));
+    // ("_demo": databases made before demo data was really loaded on Odoo 19 had no
+    // suffix and are empty, so they are never reused.)
+    let suffix = if demo_data { "_demo" } else { "_nodemo" };
+    // Enterprise installs more modules (e.g. web_enterprise): its own databases.
+    let edition = if enterprise { "_ee" } else { "" };
+    let raw = format!("{DB_PREFIX}{version}_{}{edition}{suffix}", mods.join("_"));
     let name: String = raw
         .chars()
         .map(|c| {
@@ -177,6 +231,16 @@ impl Runtime {
         &self.tools
     }
 
+    /// Enterprise source of `version`: the one configured, or an `enterprise` folder
+    /// (or link) next to the community source, `sources/<version>/enterprise`.
+    pub fn enterprise_dir(&self, version: &str) -> Option<PathBuf> {
+        if let Some(dir) = self.enterprise.get(version) {
+            return Some(dir.clone());
+        }
+        let beside = self.root.join("sources").join(version).join("enterprise");
+        beside.is_dir().then_some(beside)
+    }
+
     pub fn source_dir(&self, version: &str) -> PathBuf {
         self.root.join("sources").join(version).join("odoo")
     }
@@ -185,7 +249,7 @@ impl Runtime {
         self.root.join("data")
     }
 
-    fn venv_dir(&self, version: &str) -> PathBuf {
+    pub fn venv_dir(&self, version: &str) -> PathBuf {
         self.root.join("venvs").join(version)
     }
 
@@ -202,8 +266,12 @@ impl Runtime {
         let mut dirs: Vec<PathBuf> = fs::read_dir(self.root.join("sources"))
             .into_iter()
             .flatten()
-            .filter_map(|e| Some(e.ok()?.path().join("odoo")))
-            .filter(|p| p.join("odoo-bin").is_file())
+            .filter_map(|e| e.ok())
+            .filter(|e| e.path().join("odoo").join("odoo-bin").is_file())
+            .flat_map(|e| {
+                let version = e.file_name().to_string_lossy().into_owned();
+                std::iter::once(e.path().join("odoo")).chain(self.enterprise_dir(&version))
+            })
             .collect();
         dirs.sort();
         dirs
@@ -266,6 +334,8 @@ impl Runtime {
             &["-m", "pip", "install", "--quiet", "-r", &adjusted_arg],
         )
         .with_context(|| format!("Could not install the Python packages for Odoo {version}."))?;
+        self.run_to_end(&python, &["-c", CORE_IMPORTS])
+            .with_context(|| format!("The Python packages for Odoo {version} are incomplete."))?;
         fs::write(venv.join(VENV_READY), "")?;
         Ok(python)
     }
@@ -299,7 +369,12 @@ impl Runtime {
         demo_data: bool,
     ) -> Result<String> {
         validate_version(version)?;
-        let name = database_name(version, modules, demo_data);
+        // Several assistants (sessions, providers) can ask at the same moment: one
+        // at a time per version sets up the source, Python environment and database,
+        // so none sees a half-installed environment or a database still being built.
+        let _setup = self.setup_lock(version)?;
+        let enterprise = self.enterprise_dir(version);
+        let name = database_name(version, modules, demo_data, enterprise.is_some());
         if self.databases()?.contains(&name) {
             return Ok(name);
         }
@@ -311,9 +386,7 @@ impl Runtime {
         };
         let mut args = self.odoo_args(version, &name);
         args.extend(["-i".into(), mods.clone()]);
-        if !demo_data {
-            args.push("--without-demo=all".into());
-        }
+        args.extend(demo_flags(version, demo_data));
         args.push("--stop-after-init".into());
         let args: Vec<&str> = args.iter().map(String::as_str).collect();
         if let Err(e) = self.run_to_end(&python, &args) {
@@ -341,15 +414,15 @@ impl Runtime {
     /// Start the database's server (or reuse the running one) and wait until it answers.
     pub fn ensure_running(&self, version: &str, database: &str) -> Result<Running> {
         validate_version(version)?;
-        let mut state = self.load_state();
-        if let Some(entry) = state.servers.get(database) {
-            if is_alive(entry.pid) && answers(entry.port) {
-                return Ok(Running {
-                    database: database.into(),
-                    port: entry.port,
-                });
-            }
+        if let Some(running) = self.already_running(database) {
+            return Ok(running);
         }
+        // Another process may be starting the same server: wait, then look again.
+        let _setup = self.setup_lock(version)?;
+        if let Some(running) = self.already_running(database) {
+            return Ok(running);
+        }
+        let mut state = self.load_state();
         let python = self.ensure_venv(version)?;
         let port = free_port()?;
         let mut args = self.odoo_args(version, database);
@@ -357,7 +430,7 @@ impl Runtime {
 
         fs::create_dir_all(self.state_dir())?;
         let log = fs::File::create(self.log_file(database)).context("creating the server log")?;
-        let mut child = Command::new(&python)
+        let mut child = isolated(&python)
             .args(&args)
             .stdin(Stdio::null())
             .stdout(log.try_clone()?)
@@ -415,7 +488,7 @@ impl Runtime {
     fn odoo_args(&self, version: &str, database: &str) -> Vec<String> {
         let source = self.source_dir(version);
         let mut addons: Vec<String> = Vec::new();
-        if let Some(enterprise) = self.enterprise.get(version) {
+        if let Some(enterprise) = self.enterprise_dir(version) {
             addons.push(enterprise.display().to_string());
         }
         addons.push(source.join("addons").display().to_string());
@@ -429,6 +502,32 @@ impl Runtime {
             self.data_dir().display().to_string(),
             "--log-level=warn".into(),
         ]
+    }
+
+    /// The database's server, if it is recorded, alive and answering.
+    fn already_running(&self, database: &str) -> Option<Running> {
+        let state = self.load_state();
+        let entry = state.servers.get(database)?;
+        (is_alive(entry.pid) && answers(entry.port)).then(|| Running {
+            database: database.into(),
+            port: entry.port,
+        })
+    }
+
+    /// Exclusive lock on setting up one Odoo version, shared by every process using
+    /// this runtime folder. Released when the returned file is dropped.
+    fn setup_lock(&self, version: &str) -> Result<fs::File> {
+        fs::create_dir_all(self.state_dir())?;
+        let path = self.state_dir().join(format!("setup-{version}.lock"));
+        let file = fs::OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .write(true)
+            .open(&path)
+            .with_context(|| format!("opening {}", path.display()))?;
+        file.lock()
+            .with_context(|| format!("waiting for {}", path.display()))?;
+        Ok(file)
     }
 
     fn state_file(&self) -> PathBuf {
@@ -455,7 +554,7 @@ impl Runtime {
 
     /// Run a program to completion without a terminal, so it can never wait for input.
     fn run_to_end(&self, program: &Path, args: &[&str]) -> Result<String> {
-        let out = Command::new(program)
+        let out = isolated(program)
             .args(args)
             .stdin(Stdio::null())
             .output()
@@ -502,20 +601,49 @@ mod tests {
 
     #[test]
     fn database_names_are_stable_and_readable() {
-        let a = database_name("19.0", &["stock".into(), "sale_management".into()], true);
+        let a = database_name(
+            "19.0",
+            &["stock".into(), "sale_management".into()],
+            true,
+            false,
+        );
         let b = database_name(
             "19.0",
             &["sale_management".into(), "stock".into(), "stock".into()],
             true,
+            false,
         );
         assert_eq!(a, b, "order and duplicates do not matter");
-        assert_eq!(a, "specs_19_0_sale_management_stock");
-        assert_eq!(database_name("18.0", &[], true), "specs_18_0_base");
-        assert_eq!(database_name("18.0", &[], false), "specs_18_0_base_nodemo");
+        assert_eq!(a, "specs_19_0_sale_management_stock_demo");
+        assert_eq!(
+            database_name("18.0", &[], true, false),
+            "specs_18_0_base_demo"
+        );
+        assert_eq!(
+            database_name("18.0", &[], false, false),
+            "specs_18_0_base_nodemo"
+        );
+        assert_eq!(
+            database_name("19.0", &[], true, true),
+            "specs_19_0_base_ee_demo"
+        );
         let many: Vec<String> = (0..20).map(|i| format!("module_number_{i}")).collect();
-        let long = database_name("19.0", &many, true);
+        let long = database_name("19.0", &many, true, false);
         assert!(long.len() <= MAX_NAME, "PostgreSQL limit: {long}");
-        assert_ne!(long, database_name("19.0", &many[..19], true));
+        assert_ne!(long, database_name("19.0", &many[..19], true, false));
+    }
+
+    #[test]
+    fn demo_data_flags_follow_the_odoo_version() {
+        // Odoo 19 stopped loading demo data by default: it must be asked for.
+        assert_eq!(demo_flags("19.0", true), ["--with-demo"]);
+        assert_eq!(demo_flags("saas-19.2", true), ["--with-demo"]);
+        // Before 19 demo data was the default.
+        assert!(demo_flags("18.0", true).is_empty());
+        assert!(demo_flags("17.0", true).is_empty());
+        for v in ["17.0", "18.0", "19.0"] {
+            assert_eq!(demo_flags(v, false), ["--without-demo=all"]);
+        }
     }
 
     #[test]

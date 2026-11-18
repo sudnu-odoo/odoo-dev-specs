@@ -17,7 +17,10 @@ fn detect_claude(settings: &specs_core::settings::Settings) -> Option<ClaudeConf
     let home = dirs::home_dir().unwrap_or_default();
     let path_var = std::env::var("PATH").ok();
     let bins = user_bin_dirs(&home);
-    let program = find_executable("claude", path_var.as_deref(), &bins)?;
+    // The shared setup exists even without Claude Code (e.g. only Antigravity is
+    // installed); each turn picks the CLI of its provider.
+    let program =
+        find_executable("claude", path_var.as_deref(), &bins).unwrap_or_else(|| "claude".into());
     let diagram_tools = sibling_program("specs-mcp");
     let runtime_dir = Runtime::default_root();
     eprintln!(

@@ -28,6 +28,8 @@ export const api = {
   sendMessage: (ref: SessionRef, text: string, model: string | null, effort: string | null) =>
     invoke<void>("send_message", { ...ref, text, model, effort }),
   cancelTurn: (sessionId: string) => invoke<void>("cancel_turn", { sessionId }),
+  /** Ids of the sessions whose assistant is answering right now. */
+  runningSessions: () => invoke<string[]>("running_sessions"),
   onChatEvent: (handler: (payload: ChatEventPayload) => void): Promise<UnlistenFn> =>
     listen<ChatEventPayload>("chat-event", (e) => handler(e.payload)),
   /** Show the diagram in its own window (or point that window at another session). */

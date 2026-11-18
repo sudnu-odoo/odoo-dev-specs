@@ -308,15 +308,7 @@ body {
   background: var(--text);
   color: var(--surface);
 }
-.send-btn-stop::after {
-  content: "";
-  position: absolute;
-  inset: -4px;
-  border-radius: 12px;
-  border: 2px solid transparent;
-  border-top-color: var(--accent);
-  animation: spin 0.9s linear infinite;
-}
+
 .stop-square {
   width: 10px;
   height: 10px;
@@ -344,8 +336,7 @@ body {
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  .spinner,
-  .send-btn-stop::after {
+  .spinner {
     animation-duration: 3s;
   }
 }
@@ -933,4 +924,8 @@ button.usage-line:hover {
   display: flex;
   flex-direction: column;
   gap: 4px;
+}
+.menu-note {
+  margin-left: auto;
+  font-weight: 400;
 }

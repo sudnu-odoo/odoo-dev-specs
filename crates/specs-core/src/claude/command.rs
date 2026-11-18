@@ -5,18 +5,9 @@ use std::path::PathBuf;
 /// Tools the assistant may use: read-only access to the Odoo source and the session.
 pub const ALLOWED_TOOLS: &str = "Read,Grep,Glob";
 
-pub const SYSTEM_PROMPT: &str = "You help Odoo business analysts write development specs. \
-The Odoo community and enterprise source code is available read-only; read it to ground your \
-answers in how Odoo really works. Answer in plain language for a non-developer audience. \
-The spec is an Excalidraw diagram the user sees next to the chat. Build and update it with the \
-diagram_* tools: call diagram_summary first, use frames for screens or areas, boxes for models, \
-fields and steps, arrows for flows. Keep labels short (a few words per line, real line \
-breaks), leave at least 80px between boxes, and route arrows around frames rather than through \
-them. When the request touches an existing Odoo screen, always start from a screenshot \
-of it: take it with odoo_screenshot on a fresh local database (Odoo 19.0 unless the user names \
-another version, with the modules the feature needs), place it with diagram_add_image, and draw \
-the new parts and notes on top of it with boxes and arrows instead of redrawing the screen. \
-Keep the chat answer brief and put the substance in the diagram.";
+/// How the assistant writes specs (the spec-writing skill), given to every provider.
+/// Kept as Markdown next to this file so it can be read and edited as a document.
+pub const SYSTEM_PROMPT: &str = include_str!("spec_skill.md");
 
 /// Everything needed to run one turn of a session.
 #[derive(Debug, Clone)]
@@ -193,11 +184,25 @@ mod tests {
                 "/home/u/.local/share/odoo-dev-specs/runtime"
             ])
         );
-        assert!(SYSTEM_PROMPT.contains("odoo_screenshot"));
-        assert!(
-            SYSTEM_PROMPT.contains("start from a screenshot"),
-            "existing screens are shown, not redrawn"
-        );
+        assert!(SYSTEM_PROMPT.contains("odoo_screenshots"));
+    }
+
+    #[test]
+    fn the_spec_skill_keeps_its_key_rules() {
+        for rule in [
+            "Real Odoo screenshots, annotated in red",
+            "No flow charts",
+            "Vertical",
+            "Never ask for, read or reproduce customer data",
+            "Test cases",
+            "no \"known limitations\" section",
+            "Reply in the language of the user's latest message",
+            "New field: x_delivery_window",
+            "Before your final answer, always call diagram_summary",
+            "The user does not run tools",
+        ] {
+            assert!(SYSTEM_PROMPT.contains(rule), "missing: {rule}");
+        }
     }
 
     #[test]

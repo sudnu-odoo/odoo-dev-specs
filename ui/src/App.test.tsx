@@ -25,6 +25,7 @@ vi.mock("./lib/api", () => ({
     checkEnvironment: vi.fn(),
     saveSettings: vi.fn(),
     listModels: vi.fn(),
+    runningSessions: vi.fn(),
   },
 }));
 // Settings panel has its own test; here we only check it opens.
@@ -81,6 +82,7 @@ beforeEach(() => {
     }),
   );
   mocked.sendMessage.mockResolvedValue(undefined);
+  mocked.runningSessions.mockResolvedValue([]);
   mocked.renameSession.mockImplementation(async (_ref, title) => meta("s2", title));
   chatListeners = [];
   mocked.onChatEvent.mockImplementation(async (handler) => {
@@ -117,6 +119,45 @@ describe("App", () => {
     expect(await screen.findByText("Earlier question")).toBeInTheDocument();
     expect(screen.getByTestId("diagram")).toHaveTextContent("Delivery window");
     expect(mocked.loadSession).toHaveBeenCalledWith({ project: "Acme", sessionId: "s1" });
+  });
+
+  it("opening a session tied to Antigravity switches to one of its models", async () => {
+    mocked.listModels.mockResolvedValue([
+      { id: "sonnet", label: "Sonnet", provider: "Claude" },
+      { id: "gemini-3.8-flash-high", label: "Gemini Flash (High)", provider: "Antigravity" },
+    ]);
+    projects = [
+      {
+        name: "Acme",
+        sessions: [{ ...meta("s1", "Delivery window"), provider: "antigravity", started: true }],
+      },
+    ];
+    await openSession("Delivery window");
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: /^Model/ })).toHaveTextContent("Gemini Flash (High)"),
+    );
+    await userEvent.type(message(), "x{Enter}");
+    expect(mocked.sendMessage).toHaveBeenCalledWith(
+      { project: "Acme", sessionId: "s1" },
+      "x",
+      "gemini-3.8-flash-high",
+      null,
+    );
+  });
+
+  it("after the first message, the session keeps that provider", async () => {
+    mocked.listModels.mockResolvedValue([
+      { id: "sonnet", label: "Sonnet", provider: "Claude" },
+      { id: "gemini-3.8-flash-high", label: "Gemini Flash (High)", provider: "Antigravity" },
+    ]);
+    await openSession("New spec");
+    await userEvent.type(message(), "x{Enter}");
+    emitEvent("s2", { kind: "finished", is_error: false, message: null });
+    await userEvent.click(screen.getByRole("button", { name: /^Model/ }));
+    expect(screen.getByRole("menuitemradio", { name: /Gemini Flash/ })).toHaveAttribute(
+      "aria-disabled",
+      "true",
+    );
   });
 
   it("never defaults to a locked model", async () => {
@@ -156,6 +197,36 @@ describe("App", () => {
     await userEvent.type(message(), "x{Enter}");
     await userEvent.click(screen.getByRole("button", { name: "Stop" }));
     expect(mocked.cancelTurn).toHaveBeenCalledWith("s1");
+  });
+
+  it("keeps a running session live while you work in another one", async () => {
+    await openSession("Delivery window");
+    await screen.findByText("Earlier question");
+    await userEvent.type(message(), "Add a field{Enter}");
+    // The backend knows s1 is busy from now on.
+    mocked.runningSessions.mockResolvedValue(["s1"]);
+
+    // Switch away: the other session is free to chat.
+    await userEvent.click(screen.getByRole("button", { name: "New spec" }));
+    await waitFor(() => expect(screen.queryByText("Earlier question")).not.toBeInTheDocument());
+    expect(screen.getByRole("button", { name: "Send" })).toBeInTheDocument();
+    emitEvent("s1", { kind: "text_delta", text: "Working on it" });
+    expect(screen.queryByText("Working on it")).not.toBeInTheDocument();
+
+    // Back: the reply so far and the stop button are there, and stopping works.
+    await userEvent.click(screen.getByRole("button", { name: "Delivery window" }));
+    expect(await screen.findByText("Working on it")).toBeInTheDocument();
+    expect(screen.getByText("Add a field")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Stop" }));
+    expect(mocked.cancelTurn).toHaveBeenCalledWith("s1");
+  });
+
+  it("offers Stop for a session the backend is still running, e.g. after a reload", async () => {
+    mocked.runningSessions.mockResolvedValue(["s1"]);
+    await openSession("Delivery window");
+    expect(await screen.findByRole("button", { name: "Stop" })).toBeInTheDocument();
+    emitEvent("s1", { kind: "text_delta", text: "still answering" });
+    expect(screen.getByText("still answering")).toBeInTheDocument();
   });
 
   it("ignores events from other sessions", async () => {

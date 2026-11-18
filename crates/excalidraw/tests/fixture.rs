@@ -4,7 +4,7 @@
 
 use std::path::PathBuf;
 
-use excalidraw::{Color, Placement, Scene};
+use excalidraw::{Color, Placement, Scene, Target};
 
 const EMPTY: &str = r##"{"type":"excalidraw","version":2,"source":"x","elements":[],"appState":{"viewBackgroundColor":"#ffffff"},"files":{}}"##;
 
@@ -58,8 +58,32 @@ fn write_sample_for_the_ui_compatibility_test() {
         )
         .unwrap();
     s.add_arrow(&order, &delivery, Some("adds")).unwrap();
-    s.add_text("Spec: delivery window", Placement::default(), Some(28.0));
-    s.add_image(&png(1280, 720), Placement::default(), Some(640.0))
+    s.add_text(
+        "Spec: delivery window",
+        Placement::default(),
+        Some(28.0),
+        None,
+    );
+    let shot = s
+        .add_image(&png(1280, 720), Placement::default(), Some(640.0))
+        .unwrap();
+    // Annotations like a real spec: a red note pointing at the screenshot, and an outline.
+    let note = s.add_text(
+        "New: delivery window",
+        Placement {
+            x: Some(700.0),
+            y: None,
+        },
+        None,
+        Some(Color::Red),
+    );
+    let spot = |x, y| Target::OnImage {
+        image: shot.clone(),
+        x,
+        y,
+    };
+    s.add_pointer(&note, &spot(600.0, 300.0), None).unwrap();
+    s.add_highlight(&spot(500.0, 250.0), (300.0, 100.0), None)
         .unwrap();
     let temp = s
         .add_box(

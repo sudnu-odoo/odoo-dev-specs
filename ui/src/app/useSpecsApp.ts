@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
-import { chatReducer, emptyChat } from "../chat/chatState";
+import { emptyChat } from "../chat/chatState";
+import { emptySessionChats, sessionChatsReducer } from "../chat/sessionChats";
 import { DEFAULT_TITLE, titleFromMessage } from "../chat/title";
 import { api } from "../lib/api";
 import { confirmAction } from "../lib/confirm";
@@ -13,7 +14,12 @@ export function useSpecsApp() {
   const [projects, setProjects] = useState<ProjectInfo[]>([]);
   const [selected, setSelected] = useState<SessionRef | null>(null);
   const [session, setSession] = useState<SessionData | null>(null);
-  const [chat, dispatch] = useReducer(chatReducer, emptyChat);
+  // Every session's chat, so one can keep answering while another is open.
+  const [chats, dispatch] = useReducer(sessionChatsReducer, emptySessionChats);
+  const chat = {
+    ...((selected && chats.chats[selected.sessionId]) || emptyChat),
+    plan: chats.plan,
+  };
   const [error, setError] = useState<string | null>(null);
   // True while the diagram is shown in its own window instead of beside the chat.
   const [diagramDetached, setDiagramDetached] = useState(false);
@@ -51,6 +57,18 @@ export function useSpecsApp() {
       setError(String(e));
     }
   }, []);
+  // A session belongs to the provider of its first message ("Claude", "Antigravity").
+  const sessionProvider =
+    session?.meta.started && session.meta.provider ? displayName(session.meta.provider) : undefined;
+  // Keep the picker on a model of that provider when such a session is open.
+  useEffect(() => {
+    if (!sessionProvider) return;
+    setSelectedModel((current) => {
+      const own = models.filter((m) => m.provider === sessionProvider && !m.locked);
+      return own.some((m) => m.id === current) ? current : (own[0]?.id ?? current);
+    });
+  }, [sessionProvider, models]);
+
   // Read inside the event listener, which is registered only once.
   const selectedRef = useRef<SessionRef | null>(null);
   selectedRef.current = selected;
@@ -67,8 +85,7 @@ export function useSpecsApp() {
     refresh();
     reloadModels();
     const unlisten = api.onChatEvent(({ sessionId, event }) => {
-      if (sessionId !== selectedRef.current?.sessionId) return;
-      dispatch({ type: "event", event });
+      dispatch({ type: "event", sessionId, event });
       if (event.kind === "finished") refresh();
     });
     const unlistenDocked = api.onDiagramDocked(() => setDiagramDetached(false));
@@ -94,9 +111,18 @@ export function useSpecsApp() {
     // Never pair the new selection with the previous session's data while loading.
     setSession(null);
     try {
-      const data = await api.loadSession(ref);
+      const [data, running] = await Promise.all([
+        api.loadSession(ref),
+        // The backend knows which turns are still going, also after a UI reload.
+        api.runningSessions().catch(() => [] as string[]),
+      ]);
       setSession(data);
-      dispatch({ type: "loaded", transcript: data.transcript });
+      dispatch({
+        type: "opened",
+        sessionId: ref.sessionId,
+        transcript: data.transcript,
+        running: running.includes(ref.sessionId),
+      });
     } catch (e) {
       setError(String(e));
     }
@@ -105,7 +131,6 @@ export function useSpecsApp() {
   const close = useCallback(() => {
     setSelected(null);
     setSession(null);
-    dispatch({ type: "loaded", transcript: [] });
   }, []);
 
   const createProject = useCallback(
@@ -166,7 +191,17 @@ export function useSpecsApp() {
   const send = useCallback(
     async (text: string) => {
       if (!selected || !session) return;
-      dispatch({ type: "sent", text });
+      const sessionId = selected.sessionId;
+      dispatch({ type: "chat", sessionId, action: { type: "sent", text } });
+      // The first message ties the session to the provider of the chosen model.
+      const provider = models.find((m) => m.id === selectedModel)?.provider;
+      if (!session.meta.started && provider) {
+        setSession((s) =>
+          s && sameRef(selected, selectedRef.current)
+            ? { ...s, meta: { ...s.meta, started: true, provider: provider.toLowerCase() } }
+            : s,
+        );
+      }
       const isFirstMessage = !chat.items.some((i) => i.role === "user");
       const title = titleFromMessage(text);
       if (isFirstMessage && session.meta.title === DEFAULT_TITLE && title) {
@@ -175,10 +210,10 @@ export function useSpecsApp() {
       try {
         await api.sendMessage(selected, text, selectedModel || null, effort || null);
       } catch (e) {
-        dispatch({ type: "sendFailed", message: String(e) });
+        dispatch({ type: "chat", sessionId, action: { type: "sendFailed", message: String(e) } });
       }
     },
-    [chat.items, effort, refresh, selected, selectedModel, session],
+    [chat.items, effort, models, refresh, selected, selectedModel, session],
   );
 
   const login = useCallback((provider: string) => {
@@ -219,5 +254,11 @@ export function useSpecsApp() {
     effort,
     setEffort,
     login,
+    sessionProvider,
   };
+}
+
+/** "antigravity" -> "Antigravity", as providers are named in the model list. */
+function displayName(providerId: string) {
+  return providerId.charAt(0).toUpperCase() + providerId.slice(1);
 }
