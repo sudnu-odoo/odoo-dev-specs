@@ -44,6 +44,8 @@ pub struct AppState {
     pub probe: Arc<dyn Fn() -> Probe + Send + Sync>,
     /// The local Odoo databases the user manages; swappable in tests.
     pub odoo: Arc<OdooRuntime>,
+    /// The first-run setup: checks, installs and downloads.
+    pub setup: Arc<crate::setup::SetupState>,
 }
 
 impl AppState {
@@ -64,12 +66,19 @@ impl AppState {
                 OdooRuntime::default_root(),
                 Tools::default(),
             )),
+            setup: Arc::default(),
         }
     }
 
     /// Use another runtime folder and tools (tests).
     pub fn with_odoo(mut self, runtime: OdooRuntime) -> Self {
         self.odoo = Arc::new(runtime);
+        self
+    }
+
+    /// Replace how the setup reaches the machine (tests).
+    pub fn with_setup(mut self, hooks: crate::setup::SetupHooks) -> Self {
+        self.setup = Arc::new(crate::setup::SetupState::new(hooks));
         self
     }
 
@@ -543,6 +552,11 @@ pub fn register<R: Runtime>(builder: tauri::Builder<R>, state: AppState) -> taur
             start_database,
             stop_database,
             set_session_database,
+            crate::setup::setup_status,
+            crate::setup::install_tools,
+            crate::setup::download_odoo,
+            crate::setup::github_sign_in,
+            crate::setup::use_odoo_folder,
             diagram_window::open_diagram_window,
             diagram_window::dock_diagram_window,
         ])

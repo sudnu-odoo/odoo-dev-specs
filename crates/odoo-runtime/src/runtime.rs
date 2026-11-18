@@ -27,7 +27,9 @@ use serde::{Deserialize, Serialize};
 use crate::setup::adjust_requirements;
 
 mod databases;
+mod sources;
 pub use databases::{session_database, set_session_database, DatabaseInfo, NewDatabase};
+pub use sources::{release_version, Edition, NoAccess, SourceState, ENTERPRISE_GIT_URL};
 
 /// Public community repository; enterprise is configured separately.
 pub const ODOO_GIT_URL: &str = "https://github.com/odoo/odoo.git";

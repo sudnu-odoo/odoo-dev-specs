@@ -1,10 +1,12 @@
 mod commands;
 mod diagram_window;
 mod environment;
+mod setup;
 
 pub use commands::{register, AppState, ChatEventPayload, CHAT_EVENT};
 pub use diagram_window::{DIAGRAM_DOCKED_EVENT, DIAGRAM_SESSION_EVENT, DIAGRAM_WINDOW};
 pub use environment::provider_status;
+pub use setup::{GithubStatus, SetupHooks, SETUP_EVENT};
 
 use odoo_runtime::runtime::{Runtime, Tools};
 use specs_core::chat::ClaudeConfig;
