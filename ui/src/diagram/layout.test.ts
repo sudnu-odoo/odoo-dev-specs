@@ -78,5 +78,5 @@ describe("layoutElements", () => {
     expect(text.text).toContain("\n");
     expect(text.width).toBeLessThanOrEqual(box.width);
     expect(box.height).toBeGreaterThanOrEqual(text.height);
-  });
+  }, 20_000); // Loading Excalidraw is slow when the whole suite runs at once.
 });

@@ -11,6 +11,9 @@ export interface SidebarProps {
   onDeleteSession: (ref: SessionRef) => void;
   onRenameSession: (ref: SessionRef, title: string) => Promise<void>;
   onOpenSettings: () => void;
+  /** The Databases page is showing (instead of a session). */
+  databasesOpen?: boolean;
+  onOpenDatabases?: () => void;
 }
 
 export default function Sidebar({
@@ -22,6 +25,8 @@ export default function Sidebar({
   onDeleteSession,
   onRenameSession,
   onOpenSettings,
+  databasesOpen = false,
+  onOpenDatabases,
 }: SidebarProps) {
   return (
     <aside className="sidebar">
@@ -34,6 +39,24 @@ export default function Sidebar({
         </div>
         <NewProjectForm onCreate={onCreateProject} />
       </div>
+      {onOpenDatabases && (
+        <button
+          className={"sidebar-nav" + (databasesOpen ? " active" : "")}
+          aria-current={databasesOpen ? "page" : undefined}
+          onClick={onOpenDatabases}
+        >
+          <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+            <ellipse cx="8" cy="3.5" rx="5.5" ry="2" fill="none" stroke="currentColor" strokeWidth="1.3" />
+            <path
+              d="M2.5 3.5v9c0 1.1 2.5 2 5.5 2s5.5-.9 5.5-2v-9M2.5 8c0 1.1 2.5 2 5.5 2s5.5-.9 5.5-2"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.3"
+            />
+          </svg>
+          Databases
+        </button>
+      )}
       <nav className="tree" aria-label="Projects">
         {projects.length === 0 && (
           <p className="tree-empty">Create a project for your customer, then start a session in it.</p>
@@ -57,7 +80,7 @@ export default function Sidebar({
                 <SessionRow
                   key={s.id}
                   title={s.title}
-                  active={selected?.project === p.name && selected.sessionId === s.id}
+                  active={!databasesOpen && selected?.project === p.name && selected.sessionId === s.id}
                   onSelect={() => onSelect(ref)}
                   onRename={(title) => onRenameSession(ref, title)}
                   onDelete={() => onDeleteSession(ref)}

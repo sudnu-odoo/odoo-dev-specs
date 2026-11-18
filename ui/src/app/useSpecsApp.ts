@@ -216,6 +216,19 @@ export function useSpecsApp() {
     [chat.items, effort, models, refresh, selected, selectedModel, session],
   );
 
+  const setSessionDatabase = useCallback(
+    async (database: string | null) => {
+      if (!selected) return;
+      try {
+        await api.setSessionDatabase(selected, database);
+        await refresh();
+      } catch (e) {
+        setError(String(e));
+      }
+    },
+    [refresh, selected],
+  );
+
   const login = useCallback((provider: string) => {
     api.loginProvider(provider).catch((e) => setError(String(e)));
   }, []);
@@ -254,6 +267,7 @@ export function useSpecsApp() {
     effort,
     setEffort,
     login,
+    setSessionDatabase,
     sessionProvider,
   };
 }

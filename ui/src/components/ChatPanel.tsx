@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent, type ReactNode } from "react";
 import type { ChatItem, PlanUsage, TokenUsage } from "../chat/chatState";
 import type { Model } from "../lib/types";
 import Markdown from "./Markdown";
@@ -24,6 +24,8 @@ export interface ChatPanelProps {
   usage?: TokenUsage;
   /** Subscription limit usage; when known it replaces the raw token count. */
   plan?: PlanUsage;
+  /** More chips for the composer bar, after the model (e.g. the session's database). */
+  composerExtras?: ReactNode;
 }
 
 const NO_USAGE: TokenUsage = { inputTokens: 0, outputTokens: 0 };
@@ -45,6 +47,7 @@ export default function ChatPanel({
   sessionProvider,
   usage = NO_USAGE,
   plan,
+  composerExtras,
 }: ChatPanelProps) {
   const [draft, setDraft] = useState("");
   const bottom = useRef<HTMLDivElement>(null);
@@ -126,6 +129,7 @@ export default function ChatPanel({
               sessionProvider={sessionProvider}
             />
           )}
+          {hasSession && composerExtras}
           <span className="composer-spacer" />
           {running ? (
             <button

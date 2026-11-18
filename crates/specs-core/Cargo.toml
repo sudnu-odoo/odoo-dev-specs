@@ -11,7 +11,8 @@ dirs.workspace = true
 tokio.workspace = true
 uuid.workspace = true
 libc = "0.2"
+# Where a session keeps its chosen Odoo database (shared with the screenshot tool).
+odoo-runtime = { path = "../odoo-runtime" }
 
 [dev-dependencies]
 tempfile.workspace = true
-odoo-runtime = { path = "../odoo-runtime" }

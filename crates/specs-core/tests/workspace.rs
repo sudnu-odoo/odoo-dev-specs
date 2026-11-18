@@ -192,3 +192,25 @@ fn conversation_id_is_stored_and_old_sessions_still_load() {
     std::fs::write(&path, json.to_string()).unwrap();
     assert_eq!(ws.session("P", &s.id).unwrap().conversation_id, None);
 }
+
+#[test]
+fn a_session_shows_its_database_and_keeps_it_through_other_changes() {
+    let (ws, _d) = workspace();
+    ws.create_project("Acme").unwrap();
+    let s = ws.create_session("Acme", "Spec", "claude").unwrap();
+    assert_eq!(s.database, None, "Auto until chosen");
+
+    ws.set_database("Acme", &s.id, Some("specs_db_sales_demo"))
+        .unwrap();
+    assert_eq!(
+        ws.session("Acme", &s.id).unwrap().database.as_deref(),
+        Some("specs_db_sales_demo")
+    );
+    // Other changes to the session do not lose it.
+    ws.rename_session("Acme", &s.id, "Renamed").unwrap();
+    let listed = &ws.list().unwrap()[0].sessions[0];
+    assert_eq!(listed.database.as_deref(), Some("specs_db_sales_demo"));
+
+    ws.set_database("Acme", &s.id, None).unwrap();
+    assert_eq!(ws.session("Acme", &s.id).unwrap().database, None);
+}

@@ -86,19 +86,34 @@ for a in "$@"; do
 done
 if [ -n "$init" ]; then
   # Like odoo-bin: the database exists as soon as it starts, ready only at the end.
-  echo "$db" >> '{dbs}'
+  grep -qx "$db" '{dbs}' || echo "$db" >> '{dbs}'
   sleep 0.3
   {fail}
   touch '{d}/ready-'"$db"
+  # Remember what is installed, for the installed-apps query.
+  prev=""; for a in "$@"; do [ "$prev" = "-i" ] && echo "$a" | tr ',' '\n' >> '{d}/modules-'"$db"; prev="$a"; done
   exit 0
 fi
 exec /usr/bin/python3 -m http.server "$port" --bind 127.0.0.1"#,
                 d = d.display()
             ),
         );
+        // psql -d DB -At -c SQL: copies a database, lists installed apps, or lists databases.
         script(
             &bin.join("psql"),
-            &format!(r#"echo "psql" >> '{log}'; cat '{dbs}'"#),
+            &format!(
+                r#"echo "psql" >> '{log}'
+db="$2"; for last; do :; done
+case "$last" in
+  *"CREATE DATABASE"*)
+    echo "psql $last" >> '{log}'
+    new=$(echo "$last" | cut -d'"' -f2); old=$(echo "$last" | cut -d'"' -f4)
+    echo "$new" >> '{dbs}'; cp '{d}/modules-'"$old" '{d}/modules-'"$new" 2>/dev/null; exit 0;;
+  *ir_module_module*) cat '{d}/modules-'"$db" 2>/dev/null; exit 0;;
+esac
+cat '{dbs}'"#,
+                d = d.display()
+            ),
         );
         script(
             &bin.join("dropdb"),
@@ -452,4 +467,312 @@ fn environments_from_older_app_versions_are_rebuilt_once() {
         .ensure_database("19.0", &["sale".into()], true)
         .unwrap();
     assert_eq!(env.count("python -m venv"), 1, "the new one is");
+}
+
+// --- Databases the business team manages from the app ---
+
+use odoo_runtime::runtime::{session_database, set_session_database, NewDatabase};
+
+fn new_db(label: &str, modules: &[&str]) -> NewDatabase {
+    NewDatabase {
+        label: label.into(),
+        version: "19.0".into(),
+        modules: modules.iter().map(|m| m.to_string()).collect(),
+        demo_data: true,
+        enterprise: false,
+    }
+}
+
+#[test]
+fn a_named_database_is_created_and_listed_with_its_details() {
+    let env = Env::new(&[], false);
+    let db = env
+        .rt
+        .create_database(&new_db("Sales demo", &["sale_management"]))
+        .unwrap();
+    assert!(
+        db.name.starts_with("specs_"),
+        "only names the app may delete: {}",
+        db.name
+    );
+    assert!(env
+        .calls()
+        .iter()
+        .any(|c| c.contains("-i sale_management") && c.contains(&format!("-d {}", db.name))));
+
+    let list = env.rt.list_databases().unwrap();
+    assert_eq!(list.len(), 1);
+    let info = &list[0];
+    assert_eq!(
+        (info.label.as_str(), info.version.as_str()),
+        ("Sales demo", "19.0")
+    );
+    assert_eq!(info.modules, ["sale_management"]);
+    assert!(info.demo_data && !info.auto && !info.running);
+}
+
+#[test]
+fn two_databases_with_the_same_label_get_different_names() {
+    let env = Env::new(&[], false);
+    let a = env.rt.create_database(&new_db("Test", &[])).unwrap();
+    let b = env.rt.create_database(&new_db("Test", &[])).unwrap();
+    assert_ne!(a.name, b.name);
+}
+
+#[test]
+fn databases_made_for_screenshots_are_listed_as_automatic() {
+    let env = Env::new(&["specs_19_0_stock_demo"], false);
+    fs::write(
+        env.dir.path().join("modules-specs_19_0_stock_demo"),
+        "stock\n",
+    )
+    .unwrap();
+    env.rt
+        .ensure_database("19.0", &["sale".into()], true)
+        .unwrap();
+    let list = env.rt.list_databases().unwrap();
+    let made = list
+        .iter()
+        .find(|d| d.name == "specs_19_0_sale_demo")
+        .unwrap();
+    assert!(made.auto);
+    assert_eq!(made.modules, ["sale"]);
+    // One the catalog never saw (made by an older app version) is still listed,
+    // with the apps found in it, looked up only once.
+    let older = list
+        .iter()
+        .find(|d| d.name == "specs_19_0_stock_demo")
+        .unwrap();
+    assert!(older.auto);
+    assert_eq!(older.version, "19.0");
+    assert_eq!(older.modules, ["stock"]);
+    assert_eq!(older.label, "Auto 19.0: stock");
+    let asked = env.count("psql");
+    env.rt.list_databases().unwrap();
+    assert_eq!(env.count("psql"), asked + 1, "apps are looked up only once");
+}
+
+#[test]
+fn rename_changes_only_the_label() {
+    let env = Env::new(&[], false);
+    let db = env.rt.create_database(&new_db("Old", &[])).unwrap();
+    env.rt.rename_database(&db.name, "New name").unwrap();
+    let list = env.rt.list_databases().unwrap();
+    assert_eq!(
+        (list[0].name.as_str(), list[0].label.as_str()),
+        (db.name.as_str(), "New name")
+    );
+    assert!(
+        env.rt.rename_database(&db.name, "  ").is_err(),
+        "a name is needed"
+    );
+}
+
+#[test]
+fn duplicate_copies_the_database_its_files_and_details() {
+    let env = Env::new(&[], false);
+    let db = env
+        .rt
+        .create_database(&new_db("Sales demo", &["sale"]))
+        .unwrap();
+    let files = env
+        .rt
+        .data_dir()
+        .join("filestore")
+        .join(&db.name)
+        .join("ab");
+    fs::create_dir_all(&files).unwrap();
+    fs::write(files.join("f"), "x").unwrap();
+
+    let copy = env
+        .rt
+        .duplicate_database(&db.name, "Sales demo (copy)")
+        .unwrap();
+    assert_ne!(copy.name, db.name);
+    assert!(env.calls().iter().any(|c| c.contains(&format!(
+        "CREATE DATABASE \"{}\" TEMPLATE \"{}\"",
+        copy.name, db.name
+    ))));
+    assert_eq!(
+        fs::read_to_string(
+            env.rt
+                .data_dir()
+                .join("filestore")
+                .join(&copy.name)
+                .join("ab/f")
+        )
+        .unwrap(),
+        "x"
+    );
+    let list = env.rt.list_databases().unwrap();
+    let info = list.iter().find(|d| d.name == copy.name).unwrap();
+    assert_eq!(
+        (info.label.as_str(), info.modules.clone()),
+        ("Sales demo (copy)", vec!["sale".to_string()])
+    );
+}
+
+#[test]
+fn reset_rebuilds_a_fresh_database_with_the_same_apps() {
+    let env = Env::new(&[], false);
+    let db = env
+        .rt
+        .create_database(&new_db("Sales demo", &["sale"]))
+        .unwrap();
+    env.rt.reset_database(&db.name).unwrap();
+    assert!(env
+        .calls()
+        .iter()
+        .any(|c| c == &format!("dropdb --if-exists {}", db.name)));
+    let installs = env
+        .calls()
+        .iter()
+        .filter(|c| c.contains("-i sale") && c.contains(&db.name))
+        .count();
+    assert_eq!(installs, 2, "installed again after the drop");
+    assert_eq!(env.rt.list_databases().unwrap()[0].label, "Sales demo");
+}
+
+#[test]
+fn delete_forgets_the_database() {
+    let env = Env::new(&[], false);
+    let db = env.rt.create_database(&new_db("Gone", &[])).unwrap();
+    env.rt.delete_database(&db.name).unwrap();
+    assert!(env.rt.list_databases().unwrap().is_empty());
+}
+
+#[test]
+fn only_missing_apps_are_installed_into_a_database() {
+    let env = Env::new(&[], false);
+    let db = env
+        .rt
+        .create_database(&new_db("Sales demo", &["sale"]))
+        .unwrap();
+    env.rt
+        .install_missing(&db.name, &["sale".into(), "stock".into()])
+        .unwrap();
+    let last = env
+        .calls()
+        .into_iter()
+        .rfind(|c| c.starts_with("odoo "))
+        .unwrap();
+    assert!(
+        last.contains("-i stock ") && !last.contains("-i sale"),
+        "{last}"
+    );
+    let before = env.count("odoo ");
+    env.rt.install_missing(&db.name, &["stock".into()]).unwrap();
+    assert_eq!(env.count("odoo "), before, "nothing to install");
+    let info = env.rt.list_databases().unwrap();
+    assert_eq!(info[0].modules, ["sale", "stock"]);
+}
+
+#[test]
+fn a_database_can_be_started_and_stopped_on_its_own() {
+    let env = Env::new(&[], false);
+    let a = env.rt.create_database(&new_db("A", &[])).unwrap();
+    let b = env.rt.create_database(&new_db("B", &[])).unwrap();
+    let run_a = env.rt.ensure_running("19.0", &a.name).unwrap();
+    let run_b = env.rt.ensure_running("19.0", &b.name).unwrap();
+    let running = |name: &str| {
+        env.rt
+            .list_databases()
+            .unwrap()
+            .into_iter()
+            .find(|d| d.name == name)
+            .unwrap()
+            .running
+    };
+    assert!(running(&a.name) && running(&b.name));
+
+    env.rt.stop_database(&a.name).unwrap();
+    assert!(!running(&a.name));
+    assert!(TcpStream::connect(("127.0.0.1", run_a.port)).is_err());
+    assert!(
+        TcpStream::connect(("127.0.0.1", run_b.port)).is_ok(),
+        "the other keeps running"
+    );
+}
+
+#[test]
+fn a_session_remembers_its_database() {
+    let dir = tempfile::tempdir().unwrap();
+    assert_eq!(session_database(dir.path()), None, "Auto until chosen");
+    set_session_database(dir.path(), Some("specs_db_sales")).unwrap();
+    assert_eq!(
+        session_database(dir.path()).as_deref(),
+        Some("specs_db_sales")
+    );
+    set_session_database(dir.path(), None).unwrap();
+    assert_eq!(session_database(dir.path()), None);
+}
+
+#[test]
+fn new_databases_are_numbered_per_version() {
+    let env = Env::new(&[], false);
+    assert_eq!(env.rt.suggested_label("19.0").unwrap(), "db-19-1");
+    let a = env.rt.create_database(&new_db("db-19-1", &[])).unwrap();
+    let b = env.rt.create_database(&new_db("My own name", &[])).unwrap();
+    assert_eq!(
+        (a.name.as_str(), b.name.as_str()),
+        ("specs_db_19_1", "specs_db_19_2")
+    );
+    assert_eq!(env.rt.suggested_label("19.0").unwrap(), "db-19-3");
+    // Each version counts on its own.
+    assert_eq!(env.rt.suggested_label("18.0").unwrap(), "db-18-1");
+    let copy = env.rt.duplicate_database(&a.name, "copy").unwrap();
+    assert_eq!(copy.name, "specs_db_19_3");
+    // A deleted number is not given again while a higher one exists.
+    env.rt.delete_database(&b.name).unwrap();
+    assert_eq!(env.rt.suggested_label("19.0").unwrap(), "db-19-4");
+}
+
+fn with_enterprise(env: &Env) -> std::path::PathBuf {
+    env.rt.ensure_source("19.0").unwrap();
+    let enterprise = env
+        .rt
+        .source_dir("19.0")
+        .parent()
+        .unwrap()
+        .join("enterprise");
+    fs::create_dir_all(&enterprise).unwrap();
+    enterprise
+}
+
+#[test]
+fn the_edition_is_chosen_per_database_and_kept_when_it_runs() {
+    let env = Env::new(&[], false);
+    assert!(!env.rt.enterprise_available("19.0"));
+    let mut ee = new_db("EE", &[]);
+    ee.enterprise = true;
+    let err = env.rt.create_database(&ee).unwrap_err();
+    assert!(
+        format!("{err:#}").contains("Enterprise is not available for Odoo 19.0"),
+        "{err:#}"
+    );
+
+    let enterprise = with_enterprise(&env);
+    assert!(env.rt.enterprise_available("19.0"));
+    let ee = env.rt.create_database(&ee).unwrap();
+    let community = env.rt.create_database(&new_db("CE", &[])).unwrap();
+    assert!(ee.enterprise && !community.enterprise);
+    let path = enterprise.display().to_string();
+    let call_for = |db: &str, what: &str| {
+        env.calls()
+            .into_iter()
+            .find(|c| {
+                c.starts_with("odoo ") && c.contains(&format!("-d {db} ")) && c.contains(what)
+            })
+            .unwrap()
+    };
+    assert!(call_for(&ee.name, "-i").contains(&path));
+    assert!(
+        !call_for(&community.name, "-i").contains(&path),
+        "community even though enterprise is there"
+    );
+
+    env.rt.ensure_running("19.0", &community.name).unwrap();
+    env.rt.ensure_running("19.0", &ee.name).unwrap();
+    assert!(!call_for(&community.name, "--http-port").contains(&path));
+    assert!(call_for(&ee.name, "--http-port").contains(&path));
 }

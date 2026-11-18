@@ -55,5 +55,5 @@ describe.skipIf(!existsSync(FIXTURE))("diagrams written by the assistant's tools
 
     const image = (restored.elements as unknown as El[]).find((e) => e.type === "image")!;
     expect(restored.files[image.fileId!]?.dataURL).toMatch(/^data:image\/png;base64,/);
-  });
+  }, 20_000); // Loading Excalidraw is slow when the whole suite runs at once.
 });
