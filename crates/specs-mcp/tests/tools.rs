@@ -101,7 +101,7 @@ async fn offers_the_diagram_tools() {
             "diagram_move",
             "diagram_set_text",
             "diagram_summary",
-            "odoo_screenshot",
+            "odoo_screenshots",
         ]
     );
 }
@@ -296,8 +296,8 @@ async fn screenshots_need_the_runtime() {
     let client = connect(dir.path()).await;
     let result = call(
         &client,
-        "odoo_screenshot",
-        json!({"version": "19.0", "modules": [], "page": "/odoo", "name": "home"}),
+        "odoo_screenshots",
+        json!({"version": "19.0", "modules": [], "pages": [{"page": "/odoo", "name": "home"}]}),
     )
     .await;
     assert!(is_error(&result));
@@ -503,4 +503,100 @@ async fn answers_warn_about_overlaps() {
     )
     .await;
     assert!(!text(&moved).contains("overlaps"), "{}", text(&moved));
+}
+
+/// A screenshot with its map of what is on it, as odoo_screenshots saves them.
+async fn mapped_screenshot(dir: &TempDir, client: &RunningService<RoleClient, Client>) -> String {
+    let image = screenshot_on_scene(dir, client).await; // 1000x500 PNG shown at 500 wide
+    fs::write(
+        dir.path().join("screenshots/form.json"),
+        json!([
+            {"kind": "label", "name": "validity_date", "text": "Expiration", "x": 470, "y": 240, "w": 80, "h": 20},
+            {"kind": "field", "name": "validity_date", "text": "Dec 17", "x": 590, "y": 236, "w": 300, "h": 24},
+        ])
+        .to_string(),
+    )
+    .unwrap();
+    image
+}
+
+#[tokio::test]
+async fn annotations_can_target_what_is_on_the_screenshot_by_name() {
+    let dir = session();
+    let client = connect(dir.path()).await;
+    let shot = mapped_screenshot(&dir, &client).await;
+
+    // Outline: the field's box, a little padded, scaled to the half-size image.
+    let h = call(
+        &client,
+        "diagram_add_highlight",
+        json!({"image_id": shot, "anchor": "validity_date"}),
+    )
+    .await;
+    assert!(!is_error(&h), "{}", text(&h));
+    let h = element(&dir, &id_in(&text(&h)));
+    assert_eq!(
+        (h["x"].as_f64(), h["y"].as_f64()),
+        (Some(293.0), Some(116.0))
+    );
+    assert_eq!(
+        (h["width"].as_f64(), h["height"].as_f64()),
+        (Some(154.0), Some(16.0))
+    );
+
+    // A new field's label goes just below an existing one.
+    let t = call(
+        &client,
+        "diagram_add_text",
+        json!({"text": "Delivery Window", "image_id": shot, "anchor": "label:validity_date", "place": "below", "font_size": 16}),
+    )
+    .await;
+    assert!(!is_error(&t), "{}", text(&t));
+    let t = element(&dir, &id_in(&text(&t)));
+    assert_eq!(
+        (t["x"].as_f64(), t["y"].as_f64()),
+        (Some(235.0), Some(134.0))
+    );
+
+    // A pointer's tip lands on the right edge of the field, half way down.
+    let note = call(
+        &client,
+        "diagram_add_text",
+        json!({"text": "note", "x": 700, "y": 0, "color": "red"}),
+    )
+    .await;
+    let p = call(
+        &client,
+        "diagram_add_pointer",
+        json!({"from_id": id_in(&text(&note)), "image_id": shot, "anchor": "validity_date"}),
+    )
+    .await;
+    assert!(!is_error(&p), "{}", text(&p));
+    let a = element(&dir, &id_in(&text(&p)));
+    let tip = a["points"].as_array().unwrap().last().unwrap().clone();
+    assert_eq!(a["x"].as_f64().unwrap() + tip[0].as_f64().unwrap(), 445.0);
+    assert_eq!(a["y"].as_f64().unwrap() + tip[1].as_f64().unwrap(), 124.0);
+}
+
+#[tokio::test]
+async fn an_unknown_anchor_says_what_can_be_targeted() {
+    let dir = session();
+    let client = connect(dir.path()).await;
+    let shot = mapped_screenshot(&dir, &client).await;
+    let r = call(
+        &client,
+        "diagram_add_highlight",
+        json!({"image_id": shot, "anchor": "partner_id"}),
+    )
+    .await;
+    assert!(is_error(&r));
+    assert!(text(&r).contains("field:validity_date"), "{}", text(&r));
+    let r = call(
+        &client,
+        "diagram_add_highlight",
+        json!({"anchor": "validity_date"}),
+    )
+    .await;
+    assert!(is_error(&r));
+    assert!(text(&r).contains("image_id"), "{}", text(&r));
 }

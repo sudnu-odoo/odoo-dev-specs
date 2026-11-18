@@ -405,6 +405,24 @@ impl Scene {
         Ok(id)
     }
 
+    /// Remember which screenshot file an image shows (Excalidraw's `customData`).
+    pub fn set_source(&mut self, id: &str, source: &str) -> Result<()> {
+        let e = self
+            .find_mut(id)
+            .filter(|e| e["isDeleted"] != true)
+            .with_context(|| format!("There is no element with id {id}."))?;
+        e["customData"]["source"] = json!(source);
+        bump(e);
+        Ok(())
+    }
+
+    /// The screenshot file an image shows, when known.
+    pub fn source_of(&self, id: &str) -> Option<String> {
+        self.find_live(id)?["customData"]["source"]
+            .as_str()
+            .map(String::from)
+    }
+
     /// Width and height of a live element.
     pub fn size_of(&self, id: &str) -> Option<(f64, f64)> {
         self.find_live(id).map(|e| {

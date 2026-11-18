@@ -184,7 +184,7 @@ mod tests {
                 "/home/u/.local/share/odoo-dev-specs/runtime"
             ])
         );
-        assert!(SYSTEM_PROMPT.contains("odoo_screenshot"));
+        assert!(SYSTEM_PROMPT.contains("odoo_screenshots"));
     }
 
     #[test]

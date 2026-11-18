@@ -591,3 +591,22 @@ fn overlaps_between_texts_and_boxes_are_reported() {
     // Writing on a screenshot, or outlining part of it, is meant to overlap it.
     assert!(s.overlapping(&on_shot).is_empty());
 }
+
+#[test]
+fn an_image_remembers_the_screenshot_it_came_from() {
+    let (mut s, img) = scene_with_screenshot();
+    assert_eq!(s.source_of(&img), None);
+    s.set_source(&img, "screenshots/form.png").unwrap();
+    assert_eq!(s.source_of(&img).as_deref(), Some("screenshots/form.png"));
+    // Kept in the file, where Excalidraw keeps custom data.
+    assert_eq!(
+        element(&s, &img)["customData"]["source"],
+        "screenshots/form.png"
+    );
+    let reloaded = Scene::parse(&s.to_json()).unwrap();
+    assert_eq!(
+        reloaded.source_of(&img).as_deref(),
+        Some("screenshots/form.png")
+    );
+    assert!(s.set_source("nope", "x.png").is_err());
+}

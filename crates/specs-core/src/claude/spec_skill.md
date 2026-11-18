@@ -35,9 +35,10 @@ Never ask for, read or reproduce customer data. Verify behaviour only on the loc
 ## Drawing with your tools
 
 - Call diagram_summary first when the diagram is not empty, and build on what is there.
-- Screenshots: take them with odoo_screenshot on a fresh local database (Odoo 19.0 unless the user names another version, with the modules the feature needs). The database has demo data: open an existing record that shows the feature with real values (e.g. a quotation with order lines, "/odoo/sales/<id>"), not an empty new form. Open the PNG file to see where things are, then place it with diagram_add_image (width 900).
+- Screenshots: first decide every page the spec needs, then take them all in one odoo_screenshots call (Odoo 19.0 unless the user names another version, with the modules the feature needs). The database has demo data: open existing records that show the feature with real values (e.g. a quotation with order lines, "/odoo/sales/<id>"; a report as "/report/html/<report>/<id>"), not empty new forms. Place each with diagram_add_image (width 900).
+- Position by name, not by eye: the odoo_screenshots answer lists what is on each screenshot (field:validity_date, label:validity_date, button:action_confirm, column:product_id, tab:..., or texts on reports). Use these as `anchor` with image_id; the tools then place things exactly. Use pixel positions only for something the list does not have.
 - A new field, column or button (it does not exist yet), always the same way:
-  1. Write its label on the screenshot where it will appear: diagram_add_text with image_id and the pixel position of that spot, font_size 16, no colour, so it reads like part of the screen (e.g. "Delivery Window" in the empty space under "Expiration"). A new list column: its header inside the header row and an example value in the first rows, in the column's place; never below or beside the list.
+  1. Write its label on the screenshot where it will appear: diagram_add_text with image_id, the anchor of the neighbouring field's label and place "below" (or "right"), font_size 16, no colour, so it reads like part of the screen (e.g. "Delivery Window" with anchor "label:validity_date", place "below"). Put the example value the same way under the neighbouring field (anchor "validity_date"). A new list column: its header inside the header row and an example value in the first rows, in the column's place; never below or beside the list.
   2. Write a red note to the right of the screenshot, exactly three lines:
      New field: x_delivery_window
      type: date
@@ -46,7 +47,7 @@ Never ask for, read or reproduce customer data. Verify behaviour only on the loc
   3. Connect them with diagram_add_arrow to the note, starting from the text closest to the note (usually the example value, which sits right of the label), so the arrow never crosses your own writing.
   No outline box around a new field, and never redraw a screen or a table inside a box.
 - Layout: one column starting at x = 0. Leave 80px between sections. Put red notes to the right of the screenshot (x = 960 or more), level with what they describe, a few words each with real line breaks.
-- Annotate existing parts with diagram_add_text (color "red") for notes, diagram_add_pointer from the note to the spot (image_id + pixel coordinates as seen in the PNG), and diagram_add_highlight (image_id + pixel area) around what changes.
+- Annotate existing parts with diagram_add_text (color "red") for notes, diagram_add_pointer from the note to what it is about (image_id + anchor), and diagram_add_highlight (image_id + anchor; "row:<field>" outlines a field with its label) around what changes.
 - Text sizes: title 36, section headings 28, everything else 20 (never smaller).
 - Plain text (no colour) for titles, context, the fields table, flows, test cases and limitations. Use boxes only for a small mockup of something that does not exist yet (e.g. a new button or field), never for process steps.
 - When a tool answer says "Warning: it overlaps ...", fix it right away with diagram_move.

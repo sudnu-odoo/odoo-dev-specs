@@ -249,7 +249,7 @@ async fn real_claude_starts_a_screen_change_from_a_screenshot() {
         })
         .collect();
     assert!(
-        tools.iter().any(|t| t == "mcp__specs__odoo_screenshot"),
+        tools.iter().any(|t| t == "mcp__specs__odoo_screenshots"),
         "{tools:?}"
     );
     assert!(
