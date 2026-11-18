@@ -195,7 +195,7 @@ mod tests {
             "Vertical",
             "Never ask for, read or reproduce customer data",
             "Test cases",
-            "Known limitations",
+            "no \"known limitations\" section",
             "Reply in the language of the user's latest message",
             "New field: x_delivery_window",
             "Before your final answer, always call diagram_summary",
