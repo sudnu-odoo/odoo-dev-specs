@@ -1269,6 +1269,7 @@ button.usage-line:hover {
   padding: 7px 9px;
 }
 .dialog-field-row {
+  display: flex;
   flex-direction: row;
   align-items: center;
   justify-content: space-between;
@@ -1325,4 +1326,12 @@ button.usage-line:hover {
   font-size: 13px;
   color: var(--muted);
   text-align: left;
+}
+.dialog-hint {
+  font-size: 12px;
+  color: var(--muted);
+}
+.segmented button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }

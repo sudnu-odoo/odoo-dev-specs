@@ -479,6 +479,7 @@ fn new_db(label: &str, modules: &[&str]) -> NewDatabase {
         version: "19.0".into(),
         modules: modules.iter().map(|m| m.to_string()).collect(),
         demo_data: true,
+        enterprise: false,
     }
 }
 
@@ -704,4 +705,74 @@ fn a_session_remembers_its_database() {
     );
     set_session_database(dir.path(), None).unwrap();
     assert_eq!(session_database(dir.path()), None);
+}
+
+#[test]
+fn new_databases_are_numbered_per_version() {
+    let env = Env::new(&[], false);
+    assert_eq!(env.rt.suggested_label("19.0").unwrap(), "db-19-1");
+    let a = env.rt.create_database(&new_db("db-19-1", &[])).unwrap();
+    let b = env.rt.create_database(&new_db("My own name", &[])).unwrap();
+    assert_eq!(
+        (a.name.as_str(), b.name.as_str()),
+        ("specs_db_19_1", "specs_db_19_2")
+    );
+    assert_eq!(env.rt.suggested_label("19.0").unwrap(), "db-19-3");
+    // Each version counts on its own.
+    assert_eq!(env.rt.suggested_label("18.0").unwrap(), "db-18-1");
+    let copy = env.rt.duplicate_database(&a.name, "copy").unwrap();
+    assert_eq!(copy.name, "specs_db_19_3");
+    // A deleted number is not given again while a higher one exists.
+    env.rt.delete_database(&b.name).unwrap();
+    assert_eq!(env.rt.suggested_label("19.0").unwrap(), "db-19-4");
+}
+
+fn with_enterprise(env: &Env) -> std::path::PathBuf {
+    env.rt.ensure_source("19.0").unwrap();
+    let enterprise = env
+        .rt
+        .source_dir("19.0")
+        .parent()
+        .unwrap()
+        .join("enterprise");
+    fs::create_dir_all(&enterprise).unwrap();
+    enterprise
+}
+
+#[test]
+fn the_edition_is_chosen_per_database_and_kept_when_it_runs() {
+    let env = Env::new(&[], false);
+    assert!(!env.rt.enterprise_available("19.0"));
+    let mut ee = new_db("EE", &[]);
+    ee.enterprise = true;
+    let err = env.rt.create_database(&ee).unwrap_err();
+    assert!(
+        format!("{err:#}").contains("Enterprise is not available for Odoo 19.0"),
+        "{err:#}"
+    );
+
+    let enterprise = with_enterprise(&env);
+    assert!(env.rt.enterprise_available("19.0"));
+    let ee = env.rt.create_database(&ee).unwrap();
+    let community = env.rt.create_database(&new_db("CE", &[])).unwrap();
+    assert!(ee.enterprise && !community.enterprise);
+    let path = enterprise.display().to_string();
+    let call_for = |db: &str, what: &str| {
+        env.calls()
+            .into_iter()
+            .find(|c| {
+                c.starts_with("odoo ") && c.contains(&format!("-d {db} ")) && c.contains(what)
+            })
+            .unwrap()
+    };
+    assert!(call_for(&ee.name, "-i").contains(&path));
+    assert!(
+        !call_for(&community.name, "-i").contains(&path),
+        "community even though enterprise is there"
+    );
+
+    env.rt.ensure_running("19.0", &community.name).unwrap();
+    env.rt.ensure_running("19.0", &ee.name).unwrap();
+    assert!(!call_for(&community.name, "--http-port").contains(&path));
+    assert!(call_for(&ee.name, "--http-port").contains(&path));
 }

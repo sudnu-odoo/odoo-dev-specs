@@ -638,6 +638,15 @@ fn databases_are_listed_and_a_session_keeps_its_choice() {
 }
 
 #[test]
+fn the_new_database_form_suggests_the_next_name_and_the_editions() {
+    let h = harness(true);
+    let form = h.call("database_form", json!({"version": "19.0"})).unwrap();
+    assert_eq!(form["suggestedLabel"], "db-19-1");
+    assert_eq!(form["enterpriseAvailable"], false);
+    assert!(h.call("database_form", json!({"version": "nope"})).is_err());
+}
+
+#[test]
 fn database_mistakes_come_back_as_readable_messages() {
     let h = harness(true);
     let err = h

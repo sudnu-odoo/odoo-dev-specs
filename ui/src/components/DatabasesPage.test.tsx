@@ -43,6 +43,11 @@ function setup(over: Partial<Databases> = {}, usage: Record<string, number> = {}
     duplicate: vi.fn(),
     reset: vi.fn(),
     remove: vi.fn(),
+    // Enterprise is set up for 19.0 only; names count per version.
+    formFor: vi.fn(async (version: string) => ({
+      suggestedLabel: `db-${version.replace(".0", "")}-3`,
+      enterpriseAvailable: version === "19.0",
+    })),
     ...over,
   } as unknown as Databases;
   render(<DatabasesPage dbs={dbs} usage={usage} />);
@@ -71,25 +76,56 @@ describe("DatabasesPage", () => {
     expect(within(stopped).queryByRole("button", { name: "Stop" })).not.toBeInTheDocument();
   });
 
-  it("creates a database with a name, version, apps and demo data", async () => {
+  it("suggests the next numbered name and creates with the chosen edition, apps and demo data", async () => {
     const dbs = setup();
     await userEvent.click(screen.getByRole("button", { name: "New database" }));
     const dialog = screen.getByRole("dialog", { name: "New database" });
-    const create = within(dialog).getByRole("button", { name: "Create" });
-    expect(create).toBeDisabled();
-    await userEvent.type(within(dialog).getByLabelText("Name"), "Warehouse test");
-    await userEvent.selectOptions(within(dialog).getByLabelText("Odoo version"), "18.0");
+    const name = within(dialog).getByLabelText("Name");
+    expect(await within(dialog).findByDisplayValue("db-19-3")).toBe(name);
+    // Enterprise by default where it is set up.
+    expect(within(dialog).getByRole("radio", { name: "Enterprise" })).toHaveAttribute("aria-checked", "true");
+    await userEvent.click(within(dialog).getByRole("radio", { name: "Community" }));
     await userEvent.click(within(dialog).getByRole("button", { name: "Inventory" }));
     await userEvent.click(within(dialog).getByRole("button", { name: "Purchase" }));
-    await userEvent.click(within(dialog).getByRole("radio", { name: "Off" }));
-    await userEvent.click(create);
+    await userEvent.click(within(dialog).getAllByRole("radio", { name: "Off" })[0]);
+    await userEvent.click(within(dialog).getByRole("button", { name: "Create" }));
     expect(dbs.create).toHaveBeenCalledWith({
-      label: "Warehouse test",
-      version: "18.0",
+      label: "db-19-3",
+      version: "19.0",
       modules: ["stock", "purchase"],
       demoData: false,
+      enterprise: false,
     });
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("follows the version: its next name, and no Enterprise where it is not set up", async () => {
+    setup();
+    await userEvent.click(screen.getByRole("button", { name: "New database" }));
+    const dialog = screen.getByRole("dialog", { name: "New database" });
+    await within(dialog).findByDisplayValue("db-19-3");
+    await userEvent.selectOptions(within(dialog).getByLabelText("Odoo version"), "18.0");
+    expect(await within(dialog).findByDisplayValue("db-18-3")).toBeInTheDocument();
+    const enterprise = within(dialog).getByRole("radio", { name: "Enterprise" });
+    expect(enterprise).toBeDisabled();
+    expect(within(dialog).getByRole("radio", { name: "Community" })).toHaveAttribute("aria-checked", "true");
+    expect(dialog).toHaveTextContent("Enterprise is not set up for Odoo 18.0");
+  });
+
+  it("keeps a name the user typed when the version changes", async () => {
+    const dbs = setup();
+    await userEvent.click(screen.getByRole("button", { name: "New database" }));
+    const dialog = screen.getByRole("dialog", { name: "New database" });
+    const name = await within(dialog).findByDisplayValue("db-19-3");
+    await userEvent.clear(name);
+    await userEvent.type(name, "Sales demo");
+    await userEvent.selectOptions(within(dialog).getByLabelText("Odoo version"), "17.0");
+    await within(dialog).findByText(/not set up for Odoo 17.0/);
+    expect(name).toHaveValue("Sales demo");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Create" }));
+    expect(dbs.create).toHaveBeenCalledWith(
+      expect.objectContaining({ label: "Sales demo", version: "17.0" }),
+    );
   });
 
   it("says creating takes a while, and shows what a busy database is doing", () => {

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { api } from "../lib/api";
 import { confirmAction } from "../lib/confirm";
 import { openExternal } from "../lib/openExternal";
-import type { DatabaseInfo, NewDatabase } from "../lib/types";
+import type { DatabaseForm, DatabaseInfo, NewDatabase } from "../lib/types";
 
 /** What is happening to a database right now, shown on its row. */
 export type DatabaseBusy = "starting" | "stopping" | "copying" | "resetting" | "deleting";
@@ -123,8 +123,16 @@ export function useDatabases() {
     [act],
   );
 
+  /** What the form suggests for a version; a plain default when it cannot be asked. */
+  const formFor = useCallback(
+    (version: string): Promise<DatabaseForm> =>
+      api.databaseForm(version).catch(() => ({ suggestedLabel: "", enterpriseAvailable: false })),
+    [],
+  );
+
   return {
     databases,
+    formFor,
     busy,
     creating,
     error,

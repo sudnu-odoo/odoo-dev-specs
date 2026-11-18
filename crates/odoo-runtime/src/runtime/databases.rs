@@ -47,6 +47,9 @@ pub struct NewDatabase {
     pub version: String,
     pub modules: Vec<String>,
     pub demo_data: bool,
+    /// Run with the enterprise source (only where this computer has it).
+    #[serde(default)]
+    pub enterprise: bool,
 }
 
 type Catalog = BTreeMap<String, DatabaseInfo>;
@@ -144,17 +147,22 @@ impl Runtime {
         validate_version(&new.version)?;
         let label = new.label.trim();
         ensure!(!label.is_empty(), "Give the database a name.");
+        ensure!(
+            !new.enterprise || self.enterprise_available(&new.version),
+            "Enterprise is not available for Odoo {} on this computer.",
+            new.version
+        );
         let _setup = self.setup_lock(&new.version)?;
-        let name = self.unique_name(label)?;
+        let name = self.numbered_name(&new.version)?;
         let modules = clean_modules(&new.modules);
-        self.install(&new.version, &name, &modules, new.demo_data)?;
+        self.install(&new.version, &name, &modules, new.demo_data, new.enterprise)?;
         let info = DatabaseInfo {
             name: name.clone(),
             label: label.into(),
             version: new.version.clone(),
             modules,
             demo_data: new.demo_data,
-            enterprise: self.enterprise_dir(&new.version).is_some(),
+            enterprise: new.enterprise,
             auto: false,
             created_at: now_ms(),
             last_used: now_ms(),
@@ -187,7 +195,7 @@ impl Runtime {
         let _setup = self.setup_lock(&source.version)?;
         // PostgreSQL copies only a database nobody is connected to.
         self.stop_database(name)?;
-        let copy = self.unique_name(label)?;
+        let copy = self.numbered_name(&source.version)?;
         self.run_to_end(
             &self.tools.psql,
             &[
@@ -225,7 +233,13 @@ impl Runtime {
         let _setup = self.setup_lock(&info.version)?;
         self.drop_database(name)?;
         let modules = clean_modules(&info.modules);
-        self.install(&info.version, name, &modules, info.demo_data)?;
+        self.install(
+            &info.version,
+            name,
+            &modules,
+            info.demo_data,
+            info.enterprise,
+        )?;
         self.edit_catalog(|c| {
             c.insert(
                 name.into(),
@@ -272,7 +286,7 @@ impl Runtime {
         let _setup = self.setup_lock(&info.version)?;
         self.stop_database(name)?;
         let python = self.ensure_venv(&info.version)?;
-        let mut args = self.odoo_args(&info.version, name);
+        let mut args = self.odoo_args(&info.version, name, info.enterprise);
         args.extend(["-i".into(), missing.join(",")]);
         args.extend(demo_flags(&info.version, info.demo_data));
         args.push("--stop-after-init".into());
@@ -354,6 +368,7 @@ impl Runtime {
         name: &str,
         modules: &[String],
         demo_data: bool,
+        enterprise: bool,
     ) -> Result<()> {
         let python = self.ensure_venv(version)?;
         let mods = if modules.is_empty() {
@@ -361,7 +376,7 @@ impl Runtime {
         } else {
             modules.join(",")
         };
-        let mut args = self.odoo_args(version, name);
+        let mut args = self.odoo_args(version, name, enterprise);
         args.extend(["-i".into(), mods.clone()]);
         args.extend(demo_flags(version, demo_data));
         args.push("--stop-after-init".into());
@@ -484,39 +499,45 @@ impl Runtime {
             .collect())
     }
 
-    /// `specs_db_<label>`, made unique among existing databases.
-    fn unique_name(&self, label: &str) -> Result<String> {
-        let slug: String = label
-            .chars()
-            .map(|c| {
-                if c.is_ascii_alphanumeric() {
-                    c.to_ascii_lowercase()
-                } else {
-                    '_'
-                }
-            })
-            .collect::<String>()
-            .split('_')
-            .filter(|p| !p.is_empty())
-            .collect::<Vec<_>>()
-            .join("_");
-        let mut base = format!(
-            "{DB_PREFIX}db_{}",
-            if slug.is_empty() { "database" } else { &slug }
-        );
-        base.truncate(MAX_NAME - 4);
-        let taken: Vec<String> = self
+    /// Whether this computer has the enterprise source for the version.
+    pub fn enterprise_available(&self, version: &str) -> bool {
+        self.enterprise_dir(version).is_some()
+    }
+
+    /// Whether the database runs with enterprise: as recorded, or for databases the
+    /// catalog never saw, as their name says.
+    pub(super) fn runs_enterprise(&self, database: &str) -> bool {
+        self.load_catalog()
+            .get(database)
+            .map_or(database.contains("_ee_"), |info| info.enterprise)
+    }
+
+    /// The name the "New database" form suggests: "db-19-1", "db-19-2"…
+    pub fn suggested_label(&self, version: &str) -> Result<String> {
+        validate_version(version)?;
+        let short = version.strip_suffix(".0").unwrap_or(version);
+        Ok(format!("db-{short}-{}", self.next_number(version)?))
+    }
+
+    /// `specs_db_19_<n>`: numbered per version, after the highest number in use.
+    fn numbered_name(&self, version: &str) -> Result<String> {
+        Ok(format!(
+            "{}{}",
+            number_prefix(version),
+            self.next_number(version)?
+        ))
+    }
+
+    fn next_number(&self, version: &str) -> Result<u32> {
+        let prefix = number_prefix(version);
+        let highest = self
             .databases()?
             .into_iter()
             .chain(self.load_catalog().into_keys())
-            .collect();
-        let mut name = base.clone();
-        let mut n = 2;
-        while taken.contains(&name) {
-            name = format!("{base}_{n}");
-            n += 1;
-        }
-        Ok(name)
+            .filter_map(|n| n.strip_prefix(&prefix)?.parse::<u32>().ok())
+            .max()
+            .unwrap_or(0);
+        Ok(highest + 1)
     }
 
     fn catalog_path(&self) -> PathBuf {
@@ -546,6 +567,16 @@ impl Runtime {
         fs::rename(&tmp, self.catalog_path()).context("saving the database list")?;
         Ok(out)
     }
+}
+
+/// "19.0" -> "specs_db_19_", "saas-18.2" -> "specs_db_saas_18_2_".
+fn number_prefix(version: &str) -> String {
+    let short = version.strip_suffix(".0").unwrap_or(version);
+    let short: String = short
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
+        .collect();
+    format!("{DB_PREFIX}db_{short}_")
 }
 
 fn copy_dir(from: &Path, to: &Path) -> Result<()> {

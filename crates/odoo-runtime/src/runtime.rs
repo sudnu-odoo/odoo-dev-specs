@@ -379,7 +379,7 @@ impl Runtime {
         let enterprise = self.enterprise_dir(version);
         let name = database_name(version, modules, demo_data, enterprise.is_some());
         if !self.databases()?.contains(&name) {
-            self.install(version, &name, modules, demo_data)?;
+            self.install(version, &name, modules, demo_data, enterprise.is_some())?;
         }
         self.remember_auto(&name, version, modules, demo_data, enterprise.is_some())?;
         Ok(name)
@@ -405,7 +405,7 @@ impl Runtime {
         let mut state = self.load_state();
         let python = self.ensure_venv(version)?;
         let port = free_port()?;
-        let mut args = self.odoo_args(version, database);
+        let mut args = self.odoo_args(version, database, self.runs_enterprise(database));
         args.extend(["--http-port".into(), port.to_string()]);
 
         fs::create_dir_all(self.state_dir())?;
@@ -465,11 +465,12 @@ impl Runtime {
     }
 
     /// Common `odoo-bin` arguments: program, database, addons path, data dir.
-    fn odoo_args(&self, version: &str, database: &str) -> Vec<String> {
+    /// `enterprise` adds the enterprise source, when this computer has it.
+    fn odoo_args(&self, version: &str, database: &str, enterprise: bool) -> Vec<String> {
         let source = self.source_dir(version);
         let mut addons: Vec<String> = Vec::new();
-        if let Some(enterprise) = self.enterprise_dir(version) {
-            addons.push(enterprise.display().to_string());
+        if let Some(dir) = self.enterprise_dir(version).filter(|_| enterprise) {
+            addons.push(dir.display().to_string());
         }
         addons.push(source.join("addons").display().to_string());
         vec![

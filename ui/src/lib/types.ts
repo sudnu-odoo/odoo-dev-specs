@@ -121,4 +121,13 @@ export interface NewDatabase {
   version: string;
   modules: string[];
   demoData: boolean;
+  /** Run with the enterprise source; only where the computer has it. */
+  enterprise: boolean;
+}
+
+/** What the "New database" form starts with for a version. */
+export interface DatabaseForm {
+  /** The next free name, e.g. "db-19-3". */
+  suggestedLabel: string;
+  enterpriseAvailable: boolean;
 }

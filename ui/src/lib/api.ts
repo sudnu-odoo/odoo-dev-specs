@@ -4,6 +4,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type {
   ChatEventPayload,
+  DatabaseForm,
   DatabaseInfo,
   NewDatabase,
   EnvReport,
@@ -47,6 +48,8 @@ export const api = {
   /** Open the provider's login in a terminal window. */
   loginProvider: (provider: string) => invoke<void>("login_provider", { provider }),
   listDatabases: () => invoke<DatabaseInfo[]>("list_databases"),
+  /** The suggested name and available editions for a new database of this version. */
+  databaseForm: (version: string) => invoke<DatabaseForm>("database_form", { version }),
   createDatabase: (database: NewDatabase) => invoke<DatabaseInfo>("create_database", { database }),
   renameDatabase: (name: string, label: string) => invoke<void>("rename_database", { name, label }),
   duplicateDatabase: (name: string, label: string) =>

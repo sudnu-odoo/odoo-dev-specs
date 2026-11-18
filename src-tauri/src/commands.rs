@@ -425,6 +425,27 @@ pub async fn create_database(
     with_odoo(&state, move |o| o.create_database(&database)).await
 }
 
+/// What the "New database" form starts with for a version.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DatabaseForm {
+    /// The next free name, e.g. "db-19-3".
+    pub suggested_label: String,
+    /// This computer has the enterprise source for the version.
+    pub enterprise_available: bool,
+}
+
+#[tauri::command]
+pub async fn database_form(state: State<'_, AppState>, version: String) -> CmdResult<DatabaseForm> {
+    with_odoo(&state, move |o| {
+        Ok(DatabaseForm {
+            suggested_label: o.suggested_label(&version)?,
+            enterprise_available: o.enterprise_available(&version),
+        })
+    })
+    .await
+}
+
 #[tauri::command]
 pub async fn rename_database(
     state: State<'_, AppState>,
@@ -513,6 +534,7 @@ pub fn register<R: Runtime>(builder: tauri::Builder<R>, state: AppState) -> taur
             provider_status,
             login_provider,
             list_databases,
+            database_form,
             create_database,
             rename_database,
             duplicate_database,

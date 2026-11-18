@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import type { Databases, DatabaseBusy } from "../app/useDatabases";
 import { ODOO_APPS, ODOO_VERSIONS, appsText, sizeText, usedText } from "../lib/odooApps";
-import type { DatabaseInfo } from "../lib/types";
+import type { DatabaseForm, DatabaseInfo, NewDatabase } from "../lib/types";
 
 export interface DatabasesPageProps {
   dbs: Databases;
@@ -77,6 +77,7 @@ export default function DatabasesPage({ dbs, usage, defaultVersion = "19.0" }: D
       {creatingForm && (
         <NewDatabaseDialog
           defaultVersion={defaultVersion}
+          formFor={dbs.formFor}
           onCancel={() => setCreatingForm(false)}
           onCreate={(db) => {
             setCreatingForm(false);
@@ -259,25 +260,48 @@ function Dialog({ title, children }: { title: string; children: React.ReactNode 
 
 function NewDatabaseDialog({
   defaultVersion,
+  formFor,
   onCancel,
   onCreate,
 }: {
   defaultVersion: string;
+  formFor: (version: string) => Promise<DatabaseForm>;
   onCancel: () => void;
-  onCreate: (db: { label: string; version: string; modules: string[]; demoData: boolean }) => void;
+  onCreate: (db: NewDatabase) => void;
 }) {
   const [label, setLabel] = useState("");
+  // Until the user types a name, the next free one is suggested ("db-19-3").
+  const [named, setNamed] = useState(false);
   const [version, setVersion] = useState(
     ODOO_VERSIONS.includes(defaultVersion) ? defaultVersion : ODOO_VERSIONS[0],
   );
   const [modules, setModules] = useState<string[]>([]);
   const [demoData, setDemoData] = useState(true);
+  const [form, setForm] = useState<DatabaseForm | null>(null);
+  const [enterprise, setEnterprise] = useState(false);
+
+  useEffect(() => {
+    let current = true;
+    formFor(version).then((f) => {
+      if (!current) return;
+      setForm(f);
+      // Enterprise when the computer has it, like the assistant's own databases.
+      setEnterprise(f.enterpriseAvailable);
+      if (!named) setLabel(f.suggestedLabel);
+    });
+    return () => {
+      current = false;
+    };
+    // `named` is read once per version change on purpose.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [formFor, version]);
 
   function submit(e: FormEvent) {
     e.preventDefault();
-    if (label.trim()) onCreate({ label: label.trim(), version, modules, demoData });
+    if (label.trim()) onCreate({ label: label.trim(), version, modules, demoData, enterprise });
   }
   const toggle = (m: string) => setModules((ms) => (ms.includes(m) ? ms.filter((x) => x !== m) : [...ms, m]));
+  const enterpriseOff = form !== null && !form.enterpriseAvailable;
 
   return (
     <Dialog title="New database">
@@ -288,7 +312,11 @@ function NewDatabaseDialog({
             autoFocus
             value={label}
             placeholder="e.g. Sales demo"
-            onChange={(e) => setLabel(e.target.value)}
+            onFocus={(e) => e.target.select()}
+            onChange={(e) => {
+              setNamed(true);
+              setLabel(e.target.value);
+            }}
           />
         </label>
         <label className="dialog-field">
@@ -299,6 +327,38 @@ function NewDatabaseDialog({
             ))}
           </select>
         </label>
+        <div className="dialog-field">
+          <div className="dialog-field-row">
+            <span>Edition</span>
+            <div className="segmented" role="radiogroup" aria-label="Edition">
+              <button
+                type="button"
+                role="radio"
+                aria-checked={!enterprise}
+                onClick={() => setEnterprise(false)}
+              >
+                Community
+              </button>
+              <button
+                type="button"
+                role="radio"
+                aria-checked={enterprise}
+                disabled={enterpriseOff}
+                title={
+                  enterpriseOff ? `No enterprise source for Odoo ${version} on this computer` : undefined
+                }
+                onClick={() => setEnterprise(true)}
+              >
+                Enterprise
+              </button>
+            </div>
+          </div>
+          {enterpriseOff && (
+            <small className="dialog-hint">
+              Enterprise is not set up for Odoo {version} on this computer.
+            </small>
+          )}
+        </div>
         <fieldset className="dialog-field">
           <legend>Apps</legend>
           <div className="app-chips">
