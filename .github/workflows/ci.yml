@@ -51,7 +51,9 @@ jobs:
   release:
     needs: test
     if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
-    runs-on: ubuntu-24.04
+    # Built on the oldest Ubuntu we support: a program built on 22.04 also runs
+    # on 24.04, never the other way round.
+    runs-on: ubuntu-22.04
     permissions:
       contents: write # create the tag and the release
     steps:

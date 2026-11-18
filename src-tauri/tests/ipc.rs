@@ -184,7 +184,7 @@ fn harness_with(with_claude: bool, antigravity: Option<PathBuf>) -> Harness {
                 python: Some((3, 12)),
                 python_venv: true,
                 git: true,
-                gh: true,
+                gh: Some((2, 45)),
                 chrome: true,
             };
             Ok("== Done".into())
