@@ -177,8 +177,8 @@ export default function ExcalidrawPanel({
       <div className="artifact-canvas">
         <Excalidraw
           excalidrawAPI={setApi}
-          // Light by default, like paper and the PNG export. Dark (chosen in Settings)
-          // inverts the whole canvas, Odoo screenshots included.
+          // Light by default, like paper and the PNG export; chosen in Settings. In dark,
+          // Excalidraw counter-inverts images, so screenshots keep their real colours.
           theme={theme}
           initialData={initialData}
           onChange={(elements, appState, files) =>

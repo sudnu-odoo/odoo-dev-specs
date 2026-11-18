@@ -133,14 +133,7 @@ export default function SettingsPanel({ onClose }: SettingsPanelProps) {
               )}
               <h3>Diagram</h3>
               <div className="settings-card">
-                <Row
-                  label="Theme"
-                  hint={
-                    canvasTheme === "light"
-                      ? "Light like paper, as the PNG export"
-                      : "Dark also inverts the colours of the screenshots"
-                  }
-                >
+                <Row label="Theme" hint="Screenshots always keep their real colours">
                   <div className="segmented" role="radiogroup" aria-label="Diagram theme">
                     {(["light", "dark", "system"] as CanvasTheme[]).map((t) => (
                       <button

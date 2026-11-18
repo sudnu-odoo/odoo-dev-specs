@@ -111,6 +111,6 @@ describe("SettingsPanel", () => {
     expect(theme.querySelector('[aria-checked="true"]')).toHaveTextContent("Light");
     await userEvent.click(screen.getByRole("radio", { name: "Dark" }));
     expect(localStorage.getItem("canvasTheme")).toBe("dark");
-    expect(screen.getByText(/inverts the colours of the screenshots/)).toBeInTheDocument();
+    expect(screen.getByText(/keep their real colours/)).toBeInTheDocument();
   });
 });
