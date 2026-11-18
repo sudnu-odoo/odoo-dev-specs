@@ -1,22 +1,26 @@
 import { useCallback, useEffect, useState } from "react";
-import type { PlanUsage } from "../chat/chatState";
 import { api } from "../lib/api";
+import { setCanvasTheme, useCanvasTheme, type CanvasTheme } from "../lib/canvasTheme";
 import type { EnvCheck, EnvReport, ProviderStatus, Settings } from "../lib/types";
-import { UsageBar } from "./UsageMeter";
 
 export interface SettingsPanelProps {
   onClose: () => void;
-  /** Plan limits, once the assistant has reported them. */
-  plan?: PlanUsage;
 }
 
-const STATUS_ICON = { ok: "✓", warning: "!", missing: "✗" } as const;
+const VERSIONS = ["19.0", "18.0", "17.0"];
 
-export default function SettingsPanel({ onClose, plan }: SettingsPanelProps) {
+type Page = "general" | "ai";
+
+/**
+ * Settings laid out like Antigravity's: a few pages on the left; on the right, titled
+ * cards of rows, each a name, one grey line and one control. Changes save at once.
+ */
+export default function SettingsPanel({ onClose }: SettingsPanelProps) {
+  const [page, setPage] = useState<Page>("general");
+  const canvasTheme = useCanvasTheme();
   const [report, setReport] = useState<EnvReport | null>(null);
   const [assistants, setAssistants] = useState<ProviderStatus[] | null>(null);
   const [settings, setSettings] = useState<Settings | null>(null);
-  const [saved, setSaved] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -34,6 +38,12 @@ export default function SettingsPanel({ onClose, plan }: SettingsPanelProps) {
     return () => window.removeEventListener("focus", checkAssistants);
   }, [checkAssistants]);
 
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
   async function login(provider: string) {
     try {
       await api.loginProvider(provider);
@@ -42,133 +52,178 @@ export default function SettingsPanel({ onClose, plan }: SettingsPanelProps) {
     }
   }
 
-  function edit(change: Partial<Settings>) {
-    setSettings((s) => (s ? { ...s, ...change } : s));
-    setSaved(false);
-  }
-
-  async function save() {
+  async function edit(change: Partial<Settings>) {
     if (!settings) return;
+    const next = { ...settings, ...change };
+    setSettings(next);
     try {
-      await api.saveSettings(settings);
-      setSaved(true);
+      await api.saveSettings(next);
       setError(null);
     } catch (e) {
       setError(String(e));
     }
   }
 
+  // Only what needs fixing is shown; a healthy setup stays out of the way.
+  const problems = report?.checks.filter((c) => c.status !== "ok" && c.key !== "ai") ?? [];
+  const versions =
+    settings && !VERSIONS.includes(settings.defaultVersion)
+      ? [settings.defaultVersion, ...VERSIONS]
+      : VERSIONS;
+
   return (
-    <div className="settings-overlay" role="dialog" aria-label="Settings">
+    <div
+      className="settings-overlay"
+      role="dialog"
+      aria-label="Settings"
+      onMouseDown={(e) => e.target === e.currentTarget && onClose()}
+    >
       <div className="settings-panel">
-        <header className="settings-header">
-          <h2>Settings</h2>
-          <button className="icon-btn" aria-label="Close settings" onClick={onClose}>
+        <nav className="settings-nav" aria-label="Settings pages">
+          <div className="settings-nav-title">Settings</div>
+          <button aria-current={page === "general" ? "page" : undefined} onClick={() => setPage("general")}>
+            General
+          </button>
+          <button aria-current={page === "ai" ? "page" : undefined} onClick={() => setPage("ai")}>
+            AI services
+          </button>
+        </nav>
+        <div className="settings-body">
+          <button className="icon-btn settings-close" aria-label="Close settings" onClick={onClose}>
             ×
           </button>
-        </header>
-
-        {error && (
-          <div role="alert" className="banner-error">
-            {error}
-          </div>
-        )}
-
-        <section className="settings-section">
-          <h3>AI assistants</h3>
-          <ul className="env-list">
-            {assistants?.map((a) => (
-              <AssistantRow key={a.provider} status={a} onLogin={() => login(a.provider)} />
-            ))}
-            {!assistants && <li className="env-loading">Checking…</li>}
-          </ul>
-        </section>
-
-        <section className="settings-section" role="region" aria-labelledby="usage-title">
-          <h3 id="usage-title">Usage</h3>
-          {plan?.five_hour ? (
-            <div className="settings-usage">
-              <UsageBar label="Current session" window={plan.five_hour} />
-              {plan.seven_day && <UsageBar label="Weekly · all models" window={plan.seven_day} />}
+          {error && (
+            <div role="alert" className="banner-error">
+              {error}
             </div>
-          ) : (
-            <p className="settings-note">
-              Your Claude plan limits appear here, and under the message box, after the first reply in this
-              app.
-            </p>
           )}
-        </section>
 
-        <section className="settings-section">
-          <h3>Setup check</h3>
-          <ul className="env-list">
-            {report?.checks.map((c) => <EnvRow key={c.key} check={c} />)}
-            {!report && <li className="env-loading">Checking…</li>}
-          </ul>
-        </section>
+          {page === "general" && (
+            <>
+              <h2>General</h2>
+              <p className="settings-lead">The local Odoo used for screenshots.</p>
+              {settings && (
+                <div className="settings-card">
+                  <Row label="Odoo version" hint="Version used for new specs">
+                    <select
+                      aria-label="Odoo version"
+                      value={settings.defaultVersion}
+                      onChange={(e) => edit({ defaultVersion: e.target.value })}
+                    >
+                      {versions.map((v) => (
+                        <option key={v}>{v}</option>
+                      ))}
+                    </select>
+                  </Row>
+                  <Row label="Demo data" hint="Screenshots show example records">
+                    <div className="segmented" role="radiogroup" aria-label="Demo data">
+                      {[true, false].map((on) => (
+                        <button
+                          key={String(on)}
+                          role="radio"
+                          aria-checked={settings.demoData === on}
+                          onClick={() => edit({ demoData: on })}
+                        >
+                          {on ? "On" : "Off"}
+                        </button>
+                      ))}
+                    </div>
+                  </Row>
+                </div>
+              )}
+              <h3>Diagram</h3>
+              <div className="settings-card">
+                <Row label="Theme" hint="Screenshots always keep their real colours">
+                  <div className="segmented" role="radiogroup" aria-label="Diagram theme">
+                    {(["light", "dark", "system"] as CanvasTheme[]).map((t) => (
+                      <button
+                        key={t}
+                        role="radio"
+                        aria-checked={canvasTheme === t}
+                        onClick={() => setCanvasTheme(t)}
+                      >
+                        {t[0].toUpperCase() + t.slice(1)}
+                      </button>
+                    ))}
+                  </div>
+                </Row>
+              </div>
+              {problems.length > 0 && (
+                <>
+                  <h3>Needs attention</h3>
+                  <div className="settings-card">
+                    {problems.map((c) => (
+                      <ProblemRow key={c.key} check={c} />
+                    ))}
+                  </div>
+                </>
+              )}
+            </>
+          )}
 
-        {settings && (
-          <section className="settings-section">
-            <h3>Preferences</h3>
-            <label className="field">
-              <span>Default Odoo version</span>
-              <input
-                value={settings.defaultVersion}
-                onChange={(e) => edit({ defaultVersion: e.target.value })}
-              />
-            </label>
-            <label className="field field-check">
-              <input
-                type="checkbox"
-                checked={settings.demoData}
-                onChange={(e) => edit({ demoData: e.target.checked })}
-              />
-              <span>Load demo data in screenshot databases (realistic records)</span>
-            </label>
-            <div className="settings-actions">
-              <button className="btn btn-primary" onClick={save} disabled={saved}>
-                {saved ? "Saved" : "Save"}
-              </button>
-            </div>
-          </section>
-        )}
+          {page === "ai" && (
+            <>
+              <h2>AI services</h2>
+              <p className="settings-lead">Pick the model in the chat; log in here or there.</p>
+              <div className="settings-card">
+                {assistants?.map((a) => (
+                  <AssistantRow key={a.provider} status={a} onLogin={() => login(a.provider)} />
+                ))}
+                {!assistants && <div className="settings-row settings-muted">Checking…</div>}
+              </div>
+            </>
+          )}
+        </div>
       </div>
     </div>
   );
 }
 
-function EnvRow({ check }: { check: EnvCheck }) {
+function Row({ label, hint, children }: { label: string; hint: string; children: React.ReactNode }) {
   return (
-    <li className="env-row" data-status={check.status}>
-      <span className="env-icon" aria-hidden="true">
-        {STATUS_ICON[check.status]}
-      </span>
-      <div className="env-text">
-        <span className="env-label">{check.label}</span>
-        <span className="env-detail">{check.detail}</span>
-        {check.hint && check.status !== "ok" && <span className="env-hint">{check.hint}</span>}
+    <div className="settings-row">
+      <div className="settings-row-text">
+        <span>{label}</span>
+        <small>{hint}</small>
       </div>
-    </li>
+      {children}
+    </div>
+  );
+}
+
+function ProblemRow({ check }: { check: EnvCheck }) {
+  return (
+    <div className="settings-row" data-status={check.status}>
+      <div className="settings-row-text">
+        <span>{check.label}</span>
+        <small>{check.hint ?? check.detail}</small>
+      </div>
+      <span className="status-pill" data-status={check.status}>
+        {check.status === "missing" ? "Missing" : "Check"}
+      </span>
+    </div>
   );
 }
 
 function AssistantRow({ status, onLogin }: { status: ProviderStatus; onLogin: () => void }) {
-  const state = !status.installed ? "missing" : status.loggedIn ? "ok" : "warning";
-  const text = !status.installed ? "Not installed" : status.loggedIn ? "Logged in" : "Not logged in";
+  const hint = status.provider === "claude" ? "Claude Code CLI" : "Antigravity CLI (agy)";
   return (
-    <li className="env-row" data-status={state} aria-label={status.name}>
-      <span className="env-icon" aria-hidden="true">
-        {STATUS_ICON[state]}
-      </span>
-      <div className="env-text">
-        <span className="env-label">{status.name}</span>
-        <span className="env-detail">{text}</span>
+    <div className="settings-row" role="group" aria-label={status.name}>
+      <div className="settings-row-text">
+        <span>{status.name}</span>
+        <small>{hint}</small>
       </div>
-      {status.installed && !status.loggedIn && (
+      {!status.installed ? (
+        <span className="status-pill">Not installed</span>
+      ) : status.loggedIn ? (
+        <span className="status-pill" data-status="ok">
+          Connected
+        </span>
+      ) : (
         <button className="btn btn-small" aria-label={`Log in to ${status.name}`} onClick={onLogin}>
           Log in
         </button>
       )}
-    </li>
+    </div>
   );
 }

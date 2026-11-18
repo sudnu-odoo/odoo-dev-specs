@@ -134,7 +134,7 @@ describe("App", () => {
     ];
     await openSession("Delivery window");
     await waitFor(() =>
-      expect(screen.getByRole("button", { name: /^Model/ })).toHaveTextContent("Gemini Flash (High)"),
+      expect(screen.getByRole("button", { name: /^Model/ })).toHaveTextContent("Gemini FlashHigh"),
     );
     await userEvent.type(message(), "x{Enter}");
     expect(mocked.sendMessage).toHaveBeenCalledWith(
@@ -154,7 +154,7 @@ describe("App", () => {
     await userEvent.type(message(), "x{Enter}");
     emitEvent("s2", { kind: "finished", is_error: false, message: null });
     await userEvent.click(screen.getByRole("button", { name: /^Model/ }));
-    expect(screen.getByRole("menuitemradio", { name: /Gemini Flash/ })).toHaveAttribute(
+    expect(screen.getByRole("menuitemradio", { name: /Antigravity/ })).toHaveAttribute(
       "aria-disabled",
       "true",
     );

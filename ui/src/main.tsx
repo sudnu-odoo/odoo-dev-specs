@@ -4,6 +4,8 @@ import App from "./App";
 import DiagramWindow from "./DiagramWindow";
 import type { DiagramTarget } from "./lib/types";
 import "./styles.css";
+// Before Excalidraw draws anything: WebKitGTK lacks the canvas filter it needs in dark mode.
+import "./lib/canvasImageFilter";
 
 declare global {
   interface Window {

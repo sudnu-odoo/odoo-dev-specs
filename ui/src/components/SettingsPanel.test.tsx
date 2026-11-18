@@ -37,27 +37,30 @@ beforeEach(() => {
 });
 
 describe("SettingsPanel", () => {
-  it("shows the environment checks and current settings", async () => {
+  it("shows the Odoo settings on the General page", async () => {
     render(<SettingsPanel onClose={vi.fn()} />);
-    expect(await screen.findByText("/usr/bin/git")).toBeInTheDocument();
-    // The AI check reports which CLI is installed, in its detail line.
-    expect(screen.getByText("AI assistant").closest(".env-row")).toHaveTextContent("Claude Code");
-    expect(await screen.findByLabelText("Default Odoo version")).toHaveValue("19.0");
-    expect(screen.getByLabelText(/demo data/i)).toBeChecked();
+    expect(await screen.findByLabelText("Odoo version")).toHaveValue("19.0");
+    expect(screen.getByRole("radio", { name: "On" })).toHaveAttribute("aria-checked", "true");
   });
 
-  it("saves an edited setting", async () => {
+  it("saves each change at once, without a Save button", async () => {
     render(<SettingsPanel onClose={vi.fn()} />);
-    await screen.findByLabelText("Default Odoo version");
-    await userEvent.clear(screen.getByLabelText("Default Odoo version"));
-    await userEvent.type(screen.getByLabelText("Default Odoo version"), "18.0");
-    await userEvent.click(screen.getByLabelText(/demo data/i));
-    await userEvent.click(screen.getByRole("button", { name: "Save" }));
-    expect(mocked.saveSettings).toHaveBeenCalledWith({
-      provider: "claude",
+    await userEvent.selectOptions(await screen.findByLabelText("Odoo version"), "18.0");
+    expect(mocked.saveSettings).toHaveBeenLastCalledWith({ ...settings, defaultVersion: "18.0" });
+    await userEvent.click(screen.getByRole("radio", { name: "Off" }));
+    expect(mocked.saveSettings).toHaveBeenLastCalledWith({
+      ...settings,
       defaultVersion: "18.0",
       demoData: false,
     });
+    expect(screen.queryByRole("button", { name: "Save" })).not.toBeInTheDocument();
+  });
+
+  it("hides a healthy setup and shows only what needs fixing", async () => {
+    render(<SettingsPanel onClose={vi.fn()} />);
+    await screen.findByLabelText("Odoo version");
+    expect(screen.queryByText("/usr/bin/git")).not.toBeInTheDocument();
+    expect(screen.queryByText("Needs attention")).not.toBeInTheDocument();
   });
 
   it("shows a fix hint for a failing check", async () => {
@@ -75,8 +78,8 @@ describe("SettingsPanel", () => {
     });
     render(<SettingsPanel onClose={vi.fn()} />);
     expect(await screen.findByText("Install Google Chrome or Chromium.")).toBeInTheDocument();
-    const row = screen.getByText("Chrome").closest("[data-status]");
-    expect(row).toHaveAttribute("data-status", "missing");
+    expect(screen.getByText("Needs attention")).toBeInTheDocument();
+    expect(screen.getByText("Chrome").closest("[data-status]")).toHaveAttribute("data-status", "missing");
   });
 
   it("can be closed", async () => {
@@ -86,37 +89,28 @@ describe("SettingsPanel", () => {
     expect(onClose).toHaveBeenCalled();
   });
 
-  it("no longer asks for a preferred assistant: the model menu decides", async () => {
+  it("has no usage or preferred assistant: those live in the chat", async () => {
     render(<SettingsPanel onClose={vi.fn()} />);
-    await screen.findByLabelText("Default Odoo version");
+    await screen.findByLabelText("Odoo version");
     expect(screen.queryByText(/preferred assistant/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/usage/i)).not.toBeInTheDocument();
   });
 
-  it("lists each AI assistant with its login status and a login button", async () => {
+  it("lists each AI service as connected or with a login button", async () => {
     render(<SettingsPanel onClose={vi.fn()} />);
-    const claude = await screen.findByRole("listitem", { name: "Claude" });
-    expect(claude).toHaveTextContent("Logged in");
-    const agy = screen.getByRole("listitem", { name: "Antigravity" });
-    expect(agy).toHaveTextContent("Not logged in");
+    await userEvent.click(await screen.findByRole("button", { name: "AI services" }));
+    expect(await screen.findByRole("group", { name: "Claude" })).toHaveTextContent("Connected");
     await userEvent.click(screen.getByRole("button", { name: "Log in to Antigravity" }));
     expect(mocked.loginProvider).toHaveBeenCalledWith("antigravity");
   });
 
-  it("shows plan usage once the assistant has reported it", async () => {
-    const now = Date.now() / 1000;
-    render(
-      <SettingsPanel
-        onClose={vi.fn()}
-        plan={{ five_hour: { utilization: 0.3, resets_at: now + 3600 }, seven_day: null }}
-      />,
-    );
-    const usage = await screen.findByRole("region", { name: "Usage" });
-    expect(usage).toHaveTextContent("30%");
-  });
-
-  it("explains when usage will appear", async () => {
+  it("chooses the diagram theme, light by default", async () => {
+    localStorage.clear();
     render(<SettingsPanel onClose={vi.fn()} />);
-    const usage = await screen.findByRole("region", { name: "Usage" });
-    expect(usage).toHaveTextContent(/after the first reply/i);
+    const theme = await screen.findByRole("radiogroup", { name: "Diagram theme" });
+    expect(theme.querySelector('[aria-checked="true"]')).toHaveTextContent("Light");
+    await userEvent.click(screen.getByRole("radio", { name: "Dark" }));
+    expect(localStorage.getItem("canvasTheme")).toBe("dark");
+    expect(screen.getByText(/keep their real colours/)).toBeInTheDocument();
   });
 });
