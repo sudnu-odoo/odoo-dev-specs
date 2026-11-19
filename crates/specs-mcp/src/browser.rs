@@ -201,8 +201,7 @@ async fn capture_all(
             .context("Chrome could not take the screenshot.")?;
         std::fs::write(&shot.out, png)
             .with_context(|| format!("Could not save {}.", shot.out.display()))?;
-        let found: String = tab
-            .evaluate(ELEMENTS_JS)
+        let found: String = evaluate_settled(&tab, ELEMENTS_JS)
             .await
             .ok()
             .and_then(|r| r.into_value().ok())
@@ -212,11 +211,25 @@ async fn capture_all(
     Ok(maps)
 }
 
+/// Run a script in the page. While a page is being replaced (a redirect right after
+/// it loaded), Chrome answers "Cannot find context": wait a moment and ask again.
+async fn evaluate_settled(tab: &Page, js: &str) -> Result<chromiumoxide::js::EvaluationResult> {
+    let started = Instant::now();
+    loop {
+        match tab.evaluate(js).await {
+            Ok(result) => return Ok(result),
+            Err(e) if started.elapsed() < RENDER_TIMEOUT && e.to_string().contains("context") => {
+                tokio::time::sleep(Duration::from_millis(200)).await;
+            }
+            Err(e) => return Err(e.into()),
+        }
+    }
+}
+
 async fn log_in_if_asked(tab: &Page) -> Result<()> {
     // Fill and submit the login form directly: clicking fields depends on layout and
     // fails on Odoo's real login page. The form carries its own CSRF token.
-    let submitted = tab
-        .evaluate(LOGIN_JS)
+    let submitted = evaluate_settled(tab, LOGIN_JS)
         .await?
         .into_value::<bool>()
         .unwrap_or(false);
