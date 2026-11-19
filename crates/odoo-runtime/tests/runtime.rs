@@ -1028,6 +1028,10 @@ fn the_app_has_its_own_ssh_key_and_git_uses_only_it() {
         ssh.contains("IdentitiesOnly=yes") && ssh.contains("BatchMode=yes"),
         "{ssh}"
     );
+    assert!(
+        ssh.contains("-F /dev/null"),
+        "never the person's own SSH config: {ssh}"
+    );
 }
 
 #[test]
