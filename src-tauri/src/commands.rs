@@ -44,6 +44,8 @@ pub struct AppState {
     pub probe: Arc<dyn Fn() -> Probe + Send + Sync>,
     /// The local Odoo databases the user manages; swappable in tests.
     pub odoo: Arc<OdooRuntime>,
+    /// The first-run setup: checks, installs and downloads.
+    pub setup: Arc<crate::setup::SetupState>,
 }
 
 impl AppState {
@@ -64,12 +66,19 @@ impl AppState {
                 OdooRuntime::default_root(),
                 Tools::default(),
             )),
+            setup: Arc::default(),
         }
     }
 
     /// Use another runtime folder and tools (tests).
     pub fn with_odoo(mut self, runtime: OdooRuntime) -> Self {
         self.odoo = Arc::new(runtime);
+        self
+    }
+
+    /// Replace how the setup reaches the machine (tests).
+    pub fn with_setup(mut self, hooks: crate::setup::SetupHooks) -> Self {
+        self.setup = Arc::new(crate::setup::SetupState::new(hooks));
         self
     }
 
@@ -493,6 +502,21 @@ pub async fn stop_database(state: State<'_, AppState>, name: String) -> CmdResul
     with_odoo(&state, move |o| o.stop_database(&name)).await
 }
 
+/// Set where the client's Odoo runs for this session ("online" or "sh").
+#[tauri::command]
+pub fn set_session_hosting(
+    state: State<'_, AppState>,
+    project: String,
+    session_id: String,
+    hosting: Option<String>,
+) -> CmdResult<()> {
+    state
+        .workspace
+        .set_hosting(&project, &session_id, hosting.as_deref())
+        .map(|_| ())
+        .map_err(user_error)
+}
+
 /// Choose the database a session's screenshots use (`None` = Auto).
 #[tauri::command]
 pub fn set_session_database(
@@ -543,6 +567,14 @@ pub fn register<R: Runtime>(builder: tauri::Builder<R>, state: AppState) -> taur
             start_database,
             stop_database,
             set_session_database,
+            set_session_hosting,
+            crate::update::check_update,
+            crate::update::install_update,
+            crate::setup::setup_status,
+            crate::setup::install_tools,
+            crate::setup::download_odoo,
+            crate::setup::github_sign_in,
+            crate::setup::use_odoo_folder,
             diagram_window::open_diagram_window,
             diagram_window::dock_diagram_window,
         ])

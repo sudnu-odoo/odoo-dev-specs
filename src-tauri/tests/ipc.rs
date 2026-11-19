@@ -8,8 +8,10 @@ use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
 use odoo_dev_specs_lib::{register, AppState, CHAT_EVENT, DIAGRAM_SESSION_EVENT, DIAGRAM_WINDOW};
+use odoo_dev_specs_lib::{GithubStatus, SetupHooks};
 use odoo_runtime::doctor::Probe;
 use odoo_runtime::runtime::{Runtime as OdooRuntime, Tools};
+use odoo_runtime::system::SystemProbe;
 use serde_json::{json, Value};
 use specs_core::chat::ClaudeConfig;
 use specs_core::providers::ProviderStatus;
@@ -82,6 +84,10 @@ fn fake_agy() -> PathBuf {
 struct Harness {
     /// Login commands the app asked to open (instead of opening a terminal).
     launched: Arc<Mutex<Vec<Vec<String>>>>,
+    /// The fake computer the setup checks; starts as a fresh Ubuntu.
+    machine: Arc<Mutex<SystemProbe>>,
+    /// Scripts the setup ran as root (instead of asking for a password).
+    scripts: Arc<Mutex<Vec<String>>>,
     app: App<MockRuntime>,
     window: WebviewWindow<MockRuntime>,
     root: PathBuf,
@@ -136,15 +142,62 @@ fn harness_with(with_claude: bool, antigravity: Option<PathBuf>) -> Harness {
     )
     .unwrap();
     fs::set_permissions(&psql, fs::Permissions::from_mode(0o755)).unwrap();
+    // git: a quick fake checkout, refused like GitHub does when `deny` exists.
+    let git = dir.path().join("git");
+    fs::write(
+        &git,
+        format!(
+            "#!/bin/sh\n[ -f '{d}/deny' ] && {{ echo 'remote: Repository not found.' >&2; exit 128; }}\n\
+             printf 'Receiving objects:  40%% (4/10)\\r' >&2\n\
+             for last; do :; done\nmkdir -p \"$last/web_enterprise\"\n",
+            d = dir.path().display()
+        ),
+    )
+    .unwrap();
+    fs::set_permissions(&git, fs::Permissions::from_mode(0o755)).unwrap();
     let odoo = OdooRuntime::new(
         dir.path().join("runtime"),
         Tools {
             psql,
+            git,
             ..Tools::default()
         },
     );
+    let machine = Arc::new(Mutex::new(SystemProbe {
+        python: Some((3, 12)),
+        ..SystemProbe::default()
+    }));
+    let scripts: Arc<Mutex<Vec<String>>> = Arc::default();
+    let (probe_machine, fix_machine, ran) = (machine.clone(), machine.clone(), scripts.clone());
+    let fail_install = dir.path().join("fail-install");
+    let hooks = SetupHooks {
+        probe: Arc::new(move || probe_machine.lock().unwrap().clone()),
+        elevate: Arc::new(move |script: &str| {
+            ran.lock().unwrap().push(script.to_string());
+            if fail_install.exists() {
+                return Err("The password was not given, so nothing was installed.".into());
+            }
+            *fix_machine.lock().unwrap() = SystemProbe {
+                postgres_installed: true,
+                postgres_running: true,
+                postgres_user: true,
+                python: Some((3, 12)),
+                python_venv: true,
+                git: true,
+                gh: Some((2, 45)),
+                chrome: true,
+            };
+            Ok("== Done".into())
+        }),
+        github: Arc::new(|| GithubStatus {
+            installed: true,
+            signed_in: false,
+        }),
+        user: "ana".into(),
+    };
     let state = AppState::new(Workspace::new(&root), claude, settings)
         .with_odoo(odoo)
+        .with_setup(hooks)
         .with_probe(test_probe)
         .with_providers(move || statuses.clone())
         .with_launcher(move |cmd| {
@@ -159,6 +212,8 @@ fn harness_with(with_claude: bool, antigravity: Option<PathBuf>) -> Harness {
         .unwrap();
     Harness {
         launched,
+        machine,
+        scripts,
         app,
         window,
         root,
@@ -660,4 +715,137 @@ fn database_mistakes_come_back_as_readable_messages() {
         )
         .unwrap_err();
     assert!(err.contains("Give the database a name"), "{err}");
+}
+
+#[test]
+fn a_fresh_computer_is_set_up_with_one_password_prompt() {
+    let h = harness(true);
+    let status = h.call("setup_status", json!({"version": "19.0"})).unwrap();
+    assert_eq!(status["system"]["ready"], false);
+    assert_eq!(status["community"]["state"], "missing");
+    assert_eq!(
+        status["github"],
+        json!({"installed": true, "signedIn": false})
+    );
+    assert_eq!(status["aiReady"], true);
+
+    let events = collect_events(&h, "setup-progress", || {
+        h.call("install_tools", json!({})).unwrap();
+    });
+    let scripts = h.scripts.lock().unwrap().clone();
+    assert_eq!(scripts.len(), 1, "one password prompt");
+    assert!(
+        scripts[0].contains("apt-get install -y postgresql"),
+        "{}",
+        scripts[0]
+    );
+    assert!(scripts[0].contains("createuser --superuser 'ana'"));
+    assert_eq!(events.last().unwrap()["task"]["state"], "done");
+    let status = h.call("setup_status", json!({"version": "19.0"})).unwrap();
+    assert_eq!(status["system"]["ready"], true);
+    assert_eq!(status["tasks"]["tools"]["state"], "done");
+
+    // Nothing missing any more: no password asked again.
+    h.call("install_tools", json!({})).unwrap();
+    assert_eq!(h.scripts.lock().unwrap().len(), 1);
+}
+
+#[test]
+fn a_cancelled_password_is_reported_and_can_be_retried() {
+    let h = harness(true);
+    fs::write(h._dir.path().join("fail-install"), "").unwrap();
+    let err = h.call("install_tools", json!({})).unwrap_err();
+    assert!(err.contains("password was not given"), "{err}");
+    let status = h.call("setup_status", json!({"version": "19.0"})).unwrap();
+    assert_eq!(status["tasks"]["tools"]["state"], "failed");
+    fs::remove_file(h._dir.path().join("fail-install")).unwrap();
+    h.call("install_tools", json!({})).unwrap();
+    assert!(h.machine.lock().unwrap().postgres_user);
+}
+
+fn wait_for_task(h: &Harness, key: &str) -> Value {
+    for _ in 0..100 {
+        let status = h.call("setup_status", json!({"version": "19.0"})).unwrap();
+        let task = status["tasks"][key].clone();
+        if task["state"] != "running" && !task.is_null() {
+            return task;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    panic!("{key} never finished");
+}
+
+#[test]
+fn enterprise_downloads_in_the_background_or_says_there_is_no_access_yet() {
+    let h = harness(true);
+    fs::write(h._dir.path().join("deny"), "").unwrap();
+    h.call(
+        "download_odoo",
+        json!({"version": "19.0", "edition": "enterprise"}),
+    )
+    .unwrap();
+    let task = wait_for_task(&h, "enterprise:19.0");
+    assert_eq!(task["state"], "noAccess");
+    assert!(task["message"]
+        .as_str()
+        .unwrap()
+        .contains("no access to Odoo Enterprise yet"));
+
+    // Access granted later: Try again.
+    fs::remove_file(h._dir.path().join("deny")).unwrap();
+    h.call(
+        "download_odoo",
+        json!({"version": "19.0", "edition": "enterprise"}),
+    )
+    .unwrap();
+    assert_eq!(wait_for_task(&h, "enterprise:19.0")["state"], "done");
+    let status = h.call("setup_status", json!({"version": "19.0"})).unwrap();
+    assert_eq!(status["enterprise"]["state"], "ready");
+}
+
+#[test]
+fn github_sign_in_opens_in_a_terminal_and_wrong_folders_are_explained() {
+    let h = harness(true);
+    h.call("github_sign_in", json!({})).unwrap();
+    let launched = h.launched.lock().unwrap().clone();
+    assert!(
+        launched[0].join(" ").contains("gh auth login"),
+        "{launched:?}"
+    );
+    assert!(launched[0].join(" ").contains("gh auth setup-git"));
+
+    let err = h
+        .call(
+            "use_odoo_folder",
+            json!({"version": "19.0", "edition": "community", "path": "/tmp"}),
+        )
+        .unwrap_err();
+    assert!(err.contains("is not an Odoo source folder"), "{err}");
+}
+
+#[test]
+fn a_session_keeps_its_hosting_and_new_ones_follow_the_client() {
+    let h = harness(true);
+    let id = h.new_session();
+    h.call(
+        "set_session_hosting",
+        json!({"project": "Acme", "sessionId": id, "hosting": "online"}),
+    )
+    .unwrap();
+    let projects = h.call("list_projects", json!({})).unwrap();
+    assert_eq!(projects[0]["sessions"][0]["hosting"], "online");
+    let next = h
+        .call(
+            "create_session",
+            json!({"project": "Acme", "title": "Next"}),
+        )
+        .unwrap();
+    assert_eq!(next["hosting"], "online");
+    let err = h
+        .call(
+            "set_session_hosting",
+            json!({"project": "Acme", "sessionId": id, "hosting": "cloud"}),
+        )
+        .unwrap_err();
+    assert!(err.contains("Unknown hosting"), "{err}");
 }

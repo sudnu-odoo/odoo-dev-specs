@@ -70,6 +70,12 @@ fn clean_modules(modules: &[String]) -> Vec<String> {
     out
 }
 
+/// Databases made for screenshots end in `_demo` when they have demo data; those
+/// without a suffix were made before demo data loaded on Odoo 19 and are empty.
+fn demo_from_name(name: &str) -> bool {
+    name.ends_with("_demo")
+}
+
 /// "specs_19_0_sale_demo" -> "19.0", for databases the catalog never saw.
 fn version_from_name(name: &str) -> String {
     let mut parts = name.trim_start_matches(DB_PREFIX).split('_');
@@ -120,6 +126,10 @@ impl Runtime {
                     .get(&name)
                     .cloned()
                     .unwrap_or_else(|| self.discover(&name));
+                // Older app versions wrote the demo-data flag wrong; the name says it.
+                if info.auto && !name.starts_with(&format!("{DB_PREFIX}db_")) {
+                    info.demo_data = demo_from_name(&name);
+                }
                 info.size_bytes = size;
                 info.running = self.already_running(&name).is_some();
                 info
@@ -312,6 +322,38 @@ impl Runtime {
         })
     }
 
+    /// The database for a session that has none yet: the most recently used one of
+    /// the version, with the apps it lacks installed; or, when the version has none,
+    /// a new numbered one ("db-19-1") with those apps.
+    pub fn database_for_version(
+        &self,
+        version: &str,
+        modules: &[String],
+        demo_data: bool,
+    ) -> Result<String> {
+        validate_version(version)?;
+        let existing = self
+            .list_databases()?
+            .into_iter()
+            .filter(|d| d.version == version && d.demo_data == demo_data)
+            .max_by(|a, b| {
+                (a.last_used, a.created_at, &a.name).cmp(&(b.last_used, b.created_at, &b.name))
+            });
+        if let Some(db) = existing {
+            self.install_missing(&db.name, modules)?;
+            return Ok(db.name);
+        }
+        let made = self.create_database(&NewDatabase {
+            label: self.suggested_label(version)?,
+            version: version.into(),
+            modules: modules.to_vec(),
+            demo_data,
+            // Like the assistant's databases always were: enterprise where it is set up.
+            enterprise: self.enterprise_available(version),
+        })?;
+        Ok(made.name)
+    }
+
     /// Note that the database was just used (for the list's order).
     pub fn touch_database(&self, name: &str) -> Result<()> {
         let fallback = self.unknown(name);
@@ -428,7 +470,7 @@ impl Runtime {
             name: name.into(),
             label: format!("Auto {version}").trim().to_string(),
             enterprise: name.contains("_ee_"),
-            demo_data: !name.ends_with("_nodemo"),
+            demo_data: demo_from_name(name),
             version,
             modules: Vec::new(),
             auto: true,

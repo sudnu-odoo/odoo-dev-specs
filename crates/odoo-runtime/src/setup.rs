@@ -5,7 +5,10 @@
 /// Odoo's `requirements.txt`, adjusted so it installs from pre-built wheels on a
 /// machine without compilers or system development libraries:
 /// - `psycopg2` becomes `psycopg2-binary` (same version, no PostgreSQL headers needed);
-/// - `python-ldap` is dropped (needs LDAP system libraries; LDAP login is not used).
+/// - `python-ldap` is dropped (needs LDAP system libraries; LDAP login is not used);
+/// - `gevent==21.8.0` (Odoo's pin for Ubuntu 22.04's Python 3.10) becomes 21.12.0, the
+///   bugfix release of the same series: 21.8.0 predates Python 3.10, has no wheel for
+///   it, and no longer compiles with today's Cython.
 ///
 /// Version pins and environment markers are kept as they are.
 pub fn adjust_requirements(text: &str) -> String {
@@ -13,6 +16,7 @@ pub fn adjust_requirements(text: &str) -> String {
         .filter(|line| package_name(line) != Some("python-ldap"))
         .map(|line| match package_name(line) {
             Some("psycopg2") => line.replacen("psycopg2", "psycopg2-binary", 1),
+            Some("gevent") => line.replacen("==21.8.0", "==21.12.0", 1),
             _ => line.to_string(),
         })
         .collect()
@@ -34,6 +38,19 @@ fn package_name(line: &str) -> Option<&str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ubuntu_22_04s_gevent_pin_gets_a_version_with_a_wheel() {
+        let odoo =
+            "gevent==21.8.0 ; sys_platform != 'win32' and python_version == '3.10'  # (Jammy)\n\
+                    gevent==24.2.1 ; sys_platform != 'win32' and python_version >= '3.12'\n";
+        let out = adjust_requirements(odoo);
+        assert!(
+            out.contains("gevent==21.12.0 ; sys_platform != 'win32' and python_version == '3.10'"),
+            "{out}"
+        );
+        assert!(out.contains("gevent==24.2.1 ;"), "other pins stay: {out}");
+    }
 
     #[test]
     fn psycopg2_uses_the_binary_wheel_with_the_same_pin_and_marker() {

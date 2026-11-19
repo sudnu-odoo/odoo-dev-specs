@@ -5,6 +5,8 @@ import type { EnvCheck, EnvReport, ProviderStatus, Settings } from "../lib/types
 
 export interface SettingsPanelProps {
   onClose: () => void;
+  /** Open the first-run setup again (check the computer, downloads, logins). */
+  onOpenSetup?: () => void;
 }
 
 const VERSIONS = ["19.0", "18.0", "17.0"];
@@ -15,7 +17,7 @@ type Page = "general" | "ai";
  * Settings laid out like Antigravity's: a few pages on the left; on the right, titled
  * cards of rows, each a name, one grey line and one control. Changes save at once.
  */
-export default function SettingsPanel({ onClose }: SettingsPanelProps) {
+export default function SettingsPanel({ onClose, onOpenSetup }: SettingsPanelProps) {
   const [page, setPage] = useState<Page>("general");
   const canvasTheme = useCanvasTheme();
   const [report, setReport] = useState<EnvReport | null>(null);
@@ -148,6 +150,18 @@ export default function SettingsPanel({ onClose }: SettingsPanelProps) {
                   </div>
                 </Row>
               </div>
+              {onOpenSetup && (
+                <>
+                  <h3>Setup</h3>
+                  <div className="settings-card">
+                    <Row label="Check this computer" hint="Tools, Odoo source and AI logins">
+                      <button className="btn btn-small" onClick={onOpenSetup}>
+                        Open setup
+                      </button>
+                    </Row>
+                  </div>
+                </>
+              )}
               {problems.length > 0 && (
                 <>
                   <h3>Needs attention</h3>

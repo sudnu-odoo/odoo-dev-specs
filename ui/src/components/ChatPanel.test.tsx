@@ -70,8 +70,9 @@ describe("ChatPanel", () => {
     });
     expect(screen.getByText("Add a delivery window")).toBeInTheDocument();
     expect(screen.getByText("Here is the spec.")).toBeInTheDocument();
-    expect(screen.getByText(/Read/)).toBeInTheDocument();
-    expect(screen.getByText(/Grep/)).toHaveAttribute("data-status", "running");
+    // The steps fold into one line showing the latest.
+    expect(screen.getByRole("button", { name: /2 steps/ })).toHaveTextContent("Searching the Odoo source");
+    expect(screen.getByRole("button", { name: /2 steps/ })).toHaveAttribute("data-status", "running");
     expect(screen.getByRole("alert")).toHaveTextContent("Not logged in");
   });
 
@@ -320,5 +321,31 @@ describe("ChatPanel model picker and usage", () => {
     expect(details).toHaveTextContent(/resets in 2h 1[34]m/);
     expect(details).toHaveTextContent(/Weekly/);
     expect(details).toHaveTextContent("71%");
+  });
+
+  it("shows Thinking… only when no running step already shows the work", () => {
+    const { rerender } = render(
+      <ChatPanel
+        items={[{ role: "user", text: "Hi" }]}
+        running
+        hasSession
+        onSend={vi.fn()}
+        onStop={vi.fn()}
+      />,
+    );
+    expect(screen.getByRole("status")).toHaveTextContent("Thinking");
+    rerender(
+      <ChatPanel
+        items={[
+          { role: "user", text: "Hi" },
+          { role: "tool", name: "Read", status: "running" },
+        ]}
+        running
+        hasSession
+        onSend={vi.fn()}
+        onStop={vi.fn()}
+      />,
+    );
+    expect(screen.queryByText("Thinking…")).not.toBeInTheDocument();
   });
 });

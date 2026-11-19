@@ -3,6 +3,7 @@ import type { ChatItem, PlanUsage, TokenUsage } from "../chat/chatState";
 import type { Model } from "../lib/types";
 import Markdown from "./Markdown";
 import ModelMenu from "./ModelMenu";
+import ToolSteps from "./ToolSteps";
 import UsageMeter from "./UsageMeter";
 
 export interface ChatPanelProps {
@@ -52,7 +53,12 @@ export default function ChatPanel({
   const [draft, setDraft] = useState("");
   const bottom = useRef<HTMLDivElement>(null);
   // Until the first words of the answer arrive, show that the assistant is working.
-  const thinking = running && items.at(-1)?.role !== "assistant";
+  // (A running step already shows that it is working.)
+  const lastItem = items.at(-1);
+  const thinking =
+    running &&
+    lastItem?.role !== "assistant" &&
+    !(lastItem?.role === "tool" && lastItem.status === "running");
 
   useEffect(() => {
     bottom.current?.scrollIntoView?.({ block: "end" });
@@ -91,9 +97,9 @@ export default function ChatPanel({
             </p>
           </div>
         )}
-        {items.map((item, i) => (
-          <Message key={i} item={item} />
-        ))}
+        {groupSteps(items).map((group, i) =>
+          Array.isArray(group) ? <ToolSteps key={i} steps={group} /> : <Message key={i} item={group} />,
+        )}
         {thinking && (
           <div role="status" className="chat-thinking">
             <span className="spinner" aria-hidden="true" /> Thinking…
@@ -117,20 +123,21 @@ export default function ChatPanel({
           onKeyDown={onKeyDown}
         />
         <div className="composer-bar">
-          {models.length > 0 && (
-            <ModelMenu
-              models={models}
-              selected={selectedModel}
-              disabled={running || !hasSession}
-              onChange={onModelChange}
-              effort={effort}
-              onEffortChange={onEffortChange}
-              onLogin={onLogin}
-              sessionProvider={sessionProvider}
-            />
-          )}
-          {hasSession && composerExtras}
-          <span className="composer-spacer" />
+          <div className="composer-chips">
+            {models.length > 0 && (
+              <ModelMenu
+                models={models}
+                selected={selectedModel}
+                disabled={running || !hasSession}
+                onChange={onModelChange}
+                effort={effort}
+                onEffortChange={onEffortChange}
+                onLogin={onLogin}
+                sessionProvider={sessionProvider}
+              />
+            )}
+            {hasSession && composerExtras}
+          </div>
           {running ? (
             <button
               type="button"
@@ -169,6 +176,19 @@ export default function ChatPanel({
       </div>
     </section>
   );
+}
+
+type ToolItem = Extract<ChatItem, { role: "tool" }>;
+
+/** Consecutive tool steps become one group, shown as a single line. */
+function groupSteps(items: ChatItem[]): (ChatItem | ToolItem[])[] {
+  const out: (ChatItem | ToolItem[])[] = [];
+  for (const item of items) {
+    const last = out[out.length - 1];
+    if (item.role === "tool" && Array.isArray(last)) last.push(item);
+    else out.push(item.role === "tool" ? [item] : item);
+  }
+  return out;
 }
 
 function Message({ item }: { item: ChatItem }) {

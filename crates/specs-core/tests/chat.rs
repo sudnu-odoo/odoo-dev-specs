@@ -37,16 +37,24 @@ fn write_fake(name: &str, fixture: &str) -> (TempDir, PathBuf) {
     (dir, path)
 }
 
+/// Both fakes are written together, once, before any test can run one: a test
+/// writing the second fake while another forks would make it "Text file busy".
+fn fakes() -> &'static ((TempDir, PathBuf), (TempDir, PathBuf)) {
+    static FAKES: OnceLock<((TempDir, PathBuf), (TempDir, PathBuf))> = OnceLock::new();
+    FAKES.get_or_init(|| {
+        (
+            write_fake("claude", FIXTURE),
+            write_fake("agy", AGY_FIXTURE),
+        )
+    })
+}
+
 fn fake_claude() -> PathBuf {
-    static FAKE: OnceLock<(TempDir, PathBuf)> = OnceLock::new();
-    FAKE.get_or_init(|| write_fake("claude", FIXTURE)).1.clone()
+    fakes().0 .1.clone()
 }
 
 fn fake_agy() -> PathBuf {
-    static FAKE: OnceLock<(TempDir, PathBuf)> = OnceLock::new();
-    FAKE.get_or_init(|| write_fake("agy", AGY_FIXTURE))
-        .1
-        .clone()
+    fakes().1 .1.clone()
 }
 
 struct Env {
@@ -143,7 +151,10 @@ async fn first_turn_streams_saves_transcript_and_starts_session() {
             message: None
         })
     );
-    assert_eq!(env.session_file("stdin.txt"), "Add a delivery window");
+    // The AI is told the hosting first; the chat keeps only what was typed.
+    let prompt = env.session_file("stdin.txt");
+    assert!(prompt.starts_with("[Hosting: not chosen yet"), "{prompt}");
+    assert!(prompt.ends_with("\n\nAdd a delivery window"), "{prompt}");
     let args = env.args();
     assert_eq!(
         value_after(&args, "--session-id"),
@@ -261,7 +272,9 @@ async fn antigravity_turn_remembers_its_conversation_and_resumes_it() {
     let args = e.args();
     let at = args.iter().position(|a| a == "--conversation").unwrap();
     assert_eq!(args[at + 1], "2b27c3b2-dade-4994-93db-adb0dfdb7252");
-    assert_eq!(args[1], "And another");
+    // The message (after the hosting line) is the prompt argument.
+    assert!(args[1].starts_with("[Hosting: "), "{args:?}");
+    assert!(args.contains(&"And another".to_string()), "{args:?}");
 }
 
 #[tokio::test]
@@ -272,4 +285,28 @@ async fn chosen_effort_reaches_the_cli() {
     let args = e.args();
     let at = args.iter().position(|a| a == "--effort").unwrap();
     assert_eq!(args[at + 1], "xhigh");
+}
+
+#[tokio::test]
+async fn each_message_tells_the_ai_the_sessions_hosting() {
+    let env = env();
+    env.ws
+        .set_hosting("P", &env.session.id, Some("online"))
+        .unwrap();
+    env.send("Hide the cost").await;
+    assert!(env
+        .session_file("stdin.txt")
+        .starts_with("[Hosting: Odoo Online"));
+    // The client moved: the next message says so.
+    env.ws
+        .set_hosting("P", &env.session.id, Some("sh"))
+        .unwrap();
+    env.send("And now?").await;
+    let prompt = env.session_file("stdin.txt");
+    assert!(prompt.starts_with("[Hosting: Odoo.sh"), "{prompt}");
+    let transcript = env.session_file("transcript.jsonl");
+    assert!(
+        !transcript.contains("[Hosting"),
+        "the chat shows only what was typed"
+    );
 }

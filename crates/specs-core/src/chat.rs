@@ -35,6 +35,16 @@ pub struct ClaudeConfig {
     pub demo_data: bool,
 }
 
+/// The message as the AI gets it: one line on the client's hosting, then the text.
+pub fn with_hosting(text: &str, hosting: Option<&str>) -> String {
+    let line = match hosting {
+        Some("online") => "[Hosting: Odoo Online (SaaS). No custom Python code; check what is possible first.]",
+        Some("sh") => "[Hosting: Odoo.sh. Custom modules with Python are possible.]",
+        _ => "[Hosting: not chosen yet. Ask whether the client is on Odoo Online or Odoo.sh before the feasibility check.]",
+    };
+    format!("{line}\n\n{text}")
+}
+
 /// Send `text` in a session and stream the reply to `on_event`.
 ///
 /// The closing [`ChatEvent::Finished`] is *returned* rather than streamed: it is
@@ -59,6 +69,9 @@ pub async fn send_message(
         &[TranscriptEntry::User { text: text.into() }],
     )?;
 
+    // The AI is told where the client's Odoo runs with every message, so a change
+    // of hosting during a session reaches it; the chat keeps only what was typed.
+    let text = &with_hosting(text, meta.hosting.as_deref());
     let spec = TurnSpec {
         session_id: meta.id.clone(),
         resume: meta.started,

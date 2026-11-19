@@ -776,3 +776,207 @@ fn the_edition_is_chosen_per_database_and_kept_when_it_runs() {
     assert!(!call_for(&community.name, "--http-port").contains(&path));
     assert!(call_for(&ee.name, "--http-port").contains(&path));
 }
+
+// --- Odoo source for the first-run setup ---
+
+use odoo_runtime::runtime::{Edition, NoAccess, SourceState};
+
+/// A `git` that reports progress like the real one, then makes the checkout.
+fn progress_git(env: &Env, fail_with: Option<&str>) {
+    let fail = match fail_with {
+        Some(msg) => format!("echo '{msg}' >&2; exit 128"),
+        None => String::new(),
+    };
+    script(
+        &env.dir.path().join("bin/git"),
+        &format!(
+            r#"echo "git $*" >> '{}/calls.log'
+{fail}
+printf 'Receiving objects:  50%% (5/10)\r' >&2
+printf 'Receiving objects: 100%% (10/10), done.\n' >&2
+printf 'Resolving deltas: 100%% (3/3), done.\n' >&2
+for last; do :; done
+mkdir -p "$last/odoo" "$last/web_enterprise"
+echo '#!/bin/sh' > "$last/odoo-bin"
+echo 'version_info = (19, 0, 0, FINAL, 0)' > "$last/odoo/release.py"
+touch "$last/web_enterprise/__manifest__.py""#,
+            env.dir.path().display()
+        ),
+    );
+}
+
+#[test]
+fn community_and_enterprise_download_with_progress() {
+    let env = Env::new(&[], false);
+    progress_git(&env, None);
+    assert_eq!(
+        env.rt.source_state("19.0", Edition::Community),
+        SourceState::Missing
+    );
+    let mut seen = Vec::new();
+    env.rt
+        .download_source("19.0", Edition::Community, &mut |p| seen.push(p))
+        .unwrap();
+    assert!(seen.contains(&45) && seen.last() == Some(&100), "{seen:?}");
+    assert_eq!(
+        env.rt.source_state("19.0", Edition::Community),
+        SourceState::Ready { linked: false }
+    );
+    env.rt
+        .download_source("19.0", Edition::Enterprise, &mut |_| {})
+        .unwrap();
+    assert!(env.calls().iter().any(
+        |c| c.contains("https://github.com/odoo/enterprise.git") && c.contains("--branch 19.0")
+    ));
+    assert!(env.rt.enterprise_available("19.0"));
+}
+
+#[test]
+fn no_access_to_enterprise_is_told_apart_and_leaves_nothing_behind() {
+    let env = Env::new(&[], false);
+    progress_git(&env, Some("remote: Repository not found."));
+    let err = env
+        .rt
+        .download_source("19.0", Edition::Enterprise, &mut |_| {})
+        .unwrap_err();
+    assert!(err.is::<NoAccess>(), "{err:#}");
+    assert_eq!(
+        env.rt.source_state("19.0", Edition::Enterprise),
+        SourceState::Missing
+    );
+    assert!(!env.rt.enterprise_available("19.0"));
+}
+
+#[test]
+fn a_folder_the_user_already_has_is_used_after_checking_it() {
+    let env = Env::new(&[], false);
+    let mine = env.dir.path().join("my-odoo");
+    // Not Odoo at all.
+    fs::create_dir_all(&mine).unwrap();
+    let err = env
+        .rt
+        .use_folder("19.0", Edition::Community, &mine)
+        .unwrap_err();
+    assert!(
+        format!("{err:#}").contains("not an Odoo source folder"),
+        "{err:#}"
+    );
+    // Odoo, but another version.
+    fs::create_dir_all(mine.join("odoo")).unwrap();
+    fs::write(mine.join("odoo-bin"), "").unwrap();
+    fs::write(
+        mine.join("odoo/release.py"),
+        "version_info = (18, 0, 0, FINAL, 0)\n",
+    )
+    .unwrap();
+    let err = env
+        .rt
+        .use_folder("19.0", Edition::Community, &mine)
+        .unwrap_err();
+    assert!(
+        format!("{err:#}").contains("is Odoo 18.0, not 19.0"),
+        "{err:#}"
+    );
+    // The right one.
+    fs::write(
+        mine.join("odoo/release.py"),
+        "version_info = (19, 0, 0, FINAL, 0)\n",
+    )
+    .unwrap();
+    env.rt
+        .use_folder("19.0", Edition::Community, &mine)
+        .unwrap();
+    assert_eq!(
+        env.rt.source_state("19.0", Edition::Community),
+        SourceState::Ready { linked: true }
+    );
+    assert_eq!(fs::read_link(env.rt.source_dir("19.0")).unwrap(), mine);
+
+    let ee = env.dir.path().join("my-enterprise");
+    fs::create_dir_all(&ee).unwrap();
+    assert!(env.rt.use_folder("19.0", Edition::Enterprise, &ee).is_err());
+    fs::create_dir_all(ee.join("web_enterprise")).unwrap();
+    fs::write(ee.join("web_enterprise/__manifest__.py"), "{}").unwrap();
+    env.rt.use_folder("19.0", Edition::Enterprise, &ee).unwrap();
+    assert!(env.rt.enterprise_available("19.0"));
+}
+
+#[test]
+fn reads_saas_versions_from_release_files() {
+    use odoo_runtime::runtime::release_version;
+    assert_eq!(
+        release_version("version_info = (19, 0, 0, FINAL, 0)").as_deref(),
+        Some("19.0")
+    );
+    assert_eq!(
+        release_version("version_info = ('saas~18', 2, 0, 'final', 0, '')").as_deref(),
+        Some("saas-18.2")
+    );
+}
+
+// --- A session without a chosen database ---
+
+#[test]
+fn a_database_of_the_version_is_reused_with_the_missing_apps_installed() {
+    let env = Env::new(&[], false);
+    let older = env.rt.create_database(&new_db("Older", &["sale"])).unwrap();
+    let recent = env
+        .rt
+        .create_database(&new_db("Recent", &["sale"]))
+        .unwrap();
+    env.rt.touch_database(&recent.name).unwrap();
+    let made_before = env.count("odoo ");
+
+    let chosen = env
+        .rt
+        .database_for_version("19.0", &["sale".into(), "stock".into()], true)
+        .unwrap();
+    assert_eq!(chosen, recent.name, "the most recently used one");
+    assert_ne!(chosen, older.name);
+    let installs: Vec<_> = env
+        .calls()
+        .into_iter()
+        .filter(|c| c.starts_with("odoo "))
+        .skip(made_before)
+        .collect();
+    assert_eq!(installs.len(), 1, "only the missing app: {installs:?}");
+    assert!(installs[0].contains("-i stock "), "{installs:?}");
+}
+
+#[test]
+fn without_a_database_of_the_version_a_numbered_one_is_made() {
+    let env = Env::new(&[], false);
+    env.rt
+        .create_database(&new_db("Other version", &[]))
+        .unwrap(); // 19.0
+    let mut v18 = new_db("x", &[]);
+    v18.version = "18.0".into();
+    let chosen = env
+        .rt
+        .database_for_version("18.0", &["sale".into()], true)
+        .unwrap();
+    assert_eq!(chosen, "specs_db_18_1");
+    let info = env.rt.database_info(&chosen).unwrap();
+    assert_eq!(
+        (info.label.as_str(), info.version.as_str()),
+        ("db-18-1", "18.0")
+    );
+    assert_eq!(info.modules, ["sale"]);
+    assert!(!info.auto, "a normal database, like one made by hand");
+}
+
+#[test]
+fn an_old_database_without_demo_data_is_not_picked_when_demo_data_is_wanted() {
+    // Made before demo data really loaded on Odoo 19: no suffix, empty.
+    let env = Env::new(
+        &["specs_19_0_sale_management", "specs_19_0_stock_nodemo"],
+        false,
+    );
+    let list = env.rt.list_databases().unwrap();
+    assert!(list.iter().all(|d| !d.demo_data), "{list:?}");
+    let chosen = env.rt.database_for_version("19.0", &[], true).unwrap();
+    assert_eq!(chosen, "specs_db_19_1", "a new one with demo data");
+    // Without demo data, an old one does.
+    let plain = env.rt.database_for_version("19.0", &[], false).unwrap();
+    assert!(plain.starts_with("specs_19_0_"), "{plain}");
+}

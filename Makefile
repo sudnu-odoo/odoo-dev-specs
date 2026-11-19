@@ -7,8 +7,8 @@ install:            ## Install UI dependencies
 dev:                ## Run the desktop app with hot reload
 	cargo tauri dev
 
-build:              ## Build .deb and AppImage bundles
-	cargo tauri build
+build:              ## Build the .deb (with the screenshot tool inside)
+	cargo tauri build --bundles deb
 
 test:               ## Rust and UI tests (unit + integration)
 	cargo test --workspace

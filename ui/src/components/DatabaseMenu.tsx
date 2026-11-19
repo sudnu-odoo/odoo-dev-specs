@@ -9,6 +9,14 @@ export interface DatabaseMenuProps {
   disabled?: boolean;
   onChange: (name: string | null) => void;
   onManage: () => void;
+  /** Make a new database for this session. */
+  onCreate?: () => void;
+  /** A database is being made: the chip says so. */
+  creating?: boolean;
+  /** Open the session's database in the browser. */
+  onOpen?: () => void;
+  /** It is starting (the Open button waits). */
+  opening?: boolean;
 }
 
 const DbIcon = () => (
@@ -24,7 +32,7 @@ const DbIcon = () => (
 );
 
 /**
- * The session's database, as a quiet chip next to the model: "Auto" until the
+ * The session's database, as a quiet chip next to the model: "Automatic" until the
  * first screenshots (or the user) pick one. The menu lists every database.
  */
 export default function DatabaseMenu({
@@ -33,6 +41,10 @@ export default function DatabaseMenu({
   disabled,
   onChange,
   onManage,
+  onCreate,
+  creating = false,
+  onOpen,
+  opening = false,
 }: DatabaseMenuProps) {
   const [open, setOpen] = useState(false);
   const root = useRef<HTMLDivElement>(null);
@@ -49,7 +61,11 @@ export default function DatabaseMenu({
   }, [open]);
 
   const current = databases.find((d) => d.name === selected);
-  const label = selected ? (current?.label ?? "Deleted database") : "Auto";
+  const label = creating
+    ? "Creating database…"
+    : selected
+      ? (current?.label ?? "Deleted database")
+      : "Automatic";
   const pick = (name: string | null) => {
     setOpen(false);
     if (name !== selected) onChange(name);
@@ -60,7 +76,7 @@ export default function DatabaseMenu({
   ];
 
   return (
-    <div className="model-menu" ref={root}>
+    <div className="model-menu db-chip-group" ref={root}>
       <button
         type="button"
         className="model-chip"
@@ -68,23 +84,49 @@ export default function DatabaseMenu({
         title="Odoo database for this session's screenshots"
         aria-haspopup="menu"
         aria-expanded={open}
-        disabled={disabled}
+        disabled={disabled || creating}
         onClick={() => setOpen((o) => !o)}
       >
-        <DbIcon />
+        {creating ? <span className="spinner spinner-small" aria-hidden="true" /> : <DbIcon />}
         {label}
         <svg viewBox="0 0 12 12" width="10" height="10" aria-hidden="true">
           <path d="M3 4.5 6 7.5 9 4.5" fill="none" stroke="currentColor" strokeWidth="1.5" />
         </svg>
       </button>
+      {onOpen && current && !creating && (
+        <button
+          type="button"
+          className="model-chip db-open"
+          aria-label={`Open ${current.label} in the browser`}
+          title="Open this database in your browser (admin / admin)"
+          disabled={opening}
+          onClick={onOpen}
+        >
+          {opening ? (
+            <span className="spinner spinner-small" aria-hidden="true" />
+          ) : (
+            <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true">
+              <path
+                d="M9 3h4v4M13 3 7.5 8.5M11 9.5V13H3V5h3.5"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.4"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+          )}
+          Open
+        </button>
+      )}
       {open && (
         <div className="menu menu-up db-menu" role="menu" aria-label="Database">
           <div role="group" className="menu-group">
             <Choice
               checked={!selected}
               onPick={() => pick(null)}
-              title="Auto"
-              detail="A fresh demo database for the feature"
+              title="Automatic"
+              detail="Any database of the Odoo version; a new one if there is none"
             />
           </div>
           {groups
@@ -106,6 +148,19 @@ export default function DatabaseMenu({
               </div>
             ))}
           <div className="menu-group">
+            {onCreate && (
+              <button
+                type="button"
+                role="menuitem"
+                className="menu-item menu-link"
+                onClick={() => {
+                  setOpen(false);
+                  onCreate();
+                }}
+              >
+                New database…
+              </button>
+            )}
             <button
               type="button"
               role="menuitem"

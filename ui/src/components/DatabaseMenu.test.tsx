@@ -26,9 +26,9 @@ function setup(selected: string | null) {
 const chip = () => screen.getByRole("button", { name: /^Database/ });
 
 describe("DatabaseMenu", () => {
-  it("shows Auto until a database is chosen, then its name", () => {
+  it("shows Automatic until a database is chosen, then its name", () => {
     setup(null);
-    expect(chip()).toHaveTextContent("Auto");
+    expect(chip()).toHaveTextContent("Automatic");
   });
 
   it("shows the chosen database and offers every database, the user's first", async () => {
@@ -45,10 +45,10 @@ describe("DatabaseMenu", () => {
     expect(props.onChange).toHaveBeenCalledWith("specs_db_sales");
   });
 
-  it("goes back to Auto and opens the Databases page", async () => {
+  it("goes back to Automatic and opens the Databases page", async () => {
     const props = setup("specs_db_sales");
     await userEvent.click(chip());
-    await userEvent.click(screen.getByRole("menuitemradio", { name: "Auto" }));
+    await userEvent.click(screen.getByRole("menuitemradio", { name: "Automatic" }));
     expect(props.onChange).toHaveBeenCalledWith(null);
     await userEvent.click(chip());
     await userEvent.click(screen.getByRole("menuitem", { name: "Manage databases…" }));
@@ -58,5 +58,34 @@ describe("DatabaseMenu", () => {
   it("says when the chosen database was deleted", () => {
     setup("specs_db_gone");
     expect(chip()).toHaveTextContent("Deleted database");
+  });
+
+  it("makes a new database for the session and opens the session's one in the browser", async () => {
+    const props = { onChange: vi.fn(), onManage: vi.fn(), onCreate: vi.fn(), onOpen: vi.fn() };
+    render(<DatabaseMenu databases={DBS} selected="specs_db_sales" {...props} />);
+    await userEvent.click(screen.getByRole("button", { name: "Open Sales demo in the browser" }));
+    expect(props.onOpen).toHaveBeenCalled();
+    await userEvent.click(chip());
+    await userEvent.click(screen.getByRole("menuitem", { name: "New database…" }));
+    expect(props.onCreate).toHaveBeenCalled();
+  });
+
+  it("has no Open button in Automatic, and shows a database being made", () => {
+    const { rerender } = render(
+      <DatabaseMenu databases={DBS} selected={null} onChange={vi.fn()} onManage={vi.fn()} onOpen={vi.fn()} />,
+    );
+    expect(screen.queryByRole("button", { name: /^Open/ })).not.toBeInTheDocument();
+    rerender(
+      <DatabaseMenu
+        databases={DBS}
+        selected={null}
+        onChange={vi.fn()}
+        onManage={vi.fn()}
+        onOpen={vi.fn()}
+        creating
+      />,
+    );
+    expect(chip()).toHaveTextContent("Creating database…");
+    expect(chip()).toBeDisabled();
   });
 });

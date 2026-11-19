@@ -5,6 +5,7 @@ members = ["crates/odoo-runtime", "crates/specs-core", "crates/excalidraw", "cra
 [workspace.package]
 edition = "2021"
 version = "0.1.0"
+repository = "https://github.com/sudnu-odoo/odoo-dev-specs"
 
 [workspace.dependencies]
 anyhow = "1"

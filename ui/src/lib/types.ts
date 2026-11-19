@@ -9,7 +9,11 @@ export interface SessionMeta {
   started: boolean;
   /** The local Odoo database its screenshots use; null = Auto (not chosen yet). */
   database?: string | null;
+  /** Where the client's Odoo runs: "online" (Odoo Online) or "sh" (Odoo.sh); null = not chosen. */
+  hosting?: Hosting | null;
 }
+
+export type Hosting = "online" | "sh";
 
 export interface ProjectInfo {
   name: string;
@@ -130,4 +134,44 @@ export interface DatabaseForm {
   /** The next free name, e.g. "db-19-3". */
   suggestedLabel: string;
   enterpriseAvailable: boolean;
+}
+
+/** One thing the computer must provide (mirrors odoo_runtime::system::Requirement). */
+export interface Requirement {
+  key: string;
+  label: string;
+  ok: boolean;
+  /** What is wrong, in plain words. */
+  problem: string;
+}
+
+export type SourceState = { state: "missing" } | { state: "ready"; linked: boolean };
+
+/** A long setup step (mirrors src-tauri setup::Task). */
+export interface SetupTask {
+  state: "running" | "done" | "failed" | "noAccess";
+  /** 0..100 while downloading; null while waiting without progress. */
+  progress: number | null;
+  message: string;
+}
+
+/** Everything the setup screen shows (mirrors src-tauri setup::SetupStatus). */
+export interface SetupStatus {
+  version: string;
+  system: { requirements: Requirement[]; ready: boolean };
+  community: SourceState;
+  enterprise: SourceState;
+  github: { installed: boolean; signedIn: boolean };
+  aiReady: boolean;
+  tasks: Record<string, SetupTask>;
+}
+
+export type Edition = "community" | "enterprise";
+
+/** A newer version of the app (mirrors src-tauri update::Release). */
+export interface AppRelease {
+  version: string;
+  /** What changed: one "- title" line per change. */
+  notes: string;
+  debUrl: string;
 }

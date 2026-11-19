@@ -2,6 +2,7 @@
 name = "odoo-dev-specs"
 edition.workspace = true
 version.workspace = true
+repository.workspace = true
 
 [lib]
 name = "odoo_dev_specs_lib"
@@ -21,6 +22,8 @@ odoo-runtime = { path = "../crates/odoo-runtime" }
 specs-core = { path = "../crates/specs-core" }
 dirs.workspace = true
 tokio.workspace = true
+# Asks GitHub Releases for updates.
+reqwest = { version = "0.13", features = ["json"] }
 
 [dev-dependencies]
 tauri = { version = "2", features = ["test"] }

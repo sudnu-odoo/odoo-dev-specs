@@ -4,8 +4,13 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type {
   ChatEventPayload,
+  AppRelease,
   DatabaseForm,
+  Edition,
+  SetupStatus,
+  SetupTask,
   DatabaseInfo,
+  Hosting,
   NewDatabase,
   EnvReport,
   Model,
@@ -62,6 +67,23 @@ export const api = {
   /** The database a session's screenshots use; null = Auto. */
   setSessionDatabase: (ref: SessionRef, database: string | null) =>
     invoke<void>("set_session_database", { ...ref, database }),
+  /** A newer version on GitHub, or null (always null in development builds). */
+  checkUpdate: () => invoke<AppRelease | null>("check_update"),
+  /** Install it with the password window; the app restarts when done. */
+  installUpdate: (release: AppRelease) => invoke<void>("install_update", { release }),
+  setupStatus: (version: string) => invoke<SetupStatus>("setup_status", { version }),
+  /** Install and start what the computer is missing (one password prompt). */
+  installTools: () => invoke<void>("install_tools"),
+  /** Start a background download; progress arrives through onSetupProgress. */
+  downloadOdoo: (version: string, edition: Edition) => invoke<void>("download_odoo", { version, edition }),
+  /** Open GitHub's sign-in (for Enterprise) in a terminal window. */
+  githubSignIn: () => invoke<void>("github_sign_in"),
+  useOdooFolder: (version: string, edition: Edition, path: string) =>
+    invoke<void>("use_odoo_folder", { version, edition, path }),
+  onSetupProgress: (handler: (update: { key: string; task: SetupTask }) => void): Promise<UnlistenFn> =>
+    listen<{ key: string; task: SetupTask }>("setup-progress", (e) => handler(e.payload)),
+  setSessionHosting: (ref: SessionRef, hosting: Hosting | null) =>
+    invoke<void>("set_session_hosting", { ...ref, hosting }),
   /** In the diagram window: the main window selected another session. */
   onDiagramSession: (handler: (target: DiagramTarget) => void): Promise<UnlistenFn> =>
     listen<DiagramTarget>("diagram-session", (e) => handler(e.payload)),

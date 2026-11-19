@@ -200,6 +200,10 @@ mod tests {
             "New field: x_delivery_window",
             "Before your final answer, always call diagram_summary",
             "The user does not run tools",
+            "Check what is possible first",
+            "Shall I draw the spec with these?",
+            "Do not mention Studio and never use `x_studio_` names",
+            "sale.commission.report",
         ] {
             assert!(SYSTEM_PROMPT.contains(rule), "missing: {rule}");
         }

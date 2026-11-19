@@ -1,9 +1,9 @@
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
 import { api } from "./lib/api";
-import type { ChatEvent, ChatEventPayload, ProjectInfo, SessionData } from "./lib/types";
+import type { ChatEvent, ChatEventPayload, ProjectInfo, SessionData, SetupStatus } from "./lib/types";
 
 vi.mock("./lib/api", () => ({
   api: {
@@ -28,6 +28,14 @@ vi.mock("./lib/api", () => ({
     runningSessions: vi.fn(),
     listDatabases: vi.fn(),
     setSessionDatabase: vi.fn(),
+    setupStatus: vi.fn(),
+    onSetupProgress: vi.fn(),
+    providerStatus: vi.fn(),
+    installTools: vi.fn(),
+    downloadOdoo: vi.fn(),
+    databaseForm: vi.fn(),
+    checkUpdate: vi.fn(),
+    createDatabase: vi.fn(),
   },
 }));
 // Settings panel has its own test; here we only check it opens.
@@ -57,6 +65,15 @@ vi.mock("./components/ExcalidrawPanel", () => ({
 }));
 
 const mocked = vi.mocked(api);
+const readyComputer: SetupStatus = {
+  version: "19.0",
+  system: { requirements: [], ready: true },
+  community: { state: "ready", linked: false },
+  enterprise: { state: "missing" },
+  github: { installed: true, signedIn: false },
+  aiReady: true,
+  tasks: {},
+};
 const meta = (id: string, title: string) => ({
   id,
   title,
@@ -121,6 +138,10 @@ beforeEach(() => {
       running: false,
     },
   ]);
+  mocked.setupStatus.mockResolvedValue(readyComputer);
+  mocked.checkUpdate.mockResolvedValue(null);
+  mocked.onSetupProgress.mockResolvedValue(() => {});
+  mocked.providerStatus.mockResolvedValue([]);
   mocked.setSessionDatabase.mockImplementation(async (ref, database) => {
     projects = projects.map((p) => ({
       ...p,
@@ -359,24 +380,14 @@ describe("App", () => {
     await waitFor(() => expect(screen.queryByTestId("settings-panel")).not.toBeInTheDocument());
   });
 
-  it("warns on first run when a required tool is missing", async () => {
-    mocked.checkEnvironment.mockResolvedValue({
-      checks: [
-        {
-          key: "git",
-          label: "Git",
-          status: "missing",
-          detail: "not found",
-          hint: "Install git.",
-          required: true,
-        },
-      ],
-    });
+  it("after skipping an unfinished setup, a banner offers to open it again", async () => {
+    mocked.setupStatus.mockResolvedValue({ ...readyComputer, aiReady: false });
     render(<App />);
-    expect(await screen.findByRole("alert")).toHaveTextContent(/setup is incomplete/i);
-    // Opening settings from the warning shows the details.
-    await userEvent.click(screen.getByRole("button", { name: /open settings/i }));
-    expect(await screen.findByTestId("settings-panel")).toBeInTheDocument();
+    await screen.findByRole("heading", { name: "Get ready to write specs" });
+    await userEvent.click(screen.getByRole("button", { name: "Skip for now" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(/setup is not finished/i);
+    await userEvent.click(screen.getByRole("button", { name: "Open setup" }));
+    expect(screen.getByRole("heading", { name: "Get ready to write specs" })).toBeInTheDocument();
   });
 
   it("shows no setup warning when everything is ready", async () => {
@@ -402,7 +413,7 @@ describe("App", () => {
 
   it("each session shows and changes the database its screenshots use", async () => {
     await openSession("Delivery window");
-    const chip = await screen.findByRole("button", { name: "Database: Auto" });
+    const chip = await screen.findByRole("button", { name: "Database: Automatic" });
     await userEvent.click(chip);
     await userEvent.click(screen.getByRole("menuitemradio", { name: "Sales demo" }));
     expect(mocked.setSessionDatabase).toHaveBeenCalledWith(
@@ -410,5 +421,65 @@ describe("App", () => {
       "specs_db_sales",
     );
     expect(await screen.findByRole("button", { name: "Database: Sales demo" })).toBeInTheDocument();
+  });
+
+  it("a fresh computer opens the setup first, which installs and then downloads", async () => {
+    const fresh: SetupStatus = {
+      ...readyComputer,
+      system: {
+        ready: false,
+        requirements: [
+          { key: "postgresql", label: "PostgreSQL", ok: false, problem: "PostgreSQL is not installed." },
+        ],
+      },
+      community: { state: "missing" },
+    };
+    mocked.setupStatus.mockResolvedValue(fresh);
+    mocked.installTools.mockImplementation(async () => {
+      mocked.setupStatus.mockResolvedValue({ ...fresh, system: { ready: true, requirements: [] } });
+    });
+    mocked.downloadOdoo.mockResolvedValue(undefined);
+    render(<App />);
+    expect(await screen.findByRole("heading", { name: "Get ready to write specs" })).toBeInTheDocument();
+    expect(screen.getByRole("listitem", { name: "Tools" })).toHaveTextContent("Missing: PostgreSQL.");
+    await userEvent.click(screen.getByRole("button", { name: "Set up everything" }));
+    expect(mocked.installTools).toHaveBeenCalledTimes(1);
+    expect(mocked.downloadOdoo).toHaveBeenCalledWith("19.0", "community");
+    // Enterprise waits for a GitHub sign-in: never downloaded behind the user's back.
+    expect(mocked.downloadOdoo).not.toHaveBeenCalledWith("19.0", "enterprise");
+  });
+
+  it("a ready computer goes straight to the app", async () => {
+    render(<App />);
+    await screen.findByRole("button", { name: "Delivery window" });
+    expect(screen.queryByRole("heading", { name: "Get ready to write specs" })).not.toBeInTheDocument();
+  });
+
+  it("a session can make a new database, which then becomes its database", async () => {
+    mocked.databaseForm.mockResolvedValue({ suggestedLabel: "db-19-4", enterpriseAvailable: false });
+    mocked.createDatabase.mockResolvedValue({
+      name: "specs_db_19_4",
+      label: "db-19-4",
+      version: "19.0",
+      modules: [],
+      demoData: true,
+      enterprise: false,
+      auto: false,
+      createdAt: 0,
+      lastUsed: 0,
+      sizeBytes: 0,
+      running: false,
+    });
+    await openSession("Delivery window");
+    await userEvent.click(await screen.findByRole("button", { name: "Database: Automatic" }));
+    await userEvent.click(screen.getByRole("menuitem", { name: "New database…" }));
+    const dialog = await screen.findByRole("dialog", { name: "New database" });
+    await within(dialog).findByDisplayValue("db-19-4");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Create" }));
+    expect(mocked.createDatabase).toHaveBeenCalledWith(expect.objectContaining({ label: "db-19-4" }));
+    expect(mocked.setSessionDatabase).toHaveBeenCalledWith(
+      { project: "Acme", sessionId: "s1" },
+      "specs_db_19_4",
+    );
   });
 });

@@ -1,8 +1,17 @@
 import { useEffect, useMemo, useState } from "react";
 import { Panel, PanelGroup, PanelResizeHandle } from "react-resizable-panels";
 import { useDatabases } from "./app/useDatabases";
+import { useSetup } from "./app/useSetup";
 import { useSpecsApp } from "./app/useSpecsApp";
+import NewDatabaseDialog from "./components/NewDatabaseDialog";
+import SetupScreen from "./components/SetupScreen";
+import UpdateBanner from "./components/UpdateBanner";
+import type { ProviderStatus, SessionRef } from "./lib/types";
+
+const sameSession = (a: SessionRef | null, b: SessionRef | null) =>
+  !!a && !!b && a.project === b.project && a.sessionId === b.sessionId;
 import DatabaseMenu from "./components/DatabaseMenu";
+import HostingMenu from "./components/HostingMenu";
 import DatabasesPage from "./components/DatabasesPage";
 import ChatPanel from "./components/ChatPanel";
 import SessionDiagram from "./components/SessionDiagram";
@@ -15,6 +24,9 @@ export default function App() {
   const dbs = useDatabases();
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [view, setView] = useState<"session" | "databases">("session");
+  // "New database…" from a session's chip: the form, then the session it is for.
+  const [newDatabaseFor, setNewDatabaseFor] = useState<SessionRef | null>(null);
+  const [creatingFor, setCreatingFor] = useState<SessionRef | null>(null);
 
   // Which database each session uses, from the session list (refreshed after each
   // answer, when the assistant may have picked one).
@@ -27,6 +39,9 @@ export default function App() {
     for (const s of sessions) if (s.database) count[s.database] = (count[s.database] ?? 0) + 1;
     return count;
   }, [sessions]);
+  const sessionHosting =
+    sessions.find((s) => s.project === app.selected?.project && s.id === app.selected?.sessionId)?.hosting ??
+    null;
   const sessionDatabase =
     sessions.find((s) => s.project === app.selected?.project && s.id === app.selected?.sessionId)?.database ??
     null;
@@ -34,15 +49,26 @@ export default function App() {
   useEffect(() => {
     reloadDatabases();
   }, [app.projects, reloadDatabases]);
-  // On first run, warn when a required tool is missing so the user fixes it.
-  const [setupIncomplete, setSetupIncomplete] = useState(false);
-
+  // First run: the setup shows by itself until the computer is ready.
+  const setup = useSetup();
+  const [setupOpen, setSetupOpen] = useState<boolean | null>(null);
+  const [providers, setProviders] = useState<ProviderStatus[]>([]);
   useEffect(() => {
-    api.checkEnvironment().then(
-      (report) => setSetupIncomplete(report.checks.some((c) => c.required && c.status === "missing")),
-      () => {},
-    );
-  }, []);
+    if (setupOpen === null && setup.status) setSetupOpen(!setup.complete);
+  }, [setup.status, setup.complete, setupOpen]);
+  useEffect(() => {
+    if (!setupOpen) return;
+    const load = () => api.providerStatus().then(setProviders, () => {});
+    load();
+    window.addEventListener("focus", load);
+    return () => window.removeEventListener("focus", load);
+  }, [setupOpen]);
+  const download = setup.downloading
+    ? {
+        label: setup.community?.state === "running" ? "Downloading Odoo" : "Downloading Enterprise",
+        percent: setup.downloading.progress,
+      }
+    : null;
 
   const chat = (
     <ChatPanel
@@ -61,13 +87,27 @@ export default function App() {
       usage={app.chat.usage}
       plan={app.chat.plan}
       composerExtras={
-        <DatabaseMenu
-          databases={dbs.databases}
-          selected={sessionDatabase}
-          disabled={app.chat.running}
-          onChange={app.setSessionDatabase}
-          onManage={() => setView("databases")}
-        />
+        <>
+          <HostingMenu
+            hosting={sessionHosting}
+            disabled={app.chat.running}
+            onChange={app.setSessionHosting}
+          />
+          <DatabaseMenu
+            databases={dbs.databases}
+            selected={sessionDatabase}
+            disabled={app.chat.running}
+            onChange={(name) => app.setSessionDatabase(name)}
+            onManage={() => setView("databases")}
+            onCreate={() => setNewDatabaseFor(app.selected)}
+            creating={!!creatingFor && sameSession(creatingFor, app.selected)}
+            onOpen={() => {
+              const db = dbs.databases.find((d) => d.name === sessionDatabase);
+              if (db) dbs.open(db);
+            }}
+            opening={!!sessionDatabase && dbs.busy[sessionDatabase] === "starting"}
+          />
+        </>
       }
     />
   );
@@ -82,6 +122,8 @@ export default function App() {
           app.open(ref);
         }}
         databasesOpen={view === "databases"}
+        download={download}
+        onOpenSetup={() => setSetupOpen(true)}
         onOpenDatabases={() => setView("databases")}
         onCreateProject={app.createProject}
         onCreateSession={(project) => {
@@ -93,6 +135,7 @@ export default function App() {
         onOpenSettings={() => setSettingsOpen(true)}
       />
       <div className="main">
+        <UpdateBanner />
         {app.error && (
           <div role="alert" className="banner-error">
             {app.error}
@@ -101,11 +144,11 @@ export default function App() {
             </button>
           </div>
         )}
-        {setupIncomplete && !settingsOpen && (
+        {setupOpen === false && setup.status && !setup.complete && !setup.downloading && (
           <div role="alert" className="banner-warning">
-            The setup is incomplete, so some things will not work.
-            <button className="btn btn-small" onClick={() => setSettingsOpen(true)}>
-              Open settings
+            The setup is not finished, so some things will not work.
+            <button className="btn btn-small" onClick={() => setSetupOpen(true)}>
+              Open setup
             </button>
           </div>
         )}
@@ -150,17 +193,44 @@ export default function App() {
           </PanelGroup>
         )}
       </div>
+      {newDatabaseFor && (
+        <NewDatabaseDialog
+          defaultVersion="19.0"
+          formFor={dbs.formFor}
+          onCancel={() => setNewDatabaseFor(null)}
+          onCreate={async (db) => {
+            const session = newDatabaseFor;
+            setNewDatabaseFor(null);
+            setCreatingFor(session);
+            const made = await dbs.create(db);
+            setCreatingFor(null);
+            // Made for this session, even if another one is open by now.
+            if (made) await app.setSessionDatabase(made.name, session);
+          }}
+        />
+      )}
+      {setupOpen && (
+        <SetupScreen
+          setup={setup}
+          providers={providers}
+          onLogin={app.login}
+          onDone={() => {
+            setSetupOpen(false);
+            app.reloadModels();
+          }}
+        />
+      )}
       {settingsOpen && (
         <SettingsPanel
           onClose={() => {
             setSettingsOpen(false);
             // A provider may have been logged in: refresh the model picker.
             app.reloadModels();
-            // The user may have just fixed something; re-check.
-            api.checkEnvironment().then(
-              (report) => setSetupIncomplete(report.checks.some((c) => c.required && c.status === "missing")),
-              () => {},
-            );
+            setup.refresh();
+          }}
+          onOpenSetup={() => {
+            setSettingsOpen(false);
+            setSetupOpen(true);
           }}
         />
       )}
