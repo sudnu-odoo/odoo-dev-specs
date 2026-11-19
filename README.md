@@ -1,4 +1,8 @@
-# Odoo Dev Specs
+<p align="center">
+  <img src="docs/logo.png" width="96" alt="">
+</p>
+
+<h1 align="center">Odoo Dev Specs</h1>
 
 **Write Odoo development specs with an AI, on real Odoo screens.** Describe
 what the client needs in a chat. The assistant reads the Odoo source, takes
