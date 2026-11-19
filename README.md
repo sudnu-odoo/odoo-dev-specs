@@ -7,7 +7,7 @@ Excalidraw: the real screens with the new fields, notes and arrows in red,
 and the test cases. You check it, adjust it, and hand it to the tech team.
 
 <p align="center">
-  <img src="docs/screenshots/odoo-screenshot.png" width="620" alt="A quotation from the local Odoo, as the assistant sees it">
+  <img src="docs/screenshots/app.png" width="860" alt="Odoo Dev Specs: the chat on the left, the spec drawn on real Odoo screenshots on the right">
 </p>
 
 Your client's data never goes to the AI. The screenshots come from Odoo
