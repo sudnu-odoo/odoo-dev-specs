@@ -202,11 +202,11 @@ mod tests {
             "The user does not run tools",
             "Check what is possible first",
             "Look for the Odoo way first",
-            "Possible without development:",
-            "Every \"not possible\" gets a workaround",
-            "Shall I draw the spec with these?",
+            "If everything can be done: do not report a check",
+            "talk it through in the chat like a colleague would",
             "Do not mention Studio and never use `x_studio_` names",
-            "sale.commission.report",
+            "never take them as facts",
+            "Never suggest moving the client to another hosting",
         ] {
             assert!(SYSTEM_PROMPT.contains(rule), "missing: {rule}");
         }
