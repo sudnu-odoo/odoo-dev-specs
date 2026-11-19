@@ -55,8 +55,10 @@ impl Runtime {
             cmd.env(
                 "GIT_SSH_COMMAND",
                 format!(
-                    "ssh -i '{}' -o IdentitiesOnly=yes -o BatchMode=yes -o ConnectTimeout=15 \
-                     -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile='{}'",
+                    // -F /dev/null: the person's own ~/.ssh/config (other keys, other
+                    // hosts) must not change which key is used.
+                    "ssh -F /dev/null -i '{}' -o IdentitiesOnly=yes -o BatchMode=yes \
+                     -o ConnectTimeout=15 -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile='{}'",
                     key.display(),
                     self.ssh_dir().join("known_hosts").display()
                 ),
