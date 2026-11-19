@@ -63,6 +63,7 @@ pub fn run() {
     let settings = SettingsStore::new(SettingsStore::default_path());
     let claude = detect_claude(&settings.load());
     let state = AppState::new(Workspace::new(Workspace::default_root()), claude, settings);
+    setup::start_weekly_updates(state.odoo.clone());
     register(tauri::Builder::default(), state)
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
