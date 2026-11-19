@@ -7,6 +7,7 @@ use std::net::TcpStream;
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 use std::sync::{Mutex, MutexGuard};
+use std::time::Duration;
 
 use odoo_runtime::runtime::{Runtime, Tools};
 use tempfile::TempDir;
@@ -47,15 +48,41 @@ impl Env {
         let log = log.display();
         let dbs = dbs.display();
 
-        // git clone --depth 1 --branch V URL DEST: a tiny "Odoo" checkout.
+        // git, as the runtime uses it: a shared bare repository per edition, a shallow
+        // fetch per version (refused while `deny` exists), a worktree per version
+        // (a tiny "Odoo" checkout), the branch list, and updates.
         script(
             &bin.join("git"),
             &format!(
                 r#"echo "git $*" >> '{log}'
-for last; do :; done
-mkdir -p "$last/addons" "$last/odoo/addons"
-echo '#!/bin/sh' > "$last/odoo-bin"
-printf 'psycopg2==2.9.9\npython-ldap==3.4.4\nlxml==5.2.1\n' > "$last/requirements.txt""#
+[ -n "$GIT_SSH_COMMAND" ] && echo "ssh: $GIT_SSH_COMMAND" >> '{d}/ssh.log'
+case "$*" in
+  *"init --bare"*) for last; do :; done; mkdir -p "$last"; exit 0;;
+  *ls-remote*)
+    [ -f '{d}/deny' ] && {{ echo 'git@github.com: Permission denied (publickey).' >&2; exit 128; }}
+    printf 'a\trefs/heads/16.0\na\trefs/heads/17.0\na\trefs/heads/saas-17.4\na\trefs/heads/18.0\na\trefs/heads/saas-18.4\na\trefs/heads/19.0\na\trefs/heads/saas-19.1\na\trefs/heads/saas-19.2\na\trefs/heads/master\na\trefs/heads/19.0-fix-something\n'
+    exit 0;;
+  *" fetch "*)
+    [ -f '{d}/deny' ] && {{ echo 'git@github.com: Permission denied (publickey).' >&2; echo 'fatal: Could not read from remote repository.' >&2; exit 128; }}
+    printf 'Receiving objects:  50%% (5/10)\r' >&2
+    printf 'Receiving objects: 100%% (10/10), done.\n' >&2
+    printf 'Resolving deltas: 100%% (3/3), done.\n' >&2
+    exit 0;;
+  *"worktree add"*)
+    prev=""; target=""; for a in "$@"; do [ "$prev" = "--force" ] && target="$a"; prev="$a"; done
+    mkdir -p "$target/addons" "$target/odoo/addons" "$target/web_enterprise"
+    echo '#!/bin/sh' > "$target/odoo-bin"
+    echo 'version_info = (19, 0, 0, FINAL, 0)' > "$target/odoo/release.py"
+    printf 'psycopg2==2.9.9\npython-ldap==3.4.4\nlxml==5.2.1\n' > "$target/requirements.txt"
+    echo ".git" > "$target/.git"
+    exit 0;;
+  *"worktree remove"*)
+    prev=""; for a in "$@"; do [ "$prev" = "--force" ] && rm -rf "$a"; prev="$a"; done; exit 0;;
+  *"worktree prune"*) exit 0;;
+  *"reset --hard"*) exit 0;;
+esac
+exit 0"#,
+                d = d.display()
             ),
         );
         // python: -m venv DIR | -m pip install -r FILE | <odoo-bin> args...
@@ -124,11 +151,21 @@ grep -vx "$last" '{dbs}' > '{dbs}.tmp'; mv '{dbs}.tmp' '{dbs}'"#
             ),
         );
 
+        // ssh-keygen -t ed25519 -N "" -C ... -f KEY: a fake key pair.
+        script(
+            &bin.join("ssh-keygen"),
+            &format!(
+                r#"echo "ssh-keygen $*" >> '{log}'
+for last; do :; done
+echo PRIVATE > "$last"; echo "ssh-ed25519 AAAAfake odoo-dev-specs" > "$last.pub""#
+            ),
+        );
         let tools = Tools {
             git: bin.join("git"),
             python: bin.join("python3"),
             psql: bin.join("psql"),
             dropdb: bin.join("dropdb"),
+            ssh_keygen: bin.join("ssh-keygen"),
         };
         let rt = Runtime::new(d.join("runtime"), tools)
             .with_odoo_git_url("https://example.invalid/odoo.git");
@@ -178,13 +215,16 @@ fn first_use_of_a_version_gets_the_source_and_a_virtualenv_once() {
     assert!(create.contains("--with-demo"), "{create}");
     assert!(!create.contains("--without-demo"), "{create}");
 
-    assert_eq!(
-        env.calls()
-            .into_iter()
-            .find(|c| c.starts_with("git"))
-            .unwrap(),
-        "git clone --depth 1 --branch 19.0 https://example.invalid/odoo.git ".to_string()
-            + &env.rt.source_dir("19.0").display().to_string()
+    let fetch = env
+        .calls()
+        .into_iter()
+        .find(|c| c.contains(" fetch "))
+        .unwrap();
+    assert!(
+        fetch.contains(
+            "--depth 1 https://example.invalid/odoo.git +refs/heads/19.0:refs/heads/19.0"
+        ),
+        "{fetch}"
     );
     assert!(env.rt.source_dir("19.0").join("odoo-bin").is_file());
     assert_eq!(env.count("python -m venv"), 1);
@@ -196,7 +236,12 @@ fn first_use_of_a_version_gets_the_source_and_a_virtualenv_once() {
     env.rt
         .ensure_database("19.0", &["stock".into()], true)
         .unwrap();
-    assert_eq!(env.count("git"), 1);
+    assert_eq!(
+        env.count("git"),
+        4,
+        "init, fetch, worktree prune, worktree add: {:?}",
+        env.calls()
+    );
     assert_eq!(env.count("python -m venv"), 1);
 }
 
@@ -781,34 +826,9 @@ fn the_edition_is_chosen_per_database_and_kept_when_it_runs() {
 
 use odoo_runtime::runtime::{Edition, NoAccess, SourceState};
 
-/// A `git` that reports progress like the real one, then makes the checkout.
-fn progress_git(env: &Env, fail_with: Option<&str>) {
-    let fail = match fail_with {
-        Some(msg) => format!("echo '{msg}' >&2; exit 128"),
-        None => String::new(),
-    };
-    script(
-        &env.dir.path().join("bin/git"),
-        &format!(
-            r#"echo "git $*" >> '{}/calls.log'
-{fail}
-printf 'Receiving objects:  50%% (5/10)\r' >&2
-printf 'Receiving objects: 100%% (10/10), done.\n' >&2
-printf 'Resolving deltas: 100%% (3/3), done.\n' >&2
-for last; do :; done
-mkdir -p "$last/odoo" "$last/web_enterprise"
-echo '#!/bin/sh' > "$last/odoo-bin"
-echo 'version_info = (19, 0, 0, FINAL, 0)' > "$last/odoo/release.py"
-touch "$last/web_enterprise/__manifest__.py""#,
-            env.dir.path().display()
-        ),
-    );
-}
-
 #[test]
 fn community_and_enterprise_download_with_progress() {
     let env = Env::new(&[], false);
-    progress_git(&env, None);
     assert_eq!(
         env.rt.source_state("19.0", Edition::Community),
         SourceState::Missing
@@ -825,16 +845,19 @@ fn community_and_enterprise_download_with_progress() {
     env.rt
         .download_source("19.0", Edition::Enterprise, &mut |_| {})
         .unwrap();
-    assert!(env.calls().iter().any(
-        |c| c.contains("https://github.com/odoo/enterprise.git") && c.contains("--branch 19.0")
-    ));
+    assert!(
+        env.calls()
+            .iter()
+            .any(|c| c
+                .contains("git@github.com:odoo/enterprise.git +refs/heads/19.0:refs/heads/19.0"))
+    );
     assert!(env.rt.enterprise_available("19.0"));
 }
 
 #[test]
 fn no_access_to_enterprise_is_told_apart_and_leaves_nothing_behind() {
     let env = Env::new(&[], false);
-    progress_git(&env, Some("remote: Repository not found."));
+    fs::write(env.dir.path().join("deny"), "").unwrap();
     let err = env
         .rt
         .download_source("19.0", Edition::Enterprise, &mut |_| {})
@@ -979,4 +1002,189 @@ fn an_old_database_without_demo_data_is_not_picked_when_demo_data_is_wanted() {
     // Without demo data, an old one does.
     let plain = env.rt.database_for_version("19.0", &[], false).unwrap();
     assert!(plain.starts_with("specs_19_0_"), "{plain}");
+}
+
+// --- Versions: SSH, one repository per edition, a worktree per version ---
+
+#[test]
+fn the_app_has_its_own_ssh_key_and_git_uses_only_it() {
+    let env = Env::new(&[], false);
+    let public = env.rt.ensure_ssh_key().unwrap();
+    assert!(public.starts_with("ssh-ed25519 "), "{public}");
+    assert_eq!(env.rt.ensure_ssh_key().unwrap(), public, "made once");
+    assert_eq!(env.count("ssh-keygen"), 1);
+    let key = env.rt.ssh_key_path();
+    assert!(
+        key.starts_with(env.dir.path()),
+        "inside the app's folder, never ~/.ssh: {key:?}"
+    );
+
+    env.rt
+        .download_source("19.0", Edition::Community, &mut |_| {})
+        .unwrap();
+    let ssh = fs::read_to_string(env.dir.path().join("ssh.log")).unwrap();
+    assert!(ssh.contains(&format!("-i '{}'", key.display())), "{ssh}");
+    assert!(
+        ssh.contains("IdentitiesOnly=yes") && ssh.contains("BatchMode=yes"),
+        "{ssh}"
+    );
+}
+
+#[test]
+fn versions_share_one_repository_with_a_worktree_each() {
+    let env = Env::new(&[], false);
+    env.rt
+        .download_source("19.0", Edition::Community, &mut |_| {})
+        .unwrap();
+    env.rt
+        .download_source("saas-19.2", Edition::Community, &mut |_| {})
+        .unwrap();
+    let inits = env
+        .calls()
+        .iter()
+        .filter(|c| c.contains("init --bare"))
+        .count();
+    assert_eq!(inits, 1, "one repository for every version");
+    let worktrees: Vec<_> = env
+        .calls()
+        .into_iter()
+        .filter(|c| c.contains("worktree add"))
+        .collect();
+    assert_eq!(worktrees.len(), 2);
+    assert!(
+        worktrees[1].contains(&env.rt.source_dir("saas-19.2").display().to_string()),
+        "{worktrees:?}"
+    );
+    assert!(worktrees[1].contains("--detach"), "{worktrees:?}");
+}
+
+#[test]
+fn the_versions_on_github_are_listed_newest_first() {
+    let env = Env::new(&[], false);
+    let versions = env.rt.available_versions().unwrap();
+    assert_eq!(
+        versions,
+        [
+            "saas-19.2",
+            "saas-19.1",
+            "19.0",
+            "saas-18.4",
+            "18.0",
+            "saas-17.4",
+            "17.0"
+        ],
+        "Odoo 17 and newer; no master or development branches"
+    );
+    assert_eq!(env.rt.latest_saas().unwrap(), "saas-19.2");
+    fs::write(env.dir.path().join("deny"), "").unwrap();
+    assert!(env.rt.available_versions().is_err());
+}
+
+#[test]
+fn github_access_is_tested_for_each_edition() {
+    let env = Env::new(&[], false);
+    let access = env.rt.github_access();
+    assert!(access.community && access.enterprise);
+    fs::write(env.dir.path().join("deny"), "").unwrap();
+    let access = env.rt.github_access();
+    assert!(!access.community && !access.enterprise);
+}
+
+#[test]
+fn a_version_is_updated_after_a_week_but_not_while_it_runs() {
+    let env = Env::new(&[], false);
+    env.rt
+        .download_source("19.0", Edition::Community, &mut |_| {})
+        .unwrap();
+    assert!(
+        !env.rt
+            .update_if_stale("19.0", Duration::from_secs(7 * 86400))
+            .unwrap(),
+        "fresh"
+    );
+    let before = env.count("git");
+    assert!(
+        env.rt.update_if_stale("19.0", Duration::ZERO).unwrap(),
+        "stale: updated"
+    );
+    let update: Vec<_> = env.calls().into_iter().skip(before).collect();
+    assert!(
+        update
+            .iter()
+            .any(|c| c.contains(" fetch ") && c.contains("19.0")),
+        "{update:?}"
+    );
+    assert!(
+        update.iter().any(|c| c.contains("reset --hard")),
+        "{update:?}"
+    );
+
+    let db = env.rt.create_database(&new_db("Running", &[])).unwrap();
+    env.rt.ensure_running("19.0", &db.name).unwrap();
+    assert!(
+        !env.rt.update_if_stale("19.0", Duration::ZERO).unwrap(),
+        "never while it runs"
+    );
+}
+
+#[test]
+fn a_folder_the_user_linked_is_never_updated() {
+    let env = Env::new(&[], false);
+    let mine = env.dir.path().join("my-odoo");
+    fs::create_dir_all(mine.join("odoo")).unwrap();
+    fs::write(mine.join("odoo-bin"), "").unwrap();
+    fs::write(
+        mine.join("odoo/release.py"),
+        "version_info = (19, 0, 0, FINAL, 0)\n",
+    )
+    .unwrap();
+    env.rt
+        .use_folder("19.0", Edition::Community, &mine)
+        .unwrap();
+    assert!(!env.rt.update_if_stale("19.0", Duration::ZERO).unwrap());
+    assert_eq!(env.count("git"), 0);
+}
+
+#[test]
+fn removing_a_version_frees_its_files_but_keeps_linked_folders() {
+    let env = Env::new(&[], false);
+    env.rt
+        .download_source("saas-19.2", Edition::Community, &mut |_| {})
+        .unwrap();
+    fs::create_dir_all(env.rt.venv_dir("saas-19.2")).unwrap();
+    let list = env.rt.downloaded_versions();
+    assert_eq!(list.len(), 1);
+    assert_eq!(list[0].version, "saas-19.2");
+    env.rt.remove_version("saas-19.2").unwrap();
+    assert!(!env.rt.source_dir("saas-19.2").exists());
+    assert!(!env.rt.venv_dir("saas-19.2").exists());
+    assert!(env.calls().iter().any(|c| c.contains("worktree remove")));
+
+    let mine = env.dir.path().join("my-odoo");
+    fs::create_dir_all(mine.join("odoo")).unwrap();
+    fs::write(mine.join("odoo-bin"), "").unwrap();
+    fs::write(
+        mine.join("odoo/release.py"),
+        "version_info = (19, 0, 0, FINAL, 0)\n",
+    )
+    .unwrap();
+    env.rt
+        .use_folder("19.0", Edition::Community, &mine)
+        .unwrap();
+    env.rt.remove_version("19.0").unwrap();
+    assert!(
+        mine.join("odoo-bin").exists(),
+        "the user's own folder is untouched"
+    );
+}
+
+#[test]
+fn a_database_says_its_own_version() {
+    use odoo_runtime::runtime::version_from_latest;
+    assert_eq!(version_from_latest("19.0.1.3").as_deref(), Some("19.0"));
+    assert_eq!(
+        version_from_latest("saas~19.2.1.3").as_deref(),
+        Some("saas-19.2")
+    );
+    assert_eq!(version_from_latest("nonsense"), None);
 }

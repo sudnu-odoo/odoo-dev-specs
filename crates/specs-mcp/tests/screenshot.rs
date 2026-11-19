@@ -85,6 +85,7 @@ cd '{}' && exec /usr/bin/python3 -m http.server "$port" --bind 127.0.0.1"#,
             python: python.clone(),
             psql,
             dropdb: "/bin/true".into(),
+            ssh_keygen: "/bin/true".into(),
         },
     );
     let source = runtime.source_dir("19.0");
@@ -210,6 +211,7 @@ async fn screenshot_names_stay_inside_the_session() {
         python: "/nonexistent/python".into(),
         psql: "/nonexistent/psql".into(),
         dropdb: "/nonexistent/dropdb".into(),
+        ssh_keygen: "/nonexistent/ssh-keygen".into(),
     };
     let server = DiagramServer::new(work.path())
         .with_runtime(Runtime::new(work.path().join("runtime"), missing));

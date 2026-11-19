@@ -142,14 +142,22 @@ fn harness_with(with_claude: bool, antigravity: Option<PathBuf>) -> Harness {
     )
     .unwrap();
     fs::set_permissions(&psql, fs::Permissions::from_mode(0o755)).unwrap();
-    // git: a quick fake checkout, refused like GitHub does when `deny` exists.
+    // git: the shared repository, a fetch GitHub refuses while `deny` exists, and
+    // a worktree that is a quick fake checkout.
     let git = dir.path().join("git");
     fs::write(
         &git,
         format!(
-            "#!/bin/sh\n[ -f '{d}/deny' ] && {{ echo 'remote: Repository not found.' >&2; exit 128; }}\n\
-             printf 'Receiving objects:  40%% (4/10)\\r' >&2\n\
-             for last; do :; done\nmkdir -p \"$last/web_enterprise\"\n",
+            r#"#!/bin/sh
+case "$*" in
+  *" fetch "*|*ls-remote*)
+    [ -f '{d}/deny' ] && {{ echo 'ERROR: Repository not found.' >&2; echo 'fatal: Could not read from remote repository.' >&2; exit 128; }}
+    printf 'Receiving objects:  40%% (4/10)\r' >&2; exit 0;;
+  *"worktree add"*)
+    prev=""; for a in "$@"; do [ "$prev" = "--force" ] && mkdir -p "$a/web_enterprise"; prev="$a"; done; exit 0;;
+esac
+exit 0
+"#,
             d = dir.path().display()
         ),
     )

@@ -7,6 +7,7 @@
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use super::sources::version_from_latest;
 use super::*;
 
 const CATALOG: &str = "databases.json";
@@ -450,6 +451,23 @@ impl Runtime {
     /// read once from the database and remembered, so it can be told apart and reset.
     fn discover(&self, name: &str) -> DatabaseInfo {
         let mut info = self.unknown(name);
+        // The database knows its version best (as odev reads it).
+        if let Some(version) = self
+            .run_to_end(
+                &self.tools.psql,
+                &[
+                    "-d",
+                    name,
+                    "-At",
+                    "-c",
+                    "SELECT latest_version FROM ir_module_module WHERE name = 'base'",
+                ],
+            )
+            .ok()
+            .and_then(|out| version_from_latest(&out))
+        {
+            info.version = version;
+        }
         if let Ok(apps) = self.installed_apps(name) {
             if !apps.is_empty() {
                 info.label = format!("{}: {}", info.label, apps.join(", "));
@@ -584,6 +602,23 @@ impl Runtime {
 
     fn catalog_path(&self) -> PathBuf {
         self.state_dir().join(CATALOG)
+    }
+
+    /// Database name -> its Odoo version, for every database the app knows.
+    pub(super) fn load_catalog_versions(&self) -> BTreeMap<String, String> {
+        self.load_catalog()
+            .into_iter()
+            .map(|(name, info)| (name, info.version))
+            .chain(
+                self.load_state()
+                    .servers
+                    .into_keys()
+                    .map(|name| (name.clone(), version_from_name(&name))),
+            )
+            .fold(BTreeMap::new(), |mut map, (name, version)| {
+                map.entry(name).or_insert(version);
+                map
+            })
     }
 
     fn load_catalog(&self) -> Catalog {
