@@ -35,6 +35,9 @@ vi.mock("./lib/api", () => ({
     downloadOdoo: vi.fn(),
     databaseForm: vi.fn(),
     checkUpdate: vi.fn(),
+    odooVersions: vi.fn(),
+    setSessionHosting: vi.fn(),
+    setSessionVersion: vi.fn(),
     createDatabase: vi.fn(),
   },
 }));
@@ -70,7 +73,7 @@ const readyComputer: SetupStatus = {
   system: { requirements: [], ready: true },
   community: { state: "ready", linked: false },
   enterprise: { state: "missing" },
-  github: { installed: true, signedIn: false },
+  github: { installed: true, connected: true, enterprise: false },
   aiReady: true,
   tasks: {},
 };
@@ -140,6 +143,13 @@ beforeEach(() => {
   ]);
   mocked.setupStatus.mockResolvedValue(readyComputer);
   mocked.checkUpdate.mockResolvedValue(null);
+  mocked.odooVersions.mockResolvedValue({
+    available: ["saas-19.2", "19.0"],
+    latestSaas: "saas-19.2",
+    downloaded: [],
+  });
+  mocked.setSessionHosting.mockResolvedValue(undefined);
+  mocked.setSessionVersion.mockResolvedValue(undefined);
   mocked.onSetupProgress.mockResolvedValue(() => {});
   mocked.providerStatus.mockResolvedValue([]);
   mocked.setSessionDatabase.mockImplementation(async (ref, database) => {
@@ -481,5 +491,13 @@ describe("App", () => {
       { project: "Acme", sessionId: "s1" },
       "specs_db_19_4",
     );
+  });
+
+  it("choosing Odoo Online sets the latest SaaS version for the session", async () => {
+    await openSession("Delivery window");
+    await userEvent.click(await screen.findByRole("button", { name: "Hosting: not chosen" }));
+    await userEvent.click(screen.getByRole("menuitemradio", { name: "Odoo Online" }));
+    expect(mocked.setSessionHosting).toHaveBeenCalledWith({ project: "Acme", sessionId: "s1" }, "online");
+    expect(mocked.setSessionVersion).toHaveBeenCalledWith({ project: "Acme", sessionId: "s1" }, "saas-19.2");
   });
 });

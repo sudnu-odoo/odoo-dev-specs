@@ -230,11 +230,13 @@ export function useSpecsApp() {
     [refresh, selected],
   );
 
-  const setSessionHosting = useCallback(
-    async (hosting: Hosting | null) => {
+  /** Where the client's Odoo runs and its version, saved together. */
+  const setSessionTarget = useCallback(
+    async (hosting: Hosting, version: string) => {
       if (!selected) return;
       try {
         await api.setSessionHosting(selected, hosting);
+        await api.setSessionVersion(selected, version);
         await refresh();
       } catch (e) {
         setError(String(e));
@@ -282,7 +284,7 @@ export function useSpecsApp() {
     setEffort,
     login,
     setSessionDatabase,
-    setSessionHosting,
+    setSessionTarget,
     sessionProvider,
   };
 }

@@ -10,7 +10,7 @@ const ready: SetupStatus = {
   system: { requirements: [], ready: true },
   community: { state: "ready", linked: false },
   enterprise: { state: "missing" },
-  github: { installed: true, signedIn: false },
+  github: { installed: true, connected: true, enterprise: false },
   aiReady: true,
   tasks: {},
 };
@@ -33,7 +33,7 @@ function setup(
     installTools: vi.fn(),
     download: vi.fn(),
     chooseFolder: vi.fn(),
-    githubSignIn: vi.fn(),
+    githubConnect: vi.fn(),
   } as unknown as Setup;
   const props = { onLogin: vi.fn(), onDone: vi.fn() };
   render(
@@ -69,19 +69,20 @@ describe("SetupScreen", () => {
     expect(within(row("Odoo 19 Community")).getByRole("progressbar")).not.toHaveAttribute("aria-valuenow");
   });
 
-  it("Enterprise is optional: sign in first, and no access is not an error", async () => {
-    const { s } = setup({});
-    await userEvent.click(
-      within(row("Odoo 19 Enterprise")).getByRole("button", { name: "Sign in to GitHub" }),
-    );
-    expect(s.githubSignIn).toHaveBeenCalled();
+  it("connects GitHub with one button, and Odoo waits for it", async () => {
+    const { s } = setup({
+      github: { installed: true, connected: false, enterprise: false },
+      community: { state: "missing" },
+    });
+    expect(row("GitHub")).toHaveTextContent(/one sign-in in your browser/i);
+    expect(row("Odoo 19 Community")).toHaveTextContent(/once GitHub is connected/);
+    await userEvent.click(within(row("GitHub")).getByRole("button", { name: "Connect GitHub" }));
+    expect(s.githubConnect).toHaveBeenCalled();
   });
 
-  it("says when GitHub has no access yet, with Try again", async () => {
-    const { s } = setup(
-      { github: { installed: true, signedIn: true } },
-      { enterprise: { state: "noAccess", progress: null, message: "" } },
-    );
+  it("says when the GitHub account cannot read Enterprise yet, with Try again", async () => {
+    const { s } = setup({ github: { installed: true, connected: true, enterprise: false } });
+    expect(row("GitHub")).toHaveAttribute("data-state", "done");
     expect(row("Odoo 19 Enterprise")).toHaveTextContent(/Not available yet/);
     expect(row("Odoo 19 Enterprise")).toHaveAttribute("data-state", "optional");
     await userEvent.click(within(row("Odoo 19 Enterprise")).getByRole("button", { name: "Try again" }));

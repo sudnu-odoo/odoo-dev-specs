@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Panel, PanelGroup, PanelResizeHandle } from "react-resizable-panels";
 import { useDatabases } from "./app/useDatabases";
+import { useOdooVersions } from "./app/useOdooVersions";
 import { useSetup } from "./app/useSetup";
 import { useSpecsApp } from "./app/useSpecsApp";
 import NewDatabaseDialog from "./components/NewDatabaseDialog";
@@ -22,6 +23,7 @@ import { api } from "./lib/api";
 export default function App() {
   const app = useSpecsApp();
   const dbs = useDatabases();
+  const versions = useOdooVersions();
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [view, setView] = useState<"session" | "databases">("session");
   // "New database…" from a session's chip: the form, then the session it is for.
@@ -39,9 +41,11 @@ export default function App() {
     for (const s of sessions) if (s.database) count[s.database] = (count[s.database] ?? 0) + 1;
     return count;
   }, [sessions]);
-  const sessionHosting =
-    sessions.find((s) => s.project === app.selected?.project && s.id === app.selected?.sessionId)?.hosting ??
-    null;
+  const openSession = sessions.find(
+    (s) => s.project === app.selected?.project && s.id === app.selected?.sessionId,
+  );
+  const sessionHosting = openSession?.hosting ?? null;
+  const sessionVersion = openSession?.version ?? null;
   const sessionDatabase =
     sessions.find((s) => s.project === app.selected?.project && s.id === app.selected?.sessionId)?.database ??
     null;
@@ -90,11 +94,18 @@ export default function App() {
         <>
           <HostingMenu
             hosting={sessionHosting}
+            version={sessionVersion}
+            available={versions.available}
+            latestSaas={versions.latestSaas}
+            defaultVersion="19.0"
             disabled={app.chat.running}
-            onChange={app.setSessionHosting}
+            onChange={app.setSessionTarget}
           />
           <DatabaseMenu
-            databases={dbs.databases}
+            // Only databases of the session's version can serve its screenshots.
+            databases={
+              sessionVersion ? dbs.databases.filter((d) => d.version === sessionVersion) : dbs.databases
+            }
             selected={sessionDatabase}
             disabled={app.chat.running}
             onChange={(name) => app.setSessionDatabase(name)}

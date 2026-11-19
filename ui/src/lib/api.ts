@@ -11,6 +11,7 @@ import type {
   SetupTask,
   DatabaseInfo,
   Hosting,
+  OdooVersions,
   NewDatabase,
   EnvReport,
   Model,
@@ -76,8 +77,13 @@ export const api = {
   installTools: () => invoke<void>("install_tools"),
   /** Start a background download; progress arrives through onSetupProgress. */
   downloadOdoo: (version: string, edition: Edition) => invoke<void>("download_odoo", { version, edition }),
-  /** Open GitHub's sign-in (for Enterprise) in a terminal window. */
-  githubSignIn: () => invoke<void>("github_sign_in"),
+  /** Make the app's SSH key and add it to GitHub with one sign-in (a terminal window). */
+  githubConnect: () => invoke<void>("github_connect"),
+  odooVersions: () => invoke<OdooVersions>("odoo_versions"),
+  removeOdooVersion: (version: string) => invoke<void>("remove_odoo_version", { version }),
+  updateOdooVersion: (version: string) => invoke<void>("update_odoo_version", { version }),
+  setSessionVersion: (ref: SessionRef, version: string | null) =>
+    invoke<void>("set_session_version", { ...ref, version }),
   useOdooFolder: (version: string, edition: Edition, path: string) =>
     invoke<void>("use_odoo_folder", { version, edition, path }),
   onSetupProgress: (handler: (update: { key: string; task: SetupTask }) => void): Promise<UnlistenFn> =>

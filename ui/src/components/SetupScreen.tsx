@@ -36,9 +36,10 @@ export default function SetupScreen({ setup, providers, onLogin, onDone }: Setup
   const busy = tools?.state === "running";
   const nothingToDo =
     s.system.ready &&
+    s.github.connected &&
     (s.community.state === "ready" || setup.community?.state === "running") &&
     (s.enterprise.state === "ready" ||
-      !s.github.signedIn ||
+      !s.github.enterprise ||
       setup.enterprise?.state === "running" ||
       setup.enterprise?.state === "noAccess");
 
@@ -77,12 +78,36 @@ export default function SetupScreen({ setup, providers, onLogin, onDone }: Setup
             }
             progress={busy ? null : undefined}
           />
+          <Row
+            label="GitHub"
+            state={s.github.connected ? "done" : "todo"}
+            detail={
+              s.github.connected
+                ? "Connected: the app downloads and updates Odoo for you."
+                : "Odoo's code comes from GitHub: one sign-in in your browser, the app does the rest."
+            }
+            action={
+              !s.github.connected && (
+                <button
+                  className="btn btn-small"
+                  onClick={setup.githubConnect}
+                  disabled={!s.github.installed}
+                >
+                  Connect GitHub
+                </button>
+              )
+            }
+          />
           <SourceRow
             label={`Odoo ${v} Community`}
             ready={s.community.state === "ready"}
             linked={s.community.state === "ready" && s.community.linked}
             task={setup.community}
-            todo="About 1.5 GB, downloads in the background."
+            todo={
+              s.github.connected
+                ? "About 1.5 GB, downloads in the background."
+                : "Downloads once GitHub is connected."
+            }
             onRetry={() => setup.download("community")}
           />
           <EnterpriseRow setup={setup} v={v} />
@@ -249,30 +274,18 @@ function EnterpriseRow({ setup, v }: { setup: Setup; v: string }) {
         onRetry={() => setup.download("enterprise")}
       />
     );
-  if (task?.state === "noAccess")
+  if (!s.github.connected)
+    return <Row label={label} tag="Optional" state="optional" detail="Downloads once GitHub is connected." />;
+  if (task?.state === "noAccess" || !s.github.enterprise)
     return (
       <Row
         label={label}
         tag="Optional"
         state="optional"
-        detail="Not available yet: your GitHub account has no access. You can add it later."
+        detail="Not available yet: your GitHub account has no access to Odoo Enterprise. Ask for access, then Try again. Community works without it."
         action={
           <button className="btn btn-small" onClick={() => setup.download("enterprise")}>
             Try again
-          </button>
-        }
-      />
-    );
-  if (!s.github.signedIn)
-    return (
-      <Row
-        label={label}
-        tag="Optional"
-        state="optional"
-        detail="Needs your GitHub account. Community works without it."
-        action={
-          <button className="btn btn-small" onClick={setup.githubSignIn} disabled={!s.github.installed}>
-            Sign in to GitHub
           </button>
         }
       />
