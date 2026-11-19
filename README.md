@@ -17,6 +17,15 @@ databases on your own computer, filled with Odoo's demo data.
 
 - **Chat to a spec**: describe the feature in your own words; the assistant
   asks what is unclear, then draws the spec on the right while you watch.
+- **The Odoo way first**: the assistant reads the Odoo source and looks for
+  a setting, an access right, a standard module or report before proposing
+  development. When something can't be done as asked on the client's
+  hosting, it explains why in plain words and suggests the workaround before
+  drawing.
+- **Odoo Online or Odoo.sh, and the version**: each spec knows where the
+  client's Odoo runs and its version (e.g. *Odoo Online · 19.2*). The
+  assistant works only from that version's code, and the screenshots come
+  from it.
 - **Real Odoo screens**: screenshots of the exact form, list, button or PDF,
   with new fields shown where they will appear and red notes pointing at
   them.
@@ -34,9 +43,14 @@ databases on your own computer, filled with Odoo's demo data.
 - **Edit by hand**: the diagram is a normal Excalidraw canvas. Change
   anything, open it in its own window, export a PNG or the `.excalidraw`
   file.
-- **One-click setup**: the app installs what it needs and downloads Odoo by
-  itself.
+- **One-click setup**: the app installs what it needs, connects to GitHub
+  for you, and downloads Odoo by itself.
+- **Odoo versions handled for you**: each version is downloaded when a spec
+  needs it and kept up to date every week. Already have Odoo (e.g. with
+  odev)? Use your own folders instead.
 - **Updates from inside the app**: a new version is one click away.
+- **Usage at a glance**: for Claude, your 5-hour and weekly limits under the
+  message box.
 
 <p align="center">
   <img src="docs/screenshots/databases.png" width="760" alt="The Databases page">
@@ -48,6 +62,8 @@ databases on your own computer, filled with Odoo's demo data.
 
 - Ubuntu 22.04 or 24.04, 64-bit, with admin rights (you type your password
   once during the setup).
+- A GitHub account (Odoo's code comes from GitHub). For Odoo Enterprise, the
+  account needs access to it.
 - An AI assistant installed on your computer: [Claude
   Code](https://code.claude.com/docs) or Antigravity.
 - About 2 GB of free space for each Odoo version.
@@ -74,13 +90,15 @@ Click **Set up everything**:
 1. **Tools**: Ubuntu asks for your password once. The app installs and
    starts what is missing (PostgreSQL, Python, Git, GitHub's tool, Chrome)
    and creates your database user.
-2. **Odoo 19 Community** downloads in the background (about 1.5 GB, a few
-   minutes), then the app prepares it.
-3. **Odoo 19 Enterprise** is optional. Click **Sign in to GitHub**: a
-   window shows a short code to enter in your browser. If your GitHub
+2. **GitHub**: a window shows a short code to enter in your browser. That's
+   all: the app makes its own SSH key and adds it to your GitHub account
+   (your own SSH keys and settings are never touched).
+3. **Odoo 19 Community** then downloads in the background (about 1.5 GB, a
+   few minutes), and the app prepares it.
+4. **Odoo 19 Enterprise** is optional and downloads with it. If your GitHub
    account has no access to Odoo Enterprise yet, it says so; Community works
    without it, and you can click **Try again** once you have access.
-4. **AI assistant**: click **Log in** if you are not logged in yet. A window
+5. **AI assistant**: click **Log in** if you are not logged in yet. A window
    opens for it.
 
 You can start working while Odoo still downloads; a small ring in the
@@ -93,18 +111,27 @@ Open the setup again any time from **Settings → General → Open setup**.
 
 1. **New project** in the sidebar for your client, then **+** for a new
    session (one per feature).
-2. Describe the feature in the chat, for example: *"Client is on Odoo
-   Online. On quotations, add a Delivery deadline date next to the
-   Expiration date, and show it as a column in the quotations list."*
-3. The assistant asks what is unclear, then draws the spec. Edit it on the
-   canvas, or ask the assistant to change it.
+2. Choose where the client's Odoo runs under the message box: **Odoo
+   Online** (the latest version is picked for you) or **Odoo.sh** and its
+   version. New sessions of the same client start with the same choice.
+3. Describe the feature in the chat, for example: *"On quotations, add a
+   Delivery deadline date next to the Expiration date, and show it as a
+   column in the quotations list."*
+4. The assistant asks what is unclear. If part of it can't be done that way
+   on the client's hosting, it tells you why and suggests the Odoo way;
+   otherwise it draws the spec straight away. Edit it on the canvas, or ask
+   the assistant to change it.
 
 Under the message box:
 
 | Chip | What it does |
 |---|---|
 | **Model** | Pick the AI service, then the model, and for Claude the effort (Low to Max). A session keeps the AI service of its first message. |
-| **Database** | The Odoo database this session's screenshots use: **Automatic**, one of yours, or **New database…**. **Open** opens it in your browser (user `admin`, password `admin`). |
+| **Hosting** | Where the client's Odoo runs and its version: *Odoo Online · 19.2* or *Odoo.sh · 19.0*. |
+| **Database** | The Odoo database this session's screenshots use, of the session's version: **Automatic** (an existing one, or a new `db-19-1` if there is none), one of yours, or **New database…**. **Open** opens it in your browser (user `admin`, password `admin`). |
+
+Under it, with Claude, your 5-hour and weekly limits; click them for when
+they reset. (Antigravity doesn't publish its usage, so nothing shows there.)
 
 The **Databases** page lists every local database with its version, apps,
 edition, size and how many sessions use it. **New database** suggests a name
@@ -116,6 +143,7 @@ Reset to fresh and Delete.
 | Page | What you can change |
 |---|---|
 | **General** | The Odoo version and demo data for new databases, the diagram's theme (Light, Dark or System), and **Open setup**. |
+| **Odoo versions** | The versions on your computer with their size and last update: **Update now**, **Remove**, **Use a folder…** (e.g. your odev worktree), and add another version. |
 | **AI services** | Which AI services are connected, and **Log in** for the others. |
 
 ## Updates
@@ -136,8 +164,9 @@ page first if you want them gone).
 - **What the AI sees**: your messages, the Odoo source code, and the
   screenshots of your local Odoo. It goes through your own Claude Code or
   Antigravity, as if you used them yourself.
-- **What goes online besides the AI**: the Odoo source download (GitHub),
-  Chrome's download (Google), and the update check (GitHub, at each start).
+- **What goes online besides the AI**: the Odoo source (GitHub, over SSH
+  with the app's own key; downloads and a weekly update), Chrome's download
+  (Google), and the app's update check (GitHub, at each start).
 - Your specs are plain files in `~/OdooSpecs/<Project>/<session>/`:
   `spec.excalidraw`, the screenshots, and the chat.
 
@@ -182,10 +211,18 @@ the last release, and they're what the app shows as "What's new".
 
 Odoo runs straight from its source with `odoo-bin`, one server per database,
 on a free port; servers stop when the app closes. Everything lives in
-`~/.local/share/odoo-dev-specs/runtime/` (`sources/<version>/odoo` and
-`enterprise`, `venvs/<version>`, `data/` for filestores, `state/` for the
-running servers and the database list). The app only lists or deletes
-PostgreSQL databases whose name starts with `specs_`.
+`~/.local/share/odoo-dev-specs/runtime/`:
+
+| Folder | What |
+|---|---|
+| `sources/repos/odoo`, `sources/repos/enterprise` | One shared Git repository per edition, like odev's, but holding only the latest commit of each version used (no history: a few hundred MB instead of 17 GB) |
+| `sources/<version>/odoo`, `…/enterprise` | A worktree per version (`19.0`, `saas-19.2`…), or a link to a folder you chose |
+| `venvs/<version>` | The version's Python environment |
+| `ssh/` | The app's own SSH key, used only by the app's Git commands (your `~/.ssh` and its config are ignored) |
+| `data/`, `state/` | Filestores; the running servers and the database list |
+
+The app only lists or deletes PostgreSQL databases whose name starts with
+`specs_`.
 
 The assistant runs with read-only tools (read and search the Odoo source),
 without your personal Claude settings or hooks, plus the diagram and
