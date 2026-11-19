@@ -272,7 +272,7 @@ body {
 }
 .composer-bar {
   display: flex;
-  align-items: center;
+  align-items: flex-end;
   gap: 6px;
   padding: 4px 10px 10px 12px;
 }
@@ -1655,4 +1655,19 @@ button.usage-line:hover {
 /* A chip that still needs a choice (the hosting before it is set). */
 .chip-attention {
   box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+/* Chips keep their words on one line; the bar wraps to a second row instead. */
+.model-chip {
+  white-space: nowrap;
+}
+
+/* The chips take the room left of the send button and wrap within it. */
+.composer-chips {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
 }

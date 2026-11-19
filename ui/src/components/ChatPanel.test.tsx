@@ -322,4 +322,30 @@ describe("ChatPanel model picker and usage", () => {
     expect(details).toHaveTextContent(/Weekly/);
     expect(details).toHaveTextContent("71%");
   });
+
+  it("shows Thinking… only when no running step already shows the work", () => {
+    const { rerender } = render(
+      <ChatPanel
+        items={[{ role: "user", text: "Hi" }]}
+        running
+        hasSession
+        onSend={vi.fn()}
+        onStop={vi.fn()}
+      />,
+    );
+    expect(screen.getByRole("status")).toHaveTextContent("Thinking");
+    rerender(
+      <ChatPanel
+        items={[
+          { role: "user", text: "Hi" },
+          { role: "tool", name: "Read", status: "running" },
+        ]}
+        running
+        hasSession
+        onSend={vi.fn()}
+        onStop={vi.fn()}
+      />,
+    );
+    expect(screen.queryByText("Thinking…")).not.toBeInTheDocument();
+  });
 });
