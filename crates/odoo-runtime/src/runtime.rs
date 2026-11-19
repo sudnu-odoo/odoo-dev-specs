@@ -277,6 +277,9 @@ impl Runtime {
                 let version = e.file_name().to_string_lossy().into_owned();
                 std::iter::once(e.path().join("odoo")).chain(self.enterprise_dir(&version))
             })
+            // A folder the user already had is a link: give the AI the real place,
+            // so its search tools look inside rather than stop at the link.
+            .map(|dir| dir.canonicalize().unwrap_or(dir))
             .collect();
         dirs.sort();
         dirs

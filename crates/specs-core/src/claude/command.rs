@@ -201,9 +201,12 @@ mod tests {
             "Before your final answer, always call diagram_summary",
             "The user does not run tools",
             "Check what is possible first",
-            "Shall I draw the spec with these?",
+            "Look for the Odoo way first",
+            "If everything can be done: do not report a check",
+            "talk it through in the chat like a colleague would",
             "Do not mention Studio and never use `x_studio_` names",
-            "sale.commission.report",
+            "never take them as facts",
+            "Never suggest moving the client to another hosting",
         ] {
             assert!(SYSTEM_PROMPT.contains(rule), "missing: {rule}");
         }
