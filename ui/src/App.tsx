@@ -90,6 +90,11 @@ export default function App() {
       sessionProvider={app.sessionProvider}
       usage={app.chat.usage}
       plan={app.chat.plan}
+      // Claude's limits mean nothing for Antigravity, which publishes no usage.
+      showUsage={
+        (app.sessionProvider ?? app.models.find((m) => m.id === app.selectedModel)?.provider) !==
+        "Antigravity"
+      }
       composerExtras={
         <>
           <HostingMenu

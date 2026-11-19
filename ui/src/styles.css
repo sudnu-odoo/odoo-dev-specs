@@ -1671,3 +1671,13 @@ button.usage-line:hover {
   align-items: center;
   gap: 6px;
 }
+
+/* Both Claude limits on the usage line: "5h ▬ 21% · Week ▬ 71%". */
+.usage-pair {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.usage-pair .usage-mini {
+  width: 40px;
+}

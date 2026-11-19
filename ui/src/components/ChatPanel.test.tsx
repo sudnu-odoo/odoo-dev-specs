@@ -310,14 +310,15 @@ describe("ChatPanel model picker and usage", () => {
         seven_day: { utilization: 0.71, resets_at: now + 3 * 86400 },
       },
     });
-    const meter = screen.getByRole("meter", { name: /current session/i });
-    expect(meter).toHaveAttribute("aria-valuenow", "21");
-    expect(screen.getByText(/21% of session limit/i)).toBeInTheDocument();
+    // Both limits on the line itself: the 5-hour window and the week.
+    expect(screen.getByRole("meter", { name: "5-hour limit" })).toHaveAttribute("aria-valuenow", "21");
+    expect(screen.getByRole("meter", { name: "Weekly limit" })).toHaveAttribute("aria-valuenow", "71");
+    expect(screen.getByRole("button", { name: /usage/i })).toHaveTextContent(/5h\s*21%.*Week\s*71%/);
     expect(screen.queryByText(/tokens/i)).not.toBeInTheDocument();
 
     await userEvent.click(screen.getByRole("button", { name: /usage/i }));
     const details = screen.getByRole("dialog", { name: "Usage" });
-    expect(details).toHaveTextContent(/Current session/);
+    expect(details).toHaveTextContent(/5-hour limit/);
     expect(details).toHaveTextContent(/resets in 2h 1[34]m/);
     expect(details).toHaveTextContent(/Weekly/);
     expect(details).toHaveTextContent("71%");
@@ -347,5 +348,16 @@ describe("ChatPanel model picker and usage", () => {
       />,
     );
     expect(screen.queryByText("Thinking…")).not.toBeInTheDocument();
+  });
+
+  it("shows no usage at all for Antigravity", () => {
+    const now = Date.now() / 1000;
+    setup({
+      showUsage: false,
+      usage: { inputTokens: 1234, outputTokens: 567 },
+      plan: { five_hour: { utilization: 0.21, resets_at: now + 3600 }, seven_day: null },
+    });
+    expect(screen.queryByRole("meter")).not.toBeInTheDocument();
+    expect(screen.queryByText(/tokens|limit/i)).not.toBeInTheDocument();
   });
 });
