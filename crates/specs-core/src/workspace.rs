@@ -45,6 +45,9 @@ pub struct SessionMeta {
     /// `None` until chosen. The AI is told it with every message.
     #[serde(default)]
     pub hosting: Option<String>,
+    /// The client's Odoo version: an Odoo branch, e.g. "19.0" or "saas-19.2".
+    #[serde(default)]
+    pub version: Option<String>,
 }
 
 /// The hostings a session can be for.
@@ -111,6 +114,7 @@ impl Workspace {
     ) -> Result<SessionMeta> {
         let project_dir = self.project_dir(project)?;
         let now = now_ms();
+        let latest = self.latest_target(project);
         let meta = SessionMeta {
             id: Uuid::new_v4().to_string(),
             title: validate_title(title)?,
@@ -122,7 +126,8 @@ impl Workspace {
             database: None,
             // Like the client's latest session: a client that moved hosting moves
             // every new session with it, while older specs keep theirs.
-            hosting: self.latest_hosting(project),
+            hosting: latest.as_ref().and_then(|m| m.hosting.clone()),
+            version: latest.and_then(|m| m.version),
         };
         let dir = project_dir.join(&meta.id);
         fs::create_dir_all(dir.join(SCREENSHOTS))?;
@@ -190,15 +195,31 @@ impl Workspace {
         self.update_meta(project, id, |m| m.hosting = hosting.map(String::from))
     }
 
-    /// The hosting of the project's most recently changed session that has one.
-    fn latest_hosting(&self, project: &str) -> Option<String> {
+    /// Set the client's Odoo version for this session (an Odoo branch name).
+    pub fn set_version(
+        &self,
+        project: &str,
+        id: &str,
+        version: Option<&str>,
+    ) -> Result<SessionMeta> {
+        if let Some(v) = version {
+            ensure!(
+                valid_version(v),
+                "\"{v}\" is not an Odoo version (like 19.0 or saas-19.2)."
+            );
+        }
+        self.update_meta(project, id, |m| m.version = version.map(String::from))
+    }
+
+    /// The project's most recently changed session that has a hosting: new sessions
+    /// start with its hosting and version.
+    fn latest_target(&self, project: &str) -> Option<SessionMeta> {
         let dir = self.project_dir(project).ok()?;
         fs::read_dir(dir)
             .ok()?
             .filter_map(|e| read_meta(&e.ok()?.path()).ok())
             .filter(|m| m.hosting.is_some())
             .max_by_key(|m| (m.updated_at, m.created_at))
-            .and_then(|m| m.hosting)
     }
 
     /// Choose the database for the session's screenshots (`None` = Auto).
@@ -289,6 +310,17 @@ fn validate_title(title: &str) -> Result<String> {
     let title = title.trim();
     ensure!(!title.is_empty(), "The title cannot be empty.");
     Ok(title.to_string())
+}
+
+/// "19.0" or "saas-19.2".
+fn valid_version(v: &str) -> bool {
+    let number = v.strip_prefix("saas-").unwrap_or(v);
+    number.split_once('.').is_some_and(|(major, minor)| {
+        !major.is_empty()
+            && !minor.is_empty()
+            && major.chars().all(|c| c.is_ascii_digit())
+            && minor.chars().all(|c| c.is_ascii_digit())
+    })
 }
 
 fn read_meta(dir: &Path) -> Result<SessionMeta> {

@@ -85,6 +85,7 @@ cd '{}' && exec /usr/bin/python3 -m http.server "$port" --bind 127.0.0.1"#,
             python: python.clone(),
             psql,
             dropdb: "/bin/true".into(),
+            ssh_keygen: "/bin/true".into(),
         },
     );
     let source = runtime.source_dir("19.0");
@@ -210,6 +211,7 @@ async fn screenshot_names_stay_inside_the_session() {
         python: "/nonexistent/python".into(),
         psql: "/nonexistent/psql".into(),
         dropdb: "/nonexistent/dropdb".into(),
+        ssh_keygen: "/nonexistent/ssh-keygen".into(),
     };
     let server = DiagramServer::new(work.path())
         .with_runtime(Runtime::new(work.path().join("runtime"), missing));
@@ -286,4 +288,47 @@ async fn a_session_with_a_chosen_database_takes_its_screenshots_there() {
     assert!(answer.contains("Odoo 19.0"), "{answer}");
     assert!(answer.contains("the session's database"), "{answer}");
     assert!(session.join("screenshots/quotation_form.png").exists());
+}
+
+#[tokio::test]
+async fn without_a_database_the_sessions_version_decides() {
+    let work = tempfile::tempdir().unwrap();
+    let site = work.path().join("site");
+    fake_odoo_site(&site);
+    let runtime = fake_runtime(work.path(), &site);
+    let session = work.path().join("session");
+    fs::create_dir_all(&session).unwrap();
+    fs::write(
+        session.join(SCENE_FILE),
+        r#"{"type":"excalidraw","elements":[],"files":{}}"#,
+    )
+    .unwrap();
+    // The user chose 19.0 for this client; the AI asks for 18.0.
+    fs::write(session.join("session.json"), r#"{"version": "19.0"}"#).unwrap();
+    let server = DiagramServer::new(&session).with_runtime(runtime.clone());
+    let (server_io, client_io) = tokio::io::duplex(1 << 16);
+    tokio::spawn(async move { server.serve(server_io).await.unwrap().waiting().await });
+    let client = Client.serve(client_io).await.unwrap();
+    let args = json!({"version": "18.0", "modules": ["sale_management"], "pages": [
+        {"page": "/odoo/sales/3", "name": "quotation_form"}
+    ]});
+    let result = tokio::time::timeout(
+        Duration::from_secs(120),
+        client.call_tool(
+            CallToolRequestParams::new("odoo_screenshots")
+                .with_arguments(args.as_object().cloned().unwrap()),
+        ),
+    )
+    .await
+    .expect("timed out")
+    .unwrap();
+    let answer: String = result
+        .content
+        .iter()
+        .filter_map(|c| c.as_text())
+        .map(|t| t.text.clone())
+        .collect();
+    runtime.stop_all().unwrap();
+    assert_ne!(result.is_error, Some(true), "{answer}");
+    assert!(answer.contains("Odoo 19.0"), "{answer}");
 }

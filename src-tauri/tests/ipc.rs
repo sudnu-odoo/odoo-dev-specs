@@ -142,14 +142,23 @@ fn harness_with(with_claude: bool, antigravity: Option<PathBuf>) -> Harness {
     )
     .unwrap();
     fs::set_permissions(&psql, fs::Permissions::from_mode(0o755)).unwrap();
-    // git: a quick fake checkout, refused like GitHub does when `deny` exists.
+    // git: the shared repository, a fetch GitHub refuses while `deny` exists, and
+    // a worktree that is a quick fake checkout.
     let git = dir.path().join("git");
     fs::write(
         &git,
         format!(
-            "#!/bin/sh\n[ -f '{d}/deny' ] && {{ echo 'remote: Repository not found.' >&2; exit 128; }}\n\
-             printf 'Receiving objects:  40%% (4/10)\\r' >&2\n\
-             for last; do :; done\nmkdir -p \"$last/web_enterprise\"\n",
+            r#"#!/bin/sh
+case "$*" in
+  *" fetch "*|*ls-remote*)
+    [ -f '{d}/deny' ] && {{ echo 'ERROR: Repository not found.' >&2; echo 'fatal: Could not read from remote repository.' >&2; exit 128; }}
+    case "$*" in *ls-remote*) printf 'a\trefs/heads/18.0\na\trefs/heads/19.0\na\trefs/heads/saas-19.1\na\trefs/heads/saas-19.2\n';; esac
+    printf 'Receiving objects:  40%% (4/10)\r' >&2; exit 0;;
+  *"worktree add"*)
+    prev=""; for a in "$@"; do [ "$prev" = "--force" ] && mkdir -p "$a/web_enterprise"; prev="$a"; done; exit 0;;
+esac
+exit 0
+"#,
             d = dir.path().display()
         ),
     )
@@ -189,9 +198,10 @@ fn harness_with(with_claude: bool, antigravity: Option<PathBuf>) -> Harness {
             };
             Ok("== Done".into())
         }),
-        github: Arc::new(|| GithubStatus {
+        github: Arc::new(|_| GithubStatus {
             installed: true,
-            signed_in: false,
+            connected: false,
+            enterprise: false,
         }),
         user: "ana".into(),
     };
@@ -725,7 +735,7 @@ fn a_fresh_computer_is_set_up_with_one_password_prompt() {
     assert_eq!(status["community"]["state"], "missing");
     assert_eq!(
         status["github"],
-        json!({"installed": true, "signedIn": false})
+        json!({"installed": true, "connected": false, "enterprise": false})
     );
     assert_eq!(status["aiReady"], true);
 
@@ -804,15 +814,19 @@ fn enterprise_downloads_in_the_background_or_says_there_is_no_access_yet() {
 }
 
 #[test]
-fn github_sign_in_opens_in_a_terminal_and_wrong_folders_are_explained() {
+fn connecting_github_makes_the_apps_key_and_adds_it_with_one_sign_in() {
     let h = harness(true);
-    h.call("github_sign_in", json!({})).unwrap();
-    let launched = h.launched.lock().unwrap().clone();
+    h.call("github_connect", json!({})).unwrap();
+    let key = h._dir.path().join("runtime/ssh/id_ed25519.pub");
+    assert!(key.is_file(), "the app's own key, made once");
+    let launched = h.launched.lock().unwrap().clone().concat().join(" ");
+    assert!(launched.contains("gh auth"), "{launched}");
     assert!(
-        launched[0].join(" ").contains("gh auth login"),
-        "{launched:?}"
+        launched.contains("admin:public_key"),
+        "allowed to add the key: {launched}"
     );
-    assert!(launched[0].join(" ").contains("gh auth setup-git"));
+    assert!(launched.contains("gh ssh-key add"), "{launched}");
+    assert!(launched.contains(&key.display().to_string()), "{launched}");
 
     let err = h
         .call(
@@ -821,6 +835,36 @@ fn github_sign_in_opens_in_a_terminal_and_wrong_folders_are_explained() {
         )
         .unwrap_err();
     assert!(err.contains("is not an Odoo source folder"), "{err}");
+}
+
+#[test]
+fn the_versions_list_shows_what_odoo_publishes_and_what_is_here() {
+    let h = harness(true);
+    h.call(
+        "download_odoo",
+        json!({"version": "saas-19.2", "edition": "enterprise"}),
+    )
+    .unwrap();
+    for _ in 0..100 {
+        let s = h
+            .call("setup_status", json!({"version": "saas-19.2"}))
+            .unwrap();
+        if s["tasks"]["enterprise:saas-19.2"]["state"] == "done" {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    let versions = h.call("odoo_versions", json!({})).unwrap();
+    assert_eq!(
+        versions["available"],
+        json!(["saas-19.2", "saas-19.1", "19.0", "18.0"])
+    );
+    assert_eq!(versions["latestSaas"], "saas-19.2");
+    assert_eq!(versions["downloaded"][0]["version"], "saas-19.2");
+    h.call("remove_odoo_version", json!({"version": "saas-19.2"}))
+        .unwrap();
+    let versions = h.call("odoo_versions", json!({})).unwrap();
+    assert_eq!(versions["downloaded"], json!([]));
 }
 
 #[test]
@@ -848,4 +892,24 @@ fn a_session_keeps_its_hosting_and_new_ones_follow_the_client() {
         )
         .unwrap_err();
     assert!(err.contains("Unknown hosting"), "{err}");
+}
+
+#[test]
+fn a_session_keeps_its_odoo_version() {
+    let h = harness(true);
+    let id = h.new_session();
+    h.call(
+        "set_session_version",
+        json!({"project": "Acme", "sessionId": id, "version": "saas-19.2"}),
+    )
+    .unwrap();
+    let projects = h.call("list_projects", json!({})).unwrap();
+    assert_eq!(projects[0]["sessions"][0]["version"], "saas-19.2");
+    assert!(h
+        .call(
+            "set_session_version",
+            json!({"project": "Acme", "sessionId": id, "version": "latest"}),
+        )
+        .unwrap_err()
+        .contains("is not an Odoo version"));
 }

@@ -272,7 +272,18 @@ pub fn send_message<R: Runtime>(
     claude.effort = models::valid_effort(effort);
     // The assistant reads the Odoo source downloaded so far (it grows with use).
     if let Some(root) = &claude.runtime_dir {
-        claude.read_dirs = OdooRuntime::new(root, Tools::default()).source_dirs();
+        let odoo = OdooRuntime::new(root, Tools::default());
+        // Only the client's version, so the AI never mixes up two versions' code.
+        let own = meta
+            .version
+            .as_deref()
+            .map(|v| odoo.source_dirs_for(v))
+            .unwrap_or_default();
+        claude.read_dirs = if own.is_empty() {
+            odoo.source_dirs()
+        } else {
+            own
+        };
     }
     // Use the model chosen for this message, if it belongs to the active provider.
     claude.model = model.filter(|m| models::is_valid(claude.provider, m));
@@ -517,6 +528,21 @@ pub fn set_session_hosting(
         .map_err(user_error)
 }
 
+/// Set the client's Odoo version for this session (e.g. "19.0", "saas-19.2").
+#[tauri::command]
+pub fn set_session_version(
+    state: State<'_, AppState>,
+    project: String,
+    session_id: String,
+    version: Option<String>,
+) -> CmdResult<()> {
+    state
+        .workspace
+        .set_version(&project, &session_id, version.as_deref())
+        .map(|_| ())
+        .map_err(user_error)
+}
+
 /// Choose the database a session's screenshots use (`None` = Auto).
 #[tauri::command]
 pub fn set_session_database(
@@ -568,12 +594,16 @@ pub fn register<R: Runtime>(builder: tauri::Builder<R>, state: AppState) -> taur
             stop_database,
             set_session_database,
             set_session_hosting,
+            set_session_version,
             crate::update::check_update,
             crate::update::install_update,
             crate::setup::setup_status,
             crate::setup::install_tools,
             crate::setup::download_odoo,
-            crate::setup::github_sign_in,
+            crate::setup::github_connect,
+            crate::setup::odoo_versions,
+            crate::setup::remove_odoo_version,
+            crate::setup::update_odoo_version,
             crate::setup::use_odoo_folder,
             diagram_window::open_diagram_window,
             diagram_window::dock_diagram_window,

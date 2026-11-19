@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "../lib/api";
 import type { Edition, SetupStatus, SetupTask } from "../lib/types";
 
@@ -38,7 +38,6 @@ export function useSetup(version = SETUP_VERSION) {
   }, [refresh]);
 
   const task = (k: string): SetupTask | undefined => status?.tasks[k];
-  const running = (k: string) => task(k)?.state === "running";
 
   const download = useCallback(
     async (edition: Edition) => {
@@ -64,20 +63,46 @@ export function useSetup(version = SETUP_VERSION) {
     }
   }, [refresh]);
 
+  // "Set up everything" waits for GitHub to be connected, then downloads by itself.
+  const downloadsWaiting = useRef(false);
+
+  const startDownloads = useCallback(
+    async (s: SetupStatus) => {
+      const busy = (k: string) => s.tasks[k]?.state === "running";
+      if (s.community.state === "missing" && !busy(key("community", version))) await download("community");
+      if (s.enterprise.state === "missing" && s.github.enterprise && !busy(key("enterprise", version)))
+        await download("enterprise");
+    },
+    [download, version],
+  );
+
+  const githubConnect = useCallback(async () => {
+    try {
+      await api.githubConnect();
+    } catch (e) {
+      setError(String(e));
+    }
+  }, []);
+
   /** Everything that can be done without the user, in order. */
   const setUpEverything = useCallback(async () => {
     if (!status) return;
     if (!status.system.ready && !(await installTools())) return;
-    if (status.community.state === "missing" && !running(key("community", version)))
-      await download("community");
-    if (
-      status.enterprise.state === "missing" &&
-      status.github.signedIn &&
-      !running(key("enterprise", version))
-    )
-      await download("enterprise");
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [status, installTools, download, version]);
+    if (!status.github.connected) {
+      downloadsWaiting.current = true;
+      await githubConnect();
+      return;
+    }
+    await startDownloads(status);
+  }, [status, installTools, githubConnect, startDownloads]);
+
+  // Back from the GitHub sign-in: the downloads start by themselves.
+  useEffect(() => {
+    if (downloadsWaiting.current && status?.github.connected) {
+      downloadsWaiting.current = false;
+      startDownloads(status);
+    }
+  }, [status, startDownloads]);
 
   const chooseFolder = useCallback(
     async (edition: Edition, path: string) => {
@@ -115,7 +140,7 @@ export function useSetup(version = SETUP_VERSION) {
     installTools,
     download,
     chooseFolder,
-    githubSignIn: () => api.githubSignIn().catch((e) => setError(String(e))),
+    githubConnect,
   };
 }
 

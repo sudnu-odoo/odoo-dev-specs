@@ -82,32 +82,47 @@ export default function UsageMeter({ plan, usage }: UsageMeterProps) {
     );
   }
 
-  const p = percent(session);
-  return (
-    <div className="usage-meter" ref={root}>
-      <button
-        type="button"
-        className="usage-line"
-        aria-label={`Usage: ${p}% of session limit`}
-        aria-expanded={open}
-        onClick={() => setOpen((o) => !o)}
-      >
+  const week = plan?.seven_day;
+  const mini = (label: string, short: string, w: PlanWindow) => {
+    const p = percent(w);
+    return (
+      <span className="usage-pair">
+        <span aria-hidden="true">{short}</span>
         <span
           className={`usage-mini ${level(p)}`}
           role="meter"
-          aria-label="Current session"
+          aria-label={label}
           aria-valuemin={0}
           aria-valuemax={100}
           aria-valuenow={p}
         >
           <i style={{ width: `${p}%` }} />
         </span>
-        <span aria-hidden="true">{p}% of session limit</span>
+        <span aria-hidden="true">{p}%</span>
+      </span>
+    );
+  };
+  return (
+    <div className="usage-meter" ref={root}>
+      <button
+        type="button"
+        className="usage-line"
+        aria-label={`Usage: ${percent(session)}% of the 5-hour limit${week ? `, ${percent(week)}% of the weekly limit` : ""}`}
+        aria-expanded={open}
+        onClick={() => setOpen((o) => !o)}
+      >
+        {mini("5-hour limit", "5h", session)}
+        {week && (
+          <>
+            <span aria-hidden="true">·</span>
+            {mini("Weekly limit", "Week", week)}
+          </>
+        )}
       </button>
       {open && (
         <div className="usage-card" role="dialog" aria-label="Usage">
           <h3>Usage</h3>
-          <UsageBar label="Current session" window={session} />
+          <UsageBar label="5-hour limit" window={session} />
           {plan?.seven_day && <UsageBar label="Weekly · all models" window={plan.seven_day} />}
         </div>
       )}

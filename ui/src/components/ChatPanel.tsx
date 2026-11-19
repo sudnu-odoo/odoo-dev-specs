@@ -25,6 +25,8 @@ export interface ChatPanelProps {
   usage?: TokenUsage;
   /** Subscription limit usage; when known it replaces the raw token count. */
   plan?: PlanUsage;
+  /** Claude's plan limits apply: false for Antigravity, which reports none. */
+  showUsage?: boolean;
   /** More chips for the composer bar, after the model (e.g. the session's database). */
   composerExtras?: ReactNode;
 }
@@ -49,6 +51,7 @@ export default function ChatPanel({
   usage = NO_USAGE,
   plan,
   composerExtras,
+  showUsage = true,
 }: ChatPanelProps) {
   const [draft, setDraft] = useState("");
   const bottom = useRef<HTMLDivElement>(null);
@@ -171,9 +174,7 @@ export default function ChatPanel({
           )}
         </div>
       </form>
-      <div className="composer-footer">
-        <UsageMeter plan={plan} usage={usage} />
-      </div>
+      <div className="composer-footer">{showUsage && <UsageMeter plan={plan} usage={usage} />}</div>
     </section>
   );
 }

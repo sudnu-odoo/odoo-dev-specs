@@ -11,6 +11,8 @@ export interface SessionMeta {
   database?: string | null;
   /** Where the client's Odoo runs: "online" (Odoo Online) or "sh" (Odoo.sh); null = not chosen. */
   hosting?: Hosting | null;
+  /** The client's Odoo version, e.g. "19.0" or "saas-19.2"; null = not chosen. */
+  version?: string | null;
 }
 
 export type Hosting = "online" | "sh";
@@ -161,7 +163,8 @@ export interface SetupStatus {
   system: { requirements: Requirement[]; ready: boolean };
   community: SourceState;
   enterprise: SourceState;
-  github: { installed: boolean; signedIn: boolean };
+  /** GitHub's tool is installed; the app's key reads Odoo Community / Enterprise. */
+  github: { installed: boolean; connected: boolean; enterprise: boolean };
   aiReady: boolean;
   tasks: Record<string, SetupTask>;
 }
@@ -174,4 +177,22 @@ export interface AppRelease {
   /** What changed: one "- title" line per change. */
   notes: string;
   debUrl: string;
+}
+
+/** A version on this computer (mirrors odoo_runtime VersionInfo). */
+export interface VersionInfo {
+  version: string;
+  community: SourceState;
+  enterprise: SourceState;
+  /** Unix time in ms of the last update; 0 when unknown. */
+  updated: number;
+  sizeBytes: number;
+}
+
+/** The versions Odoo publishes and the ones on this computer. */
+export interface OdooVersions {
+  /** Newest first; empty until GitHub is connected. */
+  available: string[];
+  latestSaas: string | null;
+  downloaded: VersionInfo[];
 }

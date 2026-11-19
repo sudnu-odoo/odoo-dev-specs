@@ -28,11 +28,16 @@ use crate::setup::adjust_requirements;
 
 mod databases;
 mod sources;
+mod ssh;
 pub use databases::{session_database, set_session_database, DatabaseInfo, NewDatabase};
-pub use sources::{release_version, Edition, NoAccess, SourceState, ENTERPRISE_GIT_URL};
+pub use sources::{
+    release_version, version_from_latest, Edition, GithubAccess, NoAccess, SourceState,
+    VersionInfo, ENTERPRISE_GIT_URL,
+};
 
-/// Public community repository; enterprise is configured separately.
-pub const ODOO_GIT_URL: &str = "https://github.com/odoo/odoo.git";
+/// Odoo's community repository, over SSH with the app's own key (Odoo's repositories
+/// are not downloaded over HTTPS).
+pub const ODOO_GIT_URL: &str = "git@github.com:odoo/odoo.git";
 /// Prefix of every database the runtime owns.
 pub const DB_PREFIX: &str = "specs_";
 /// Longest wait for a server to answer.
@@ -90,6 +95,7 @@ pub struct Tools {
     pub python: PathBuf,
     pub psql: PathBuf,
     pub dropdb: PathBuf,
+    pub ssh_keygen: PathBuf,
 }
 
 impl Default for Tools {
@@ -100,6 +106,7 @@ impl Default for Tools {
             python: "python3".into(),
             psql: "psql".into(),
             dropdb: "dropdb".into(),
+            ssh_keygen: "ssh-keygen".into(),
         }
     }
 }
@@ -285,34 +292,23 @@ impl Runtime {
         dirs
     }
 
+    /// The source of one version (Community, and Enterprise when there), as real
+    /// folders: what the AI reads for a session of that version.
+    pub fn source_dirs_for(&self, version: &str) -> Vec<PathBuf> {
+        [Edition::Community, Edition::Enterprise]
+            .into_iter()
+            .filter(|ed| matches!(self.source_state(version, *ed), SourceState::Ready { .. }))
+            .map(|ed| {
+                let dir = self.source_path(version, ed);
+                dir.canonicalize().unwrap_or(dir)
+            })
+            .collect()
+    }
+
     /// Download the Odoo source of `version` unless it is already there.
     pub fn ensure_source(&self, version: &str) -> Result<PathBuf> {
-        validate_version(version)?;
-        let dir = self.source_dir(version);
-        if dir.join("odoo-bin").is_file() {
-            return Ok(dir);
-        }
-        // A previous attempt may have stopped halfway.
-        let _ = fs::remove_dir_all(&dir);
-        fs::create_dir_all(dir.parent().expect("source dir has a parent"))?;
-        let target = dir.display().to_string();
-        let cloned = self.run_to_end(
-            &self.tools.git,
-            &[
-                "clone",
-                "--depth",
-                "1",
-                "--branch",
-                version,
-                &self.odoo_git_url,
-                &target,
-            ],
-        );
-        if let Err(e) = cloned {
-            let _ = fs::remove_dir_all(&dir);
-            return Err(e.context(format!("Could not download the Odoo {version} source.")));
-        }
-        Ok(dir)
+        self.download_source(version, Edition::Community, &mut |_| {})?;
+        Ok(self.source_dir(version))
     }
 
     /// Create the virtualenv of `version` with Odoo's requirements unless it exists.

@@ -439,7 +439,9 @@ impl DiagramServer {
             .runtime
             .clone()
             .context("Odoo screenshots are not available: the local Odoo runtime is not set up.")?;
-        let (asked, modules, demo_data) = (p.version.clone(), p.modules.clone(), self.demo_data);
+        // The version the user chose for the session wins over the one the AI asked for.
+        let asked = session_version(&self.session_dir).unwrap_or_else(|| p.version.clone());
+        let (modules, demo_data) = (p.modules.clone(), self.demo_data);
         let session_dir = self.session_dir.clone();
         let (running, version, chosen) = tokio::task::spawn_blocking(move || {
             // The session's database, when it has one that still exists; otherwise
@@ -570,6 +572,13 @@ impl DiagramServer {
 }
 
 /// A safe file name: lowercase letters, digits and underscores only.
+/// The Odoo version the user chose for the session (in its `session.json`).
+fn session_version(session_dir: &Path) -> Option<String> {
+    let text = fs::read_to_string(session_dir.join("session.json")).ok()?;
+    let meta: serde_json::Value = serde_json::from_str(&text).ok()?;
+    meta["version"].as_str().map(String::from)
+}
+
 fn file_stem(name: &str) -> Result<String> {
     let mut stem = String::new();
     for c in name.trim().to_lowercase().chars() {

@@ -1,16 +1,115 @@
-//! The Odoo source of each version, Community and Enterprise, for the first-run
-//! setup: downloaded with progress, or a folder the person already has.
+//! The Odoo source of each version, Community and Enterprise, laid out like odev
+//! but light enough for any laptop:
 //!
-//! Enterprise is private: downloading it works once the person's GitHub account has
-//! access (signed in with GitHub's `gh`). Without access the download fails with
-//! [`NoAccess`], which the setup shows as "not available yet", never as a crash.
+//! ```text
+//! sources/repos/odoo, sources/repos/enterprise   one shared repository per edition,
+//!                                                holding only the latest commit of
+//!                                                each version used (no history)
+//! sources/<version>/odoo, .../enterprise         a worktree per version
+//! ```
+//! Versions share every identical file, so another version costs little download.
+//! Everything goes over SSH with the app's own key. Without access the download
+//! fails with [`NoAccess`], shown as "not available yet", never as a crash.
+//! A folder the person already has (e.g. an odev worktree) can be used instead,
+//! and is then never changed by the app.
 
 use std::io::Read;
+
+use anyhow::anyhow;
 
 use super::*;
 
 /// Private repository of Odoo Enterprise.
-pub const ENTERPRISE_GIT_URL: &str = "https://github.com/odoo/enterprise.git";
+pub const ENTERPRISE_GIT_URL: &str = "git@github.com:odoo/enterprise.git";
+
+/// Oldest major version the app offers.
+const OLDEST_MAJOR: u32 = 17;
+
+/// What a person's GitHub account can read, through the app's key.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GithubAccess {
+    pub community: bool,
+    pub enterprise: bool,
+}
+
+/// A version on this computer, for the versions list.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VersionInfo {
+    pub version: String,
+    pub community: SourceState,
+    pub enterprise: SourceState,
+    /// Unix time in milliseconds of the last update (0 when unknown).
+    pub updated: u64,
+    /// The version's own files: its worktrees and Python environment.
+    pub size_bytes: u64,
+}
+
+/// A database's version from its `base` module ("19.0.1.3" -> "19.0",
+/// "saas~19.2.1.3" -> "saas-19.2"), as odev reads it.
+pub fn version_from_latest(latest: &str) -> Option<String> {
+    let latest = latest.trim().replace("saas~", "saas-");
+    let mut parts = latest.split('.');
+    let (major, minor) = (parts.next()?, parts.next()?);
+    let numeric = major.trim_start_matches("saas-");
+    (!numeric.is_empty()
+        && numeric.chars().all(|c| c.is_ascii_digit())
+        && !minor.is_empty()
+        && minor.chars().all(|c| c.is_ascii_digit()))
+    .then(|| format!("{major}.{minor}"))
+}
+
+/// Sort key of a branch: "saas-19.2" -> (19, 2), "19.0" -> (19, 0).
+fn version_key(branch: &str) -> Option<(u32, u32)> {
+    let (major, minor) = branch.trim_start_matches("saas-").split_once('.')?;
+    let key = (major.parse().ok()?, minor.parse().ok()?);
+    let stable = !branch.starts_with("saas-") && key.1 == 0;
+    let saas = branch.starts_with("saas-") && key.1 > 0;
+    (stable || saas).then_some(key)
+}
+
+fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_millis() as u64)
+}
+
+fn dir_size(path: &Path) -> u64 {
+    let Ok(meta) = fs::symlink_metadata(path) else {
+        return 0;
+    };
+    if meta.file_type().is_symlink() {
+        return 0;
+    }
+    if !meta.is_dir() {
+        return meta.len();
+    }
+    fs::read_dir(path)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|e| dir_size(&e.path()))
+        .sum()
+}
+
+fn is_link(path: &Path) -> bool {
+    fs::symlink_metadata(path).is_ok_and(|m| m.file_type().is_symlink())
+}
+
+/// No access to the repository: GitHub refused the key, or the account cannot read it.
+fn refused(log: &str) -> bool {
+    let lower = log.to_lowercase();
+    [
+        "permission denied",
+        "could not read from remote",
+        "repository not found",
+        "not found",
+        "authentication failed",
+    ]
+    .iter()
+    .any(|m| lower.contains(m))
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -95,43 +194,38 @@ impl Runtime {
         }
     }
 
-    /// Download a version's source, reporting 0..=100 as it goes. A failed or
-    /// stopped download leaves nothing behind.
-    pub fn download_source(
+    fn repo_dir(&self, edition: Edition) -> PathBuf {
+        let name = match edition {
+            Edition::Community => "odoo",
+            Edition::Enterprise => "enterprise",
+        };
+        self.root.join("sources").join("repos").join(name)
+    }
+
+    fn git_url(&self, edition: Edition) -> &str {
+        match edition {
+            Edition::Community => &self.odoo_git_url,
+            Edition::Enterprise => ENTERPRISE_GIT_URL,
+        }
+    }
+
+    fn stamp(&self, version: &str, edition: Edition) -> PathBuf {
+        self.root
+            .join("sources")
+            .join(version)
+            .join(format!(".updated-{edition:?}").to_lowercase())
+    }
+
+    /// Run git with progress on stderr; returns its output, or `NoAccess`.
+    fn git_with_progress(
         &self,
-        version: &str,
+        args: &[&str],
         edition: Edition,
         on_progress: &mut dyn FnMut(u8),
     ) -> Result<()> {
-        validate_version(version)?;
-        if matches!(
-            self.source_state(version, edition),
-            SourceState::Ready { .. }
-        ) {
-            on_progress(100);
-            return Ok(());
-        }
-        let target = self.source_path(version, edition);
-        let partial = target.with_extension("partial");
-        let _ = fs::remove_dir_all(&partial);
-        fs::create_dir_all(target.parent().expect("source path has a parent"))?;
-        let url = match edition {
-            Edition::Community => self.odoo_git_url.as_str(),
-            Edition::Enterprise => ENTERPRISE_GIT_URL,
-        };
-        let mut child = isolated(&self.tools.git)
-            .args([
-                "clone",
-                "--progress",
-                "--depth",
-                "1",
-                "--branch",
-                version,
-                url,
-            ])
-            .arg(&partial)
-            // Never wait for a password nobody can type: fail, and say why.
-            .env("GIT_TERMINAL_PROMPT", "0")
+        let mut child = self
+            .git()
+            .args(args)
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::piped())
@@ -161,30 +255,249 @@ impl Runtime {
             }
         }
         log.push_str(&line);
-        let status = child.wait()?;
-        if !status.success() {
-            let _ = fs::remove_dir_all(&partial);
-            let lower = log.to_lowercase();
-            if edition == Edition::Enterprise
-                && [
-                    "not found",
-                    "could not read username",
-                    "authentication failed",
-                    "permission denied",
-                ]
-                .iter()
-                .any(|m| lower.contains(m))
-            {
-                return Err(anyhow::Error::new(NoAccess));
-            }
-            bail!(
-                "Could not download the Odoo {version} source:\n{}",
-                tail(&log)
-            );
+        if child.wait()?.success() {
+            return Ok(());
         }
-        let _ = fs::remove_dir_all(&target);
-        fs::rename(&partial, &target).context("Could not finish the download.")?;
+        if refused(&log) {
+            return Err(match edition {
+                Edition::Enterprise => anyhow::Error::new(NoAccess),
+                Edition::Community => anyhow!(
+                    "GitHub refused the download: connect your GitHub account in the setup."
+                ),
+            });
+        }
+        bail!("Could not download the Odoo source:\n{}", tail(&log))
+    }
+
+    fn git_quiet(&self, args: &[&str]) -> Result<String> {
+        let out = self
+            .git()
+            .args(args)
+            .stdin(Stdio::null())
+            .output()
+            .context("Could not run git. Is it installed?")?;
+        let text = format!(
+            "{}{}",
+            String::from_utf8_lossy(&out.stdout),
+            String::from_utf8_lossy(&out.stderr)
+        );
+        ensure!(out.status.success(), "git failed:\n{}", tail(&text));
+        Ok(text)
+    }
+
+    /// Download a version's source, reporting 0..=100 as it goes: the latest commit of
+    /// its branch into the edition's shared repository, then a worktree for it.
+    pub fn download_source(
+        &self,
+        version: &str,
+        edition: Edition,
+        on_progress: &mut dyn FnMut(u8),
+    ) -> Result<()> {
+        validate_version(version)?;
+        if matches!(
+            self.source_state(version, edition),
+            SourceState::Ready { .. }
+        ) {
+            on_progress(100);
+            return Ok(());
+        }
+        let repo = self.repo_dir(edition);
+        let repo_path = repo.display().to_string();
+        if !repo.is_dir() {
+            fs::create_dir_all(&repo)?;
+            self.git_quiet(&["init", "--bare", "-q", &repo_path])
+                .context("Could not prepare the Odoo source folder.")?;
+        }
+        let refspec = format!("+refs/heads/{version}:refs/heads/{version}");
+        self.git_with_progress(
+            &[
+                "-C",
+                &repo_path,
+                "fetch",
+                "--progress",
+                "--depth",
+                "1",
+                self.git_url(edition),
+                &refspec,
+            ],
+            edition,
+            on_progress,
+        )?;
+        // A worktree left half-made by a stopped download is replaced.
+        let target = self.source_path(version, edition);
+        if fs::symlink_metadata(&target).is_ok() && !is_link(&target) {
+            let _ = fs::remove_dir_all(&target);
+        }
+        let _ = self.git_quiet(&["-C", &repo_path, "worktree", "prune"]);
+        fs::create_dir_all(target.parent().expect("source path has a parent"))?;
+        let branch = format!("refs/heads/{version}");
+        self.git_quiet(&[
+            "-C",
+            &repo_path,
+            "worktree",
+            "add",
+            "--detach",
+            "--force",
+            &target.display().to_string(),
+            &branch,
+        ])
+        .context("Could not set up the Odoo source.")?;
+        fs::write(self.stamp(version, edition), now_ms().to_string())?;
         on_progress(100);
+        Ok(())
+    }
+
+    /// The versions Odoo publishes (17.0 and newer, stable and SaaS), newest first.
+    pub fn available_versions(&self) -> Result<Vec<String>> {
+        let out = self
+            .git_quiet(&["ls-remote", "--heads", self.git_url(Edition::Community)])
+            .context("Could not get the list of Odoo versions from GitHub.")?;
+        let mut versions: Vec<(String, (u32, u32))> = out
+            .lines()
+            .filter_map(|l| l.split_whitespace().nth(1)?.strip_prefix("refs/heads/"))
+            .filter_map(|b| Some((b.to_string(), version_key(b)?)))
+            .filter(|(_, k)| k.0 >= OLDEST_MAJOR)
+            .collect();
+        versions.sort_by_key(|v| std::cmp::Reverse(v.1));
+        versions.dedup();
+        Ok(versions.into_iter().map(|(v, _)| v).collect())
+    }
+
+    /// The version Odoo Online runs: the newest SaaS release.
+    pub fn latest_saas(&self) -> Result<String> {
+        self.available_versions()?
+            .into_iter()
+            .find(|v| v.starts_with("saas-"))
+            .context("Odoo publishes no SaaS version right now.")
+    }
+
+    /// Can this computer read Odoo's repositories with the app's key?
+    pub fn github_access(&self) -> GithubAccess {
+        let readable = |edition| {
+            self.git_quiet(&["ls-remote", "--heads", self.git_url(edition), "HEAD"])
+                .is_ok()
+        };
+        GithubAccess {
+            community: readable(Edition::Community),
+            enterprise: readable(Edition::Enterprise),
+        }
+    }
+
+    /// Whether an Odoo of this version is running right now.
+    fn version_running(&self, version: &str) -> bool {
+        let catalog = self.load_catalog_versions();
+        self.load_state().servers.keys().any(|db| {
+            catalog.get(db).cloned().unwrap_or_default() == version
+                && self.already_running(db).is_some()
+        })
+    }
+
+    /// Update the version's source when its last update is older than `max_age`
+    /// (Odoo fixes its branches every week). Never while it runs, never a folder
+    /// the person linked. Returns whether anything was updated.
+    pub fn update_if_stale(&self, version: &str, max_age: Duration) -> Result<bool> {
+        validate_version(version)?;
+        if self.version_running(version) {
+            return Ok(false);
+        }
+        let mut updated = false;
+        for edition in [Edition::Community, Edition::Enterprise] {
+            if self.source_state(version, edition) != (SourceState::Ready { linked: false }) {
+                continue;
+            }
+            let last: u64 = fs::read_to_string(self.stamp(version, edition))
+                .ok()
+                .and_then(|t| t.trim().parse().ok())
+                .unwrap_or(0);
+            if now_ms().saturating_sub(last) < max_age.as_millis() as u64 {
+                continue;
+            }
+            let path = self.source_path(version, edition).display().to_string();
+            self.git_with_progress(
+                &[
+                    "-C",
+                    &path,
+                    "fetch",
+                    "--depth",
+                    "1",
+                    self.git_url(edition),
+                    version,
+                ],
+                edition,
+                &mut |_| {},
+            )?;
+            self.git_quiet(&["-C", &path, "reset", "--hard", "-q", "FETCH_HEAD"])?;
+            fs::write(self.stamp(version, edition), now_ms().to_string())?;
+            updated = true;
+        }
+        Ok(updated)
+    }
+
+    /// The versions on this computer.
+    pub fn downloaded_versions(&self) -> Vec<VersionInfo> {
+        let mut list: Vec<VersionInfo> = fs::read_dir(self.root.join("sources"))
+            .into_iter()
+            .flatten()
+            .flatten()
+            .filter_map(|e| {
+                let version = e.file_name().to_string_lossy().into_owned();
+                validate_version(&version).ok()?;
+                let community = self.source_state(&version, Edition::Community);
+                let enterprise = self.source_state(&version, Edition::Enterprise);
+                (community != SourceState::Missing || enterprise != SourceState::Missing).then(
+                    || {
+                        let updated = [Edition::Community, Edition::Enterprise]
+                            .iter()
+                            .filter_map(|ed| fs::read_to_string(self.stamp(&version, *ed)).ok())
+                            .filter_map(|t| t.trim().parse().ok())
+                            .max()
+                            .unwrap_or(0);
+                        let size_bytes = dir_size(&self.source_path(&version, Edition::Community))
+                            + dir_size(&self.source_path(&version, Edition::Enterprise))
+                            + dir_size(&self.venv_dir(&version));
+                        VersionInfo {
+                            version: version.clone(),
+                            community,
+                            enterprise,
+                            updated,
+                            size_bytes,
+                        }
+                    },
+                )
+            })
+            .collect();
+        list.sort_by_key(|v| std::cmp::Reverse(version_key(&v.version)));
+        list
+    }
+
+    /// Remove a version's files and Python environment (databases stay; they need
+    /// the version again to run). A folder the person linked is only unlinked.
+    pub fn remove_version(&self, version: &str) -> Result<()> {
+        validate_version(version)?;
+        ensure!(
+            !self.version_running(version),
+            "Odoo {version} is running: stop its databases first."
+        );
+        for edition in [Edition::Community, Edition::Enterprise] {
+            let path = self.source_path(version, edition);
+            if is_link(&path) {
+                fs::remove_file(&path)?;
+            } else if path.exists() {
+                let repo = self.repo_dir(edition).display().to_string();
+                let _ = self.git_quiet(&[
+                    "-C",
+                    &repo,
+                    "worktree",
+                    "remove",
+                    "--force",
+                    &path.display().to_string(),
+                ]);
+                let _ = fs::remove_dir_all(&path);
+            }
+            let _ = fs::remove_file(self.stamp(version, edition));
+        }
+        let _ = fs::remove_dir(self.root.join("sources").join(version));
+        let _ = fs::remove_dir_all(self.venv_dir(version));
         Ok(())
     }
 

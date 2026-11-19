@@ -6,8 +6,12 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
-use odoo_runtime::runtime::{Edition, NoAccess, SourceState};
+/// Odoo fixes its branches every week: a version is brought up to date after that.
+const WEEK: Duration = Duration::from_secs(7 * 24 * 3600);
+
+use odoo_runtime::runtime::{Edition, NoAccess, Runtime as OdooRuntime, SourceState, VersionInfo};
 use odoo_runtime::system::{self, SystemProbe, SystemReport};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Runtime, State};
@@ -20,19 +24,22 @@ pub const SETUP_EVENT: &str = "setup-progress";
 /// Runs the fix script as root; returns its output, or a sentence for the user.
 pub type Elevate = dyn Fn(&str) -> Result<String, String> + Send + Sync;
 
-/// Is GitHub's tool there, and is someone signed in with it?
+/// Is GitHub's tool there, and can the app's key read Odoo's repositories?
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GithubStatus {
     pub installed: bool,
-    pub signed_in: bool,
+    /// The app's key reads Odoo Community (any GitHub account can).
+    pub connected: bool,
+    /// It also reads Odoo Enterprise (the account has access).
+    pub enterprise: bool,
 }
 
 /// How the setup reaches the machine; swappable in tests.
 pub struct SetupHooks {
     pub probe: Arc<dyn Fn() -> SystemProbe + Send + Sync>,
     pub elevate: Arc<Elevate>,
-    pub github: Arc<dyn Fn() -> GithubStatus + Send + Sync>,
+    pub github: Arc<dyn Fn(&OdooRuntime) -> GithubStatus + Send + Sync>,
     /// The person's Linux user name, for their database user.
     pub user: String,
 }
@@ -158,7 +165,7 @@ pub async fn setup_status(
         system: system::report(&(setup.hooks.probe)()),
         community: odoo.source_state(&version, Edition::Community),
         enterprise: odoo.source_state(&version, Edition::Enterprise),
-        github: (setup.hooks.github)(),
+        github: (setup.hooks.github)(&odoo),
         ai_ready: providers().iter().any(|p| p.ready()),
         tasks: setup.tasks.lock().unwrap().clone(),
         version,
@@ -272,16 +279,89 @@ pub fn download_odoo<R: Runtime>(
     Ok(())
 }
 
-/// Open GitHub's sign-in (browser with a short code) in a terminal window; Git then
-/// uses that sign-in to download Enterprise.
+/// Connect GitHub: make the app's own SSH key, then one browser sign-in (in a
+/// terminal window) that allows adding keys and adds it to the person's account.
 #[tauri::command]
-pub fn github_sign_in(state: State<'_, AppState>) -> Result<(), String> {
+pub fn github_connect(state: State<'_, AppState>) -> Result<(), String> {
+    state.odoo.ensure_ssh_key().map_err(|e| format!("{e:#}"))?;
+    let public = state.odoo.ssh_key_path().with_extension("pub");
+    // Already signed in: only ask for the extra permission; then add the key
+    // ("already in use" just means it was added before).
+    let script = r#"if gh auth status --hostname github.com >/dev/null 2>&1; then
+  gh auth refresh --hostname github.com --scopes admin:public_key
+else
+  gh auth login --hostname github.com --git-protocol https --web --scopes admin:public_key
+fi
+gh ssh-key add "$1" --title "Odoo Dev Specs ($(hostname))" 2>&1 | grep -v "already in use" || true"#;
     (state.launch)(&[
         "sh".into(),
         "-c".into(),
-        "gh auth login --hostname github.com --git-protocol https --web && gh auth setup-git"
-            .into(),
+        script.into(),
+        "sh".into(),
+        public.display().to_string(),
     ])
+}
+
+/// Every Odoo version: the ones Odoo publishes, and the ones on this computer.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OdooVersions {
+    /// Empty when GitHub cannot be reached (not connected yet, offline).
+    pub available: Vec<String>,
+    pub latest_saas: Option<String>,
+    pub downloaded: Vec<VersionInfo>,
+}
+
+#[tauri::command]
+pub async fn odoo_versions(state: State<'_, AppState>) -> Result<OdooVersions, String> {
+    let odoo = state.odoo.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let available = odoo.available_versions().unwrap_or_default();
+        OdooVersions {
+            latest_saas: available.iter().find(|v| v.starts_with("saas-")).cloned(),
+            available,
+            downloaded: odoo.downloaded_versions(),
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn remove_odoo_version(
+    state: State<'_, AppState>,
+    version: String,
+) -> Result<(), String> {
+    let odoo = state.odoo.clone();
+    tauri::async_runtime::spawn_blocking(move || odoo.remove_version(&version))
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|e| format!("{e:#}"))
+}
+
+/// Update a version's source now (the weekly update, on demand).
+#[tauri::command]
+pub async fn update_odoo_version(
+    state: State<'_, AppState>,
+    version: String,
+) -> Result<(), String> {
+    let odoo = state.odoo.clone();
+    tauri::async_runtime::spawn_blocking(move || odoo.update_if_stale(&version, Duration::ZERO))
+        .await
+        .map_err(|e| e.to_string())?
+        .map(|_| ())
+        .map_err(|e| format!("{e:#}"))
+}
+
+/// At start, quietly bring each version older than a week up to date.
+pub fn start_weekly_updates(odoo: Arc<OdooRuntime>) {
+    std::thread::spawn(move || {
+        for v in odoo.downloaded_versions() {
+            if let Err(e) = odoo.update_if_stale(&v.version, WEEK) {
+                eprintln!("could not update Odoo {}: {e:#}", v.version);
+            }
+        }
+    });
 }
 
 /// Use a folder the person already has for a version's Community or Enterprise.
@@ -328,19 +408,18 @@ fn run_as_root(script: &str) -> Result<String, String> {
     }
 }
 
-fn github_status() -> GithubStatus {
+fn github_status(odoo: &OdooRuntime) -> GithubStatus {
     let installed = std::env::var_os("PATH")
         .is_some_and(|paths| std::env::split_paths(&paths).any(|dir| dir.join("gh").is_file()));
-    let signed_in = installed
-        && Command::new("gh")
-            .args(["auth", "status", "--hostname", "github.com"])
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status()
-            .is_ok_and(|s| s.success());
+    // Without the app's key there is nothing to test yet.
+    let access = if odoo.ssh_key_path().is_file() {
+        odoo.github_access()
+    } else {
+        Default::default()
+    };
     GithubStatus {
         installed,
-        signed_in,
+        connected: access.community,
+        enterprise: access.enterprise,
     }
 }

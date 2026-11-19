@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../lib/api";
+import VersionsPage from "./VersionsPage";
 import { setCanvasTheme, useCanvasTheme, type CanvasTheme } from "../lib/canvasTheme";
 import type { EnvCheck, EnvReport, ProviderStatus, Settings } from "../lib/types";
 
@@ -11,7 +12,7 @@ export interface SettingsPanelProps {
 
 const VERSIONS = ["19.0", "18.0", "17.0"];
 
-type Page = "general" | "ai";
+type Page = "general" | "versions" | "ai";
 
 /**
  * Settings laid out like Antigravity's: a few pages on the left; on the right, titled
@@ -85,6 +86,9 @@ export default function SettingsPanel({ onClose, onOpenSetup }: SettingsPanelPro
           <div className="settings-nav-title">Settings</div>
           <button aria-current={page === "general" ? "page" : undefined} onClick={() => setPage("general")}>
             General
+          </button>
+          <button aria-current={page === "versions" ? "page" : undefined} onClick={() => setPage("versions")}>
+            Odoo versions
           </button>
           <button aria-current={page === "ai" ? "page" : undefined} onClick={() => setPage("ai")}>
             AI services
@@ -174,6 +178,8 @@ export default function SettingsPanel({ onClose, onOpenSetup }: SettingsPanelPro
               )}
             </>
           )}
+
+          {page === "versions" && <VersionsPage />}
 
           {page === "ai" && (
             <>
