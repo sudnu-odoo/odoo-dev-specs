@@ -1188,3 +1188,25 @@ fn a_database_says_its_own_version() {
     );
     assert_eq!(version_from_latest("nonsense"), None);
 }
+
+#[test]
+fn the_ai_reads_only_the_sessions_version() {
+    let env = Env::new(&[], false);
+    env.rt
+        .download_source("19.0", Edition::Community, &mut |_| {})
+        .unwrap();
+    env.rt
+        .download_source("saas-19.2", Edition::Community, &mut |_| {})
+        .unwrap();
+    env.rt
+        .download_source("saas-19.2", Edition::Enterprise, &mut |_| {})
+        .unwrap();
+    let dirs = env.rt.source_dirs_for("saas-19.2");
+    assert_eq!(dirs.len(), 2, "{dirs:?}");
+    assert!(
+        dirs.iter()
+            .all(|d| d.to_string_lossy().contains("saas-19.2")),
+        "{dirs:?}"
+    );
+    assert!(env.rt.source_dirs_for("18.0").is_empty(), "not downloaded");
+}

@@ -237,3 +237,25 @@ fn a_new_session_starts_with_the_clients_latest_hosting() {
     );
     assert!(ws.set_hosting("Acme", &first.id, Some("cloud")).is_err());
 }
+
+#[test]
+fn a_session_has_an_odoo_version_inherited_with_the_hosting() {
+    let (ws, _d) = workspace();
+    ws.create_project("Acme").unwrap();
+    let first = ws.create_session("Acme", "First", "claude").unwrap();
+    ws.set_hosting("Acme", &first.id, Some("online")).unwrap();
+    ws.set_version("Acme", &first.id, Some("saas-19.2"))
+        .unwrap();
+    sleep(Duration::from_millis(5));
+    let next = ws.create_session("Acme", "Next", "claude").unwrap();
+    assert_eq!(
+        (next.hosting.as_deref(), next.version.as_deref()),
+        (Some("online"), Some("saas-19.2"))
+    );
+    for bad in ["19", "saas-", "../19.0", "19.0; rm"] {
+        assert!(
+            ws.set_version("Acme", &first.id, Some(bad)).is_err(),
+            "{bad}"
+        );
+    }
+}

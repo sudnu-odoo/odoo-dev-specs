@@ -310,3 +310,20 @@ async fn each_message_tells_the_ai_the_sessions_hosting() {
         "the chat shows only what was typed"
     );
 }
+
+#[tokio::test]
+async fn the_ai_is_told_the_odoo_version_too() {
+    let env = env();
+    env.ws
+        .set_hosting("P", &env.session.id, Some("online"))
+        .unwrap();
+    env.ws
+        .set_version("P", &env.session.id, Some("saas-19.2"))
+        .unwrap();
+    env.send("Hide the cost").await;
+    let prompt = env.session_file("stdin.txt");
+    assert!(
+        prompt.starts_with("[Hosting: Odoo Online (SaaS), Odoo saas-19.2."),
+        "{prompt}"
+    );
+}

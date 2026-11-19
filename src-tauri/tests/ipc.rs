@@ -893,3 +893,23 @@ fn a_session_keeps_its_hosting_and_new_ones_follow_the_client() {
         .unwrap_err();
     assert!(err.contains("Unknown hosting"), "{err}");
 }
+
+#[test]
+fn a_session_keeps_its_odoo_version() {
+    let h = harness(true);
+    let id = h.new_session();
+    h.call(
+        "set_session_version",
+        json!({"project": "Acme", "sessionId": id, "version": "saas-19.2"}),
+    )
+    .unwrap();
+    let projects = h.call("list_projects", json!({})).unwrap();
+    assert_eq!(projects[0]["sessions"][0]["version"], "saas-19.2");
+    assert!(h
+        .call(
+            "set_session_version",
+            json!({"project": "Acme", "sessionId": id, "version": "latest"}),
+        )
+        .unwrap_err()
+        .contains("is not an Odoo version"));
+}

@@ -292,6 +292,19 @@ impl Runtime {
         dirs
     }
 
+    /// The source of one version (Community, and Enterprise when there), as real
+    /// folders: what the AI reads for a session of that version.
+    pub fn source_dirs_for(&self, version: &str) -> Vec<PathBuf> {
+        [Edition::Community, Edition::Enterprise]
+            .into_iter()
+            .filter(|ed| matches!(self.source_state(version, *ed), SourceState::Ready { .. }))
+            .map(|ed| {
+                let dir = self.source_path(version, ed);
+                dir.canonicalize().unwrap_or(dir)
+            })
+            .collect()
+    }
+
     /// Download the Odoo source of `version` unless it is already there.
     pub fn ensure_source(&self, version: &str) -> Result<PathBuf> {
         self.download_source(version, Edition::Community, &mut |_| {})?;
