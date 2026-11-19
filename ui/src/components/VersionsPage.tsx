@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useOdooVersions } from "../app/useOdooVersions";
 import { api } from "../lib/api";
 import { confirmAction } from "../lib/confirm";
+import { pickFolder } from "../lib/pickFolder";
 import { sizeText } from "../lib/odooApps";
 import type { VersionInfo } from "../lib/types";
 import { versionLabel } from "./HostingMenu";
@@ -48,6 +49,18 @@ export default function VersionsPage() {
     }
   }
 
+  /** Use folders the person already has (e.g. odev worktrees) for a version. */
+  async function chooseFolders(version: string) {
+    const label = versionLabel(version);
+    const community = await pickFolder(`Choose your Odoo ${label} folder (Community)`);
+    if (!community) return;
+    await act(version, "Checking the folder…", async () => {
+      await api.useOdooFolder(version, "community", community);
+      const enterprise = await pickFolder(`Choose your Odoo ${label} Enterprise folder (or Cancel)`);
+      if (enterprise) await api.useOdooFolder(version, "enterprise", enterprise);
+    });
+  }
+
   const here = new Set(versions.downloaded.map((v) => v.version));
   const addable = versions.available.filter((v) => !here.has(v));
 
@@ -83,6 +96,15 @@ export default function VersionsPage() {
             >
               Update now
             </button>
+            {!(v.community.state === "ready" && v.community.linked) && (
+              <button
+                className="btn btn-small"
+                disabled={!!busy[v.version]}
+                onClick={() => chooseFolders(v.version)}
+              >
+                Use a folder…
+              </button>
+            )}
             <button
               className="btn btn-small"
               disabled={!!busy[v.version]}
@@ -109,7 +131,10 @@ export default function VersionsPage() {
             <div className="settings-row">
               <div className="settings-row-text">
                 <span>Download now</span>
-                <small>Otherwise it downloads the first time a session uses it.</small>
+                <small>
+                  Download it, or use a folder you already have (e.g. from odev). Otherwise it downloads the
+                  first time a session uses it.
+                </small>
               </div>
               <select aria-label="Version to add" value={adding} onChange={(e) => setAdding(e.target.value)}>
                 <option value="">Choose…</option>
@@ -130,6 +155,17 @@ export default function VersionsPage() {
                 }
               >
                 Download
+              </button>
+              <button
+                className="btn btn-small"
+                disabled={!adding || !!busy[adding]}
+                onClick={async () => {
+                  const version = adding;
+                  setAdding("");
+                  await chooseFolders(version);
+                }}
+              >
+                Use a folder…
               </button>
             </div>
           </div>
