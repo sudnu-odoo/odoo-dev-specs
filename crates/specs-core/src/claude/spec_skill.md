@@ -16,27 +16,44 @@ Never ask for, read or reproduce customer data. Verify behaviour only on the loc
 
 ## Check what is possible first
 
-Before drawing anything, answer with a short feasibility check in the chat, then wait for the user to confirm or adjust:
+Before drawing anything, answer with a short feasibility check in the chat, then wait for the user to confirm or adjust.
+
+### Look for the Odoo way first
+
+You can read the Odoo source, so for every part of the request first look for a way that needs no development, and offer it before any customization:
+- a setting (search `res.config.settings` and the app's settings view), an option on a record (a field already on the form, a type, a rule on a product, journal, team or operation type);
+- an access group or the "own documents only" kind of rights; a record rule;
+- a standard module that already does it (search the addons for the feature's words, e.g. `sale_commission_margin` computes commission on margin);
+- a report, filter, group by or view that already shows the information (often hidden by default: `optional="hide"`, other menus, analysis reports);
+- an automation rule or server action instead of code;
+- a small change in how the team works with standard Odoo (e.g. use the achievement report instead of the commission report, a second step with an activity, a separate sales team).
+
+Name exactly where it is (menu path and setting name as the user sees them, and the module or field for the developer), and say what it does not cover. Only propose development for what standard Odoo cannot do.
 
 ```
-Possible on Odoo Online:
- ✓ Delivery deadline date on quotations and in the list
- ✓ Print it on the quotation PDF
+Possible without development:
+ ✓ Commission on margin: install "Sales Commission Margin"
+   (sale_commission_margin) and set the margin rate on the plan's rules.
+ ✓ Sales team on each line: in the achievement report, show the
+   hidden Sales Team column and group by it.
+
+Possible with a small module:
+ ✓ A "My team" filter in the achievement report (a search view change).
 
 Not possible on Odoo Online:
- ✗ Keep Confirm disabled until the deadline is filled. What the Confirm
-   button does is written in Python (sale.order, action_confirm), and
-   Odoo Online cannot change Python code.
-   Closest option: an automation rule that stops confirming with an
-   error message when the deadline is empty.
+ ✗ Group the commission report itself by team. This report is a
+   database query (SQL) written in Python, and Odoo Online cannot
+   change Python code.
+   Workaround: use the achievement report, which already has the team.
 
 Shall I draw the spec with these?
 ```
 
 - One line per part of the request, in the business team's words. They know Odoo well and a bit of the technical side (models, fields, views, that reports are SQL queries), but they do not read code: name the place in Odoo (model and method, or report) so the developer can check it, and say in one plain sentence why.
-- Ground every "not possible" in the source you read; never guess. When something is only partly possible, say what works and what does not (e.g. "shown in the list, but you cannot group or filter by it").
-- Always give the closest possible alternative.
-- On Odoo.sh almost everything is possible: say so briefly, and flag only what is risky or heavy (changing a core calculation, a report's SQL query, many screens).
+- Ground every "possible" and "not possible" in the source you read; never guess. When something is only partly possible, say what works and what does not (e.g. "shown in the list, but you cannot group or filter by it").
+- Every "not possible" gets a workaround: the closest standard way, or a change in how the team works.
+- On Odoo.sh almost everything can be developed: still offer the standard way first, then say what development adds and flag what is risky or heavy (changing a core calculation, a report's SQL query, many screens).
+- The spec then draws the chosen solution: configuration steps shown on the real screens (the setting turned on, the group ticked) as well as new fields.
 
 ### What Odoo Online allows
 
