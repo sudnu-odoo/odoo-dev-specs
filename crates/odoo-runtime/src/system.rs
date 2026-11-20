@@ -149,6 +149,20 @@ pub fn plan(p: &SystemProbe) -> Vec<Fix> {
     fixes
 }
 
+/// Where PostgreSQL's access file is: the server says, else its running process
+/// (its config file or data folder), else any cluster's folder. Empty if none.
+const FIND_HBA: &str = r#"find_hba() {
+  f=$(runuser -u postgres -- psql -tAc 'SHOW hba_file' 2>/dev/null || true)
+  if [ -n "$f" ] && [ -f "$f" ]; then echo "$f"; return; fi
+  args=$(ps -o args= -C postgres 2>/dev/null | grep -- ' -D ' | head -n 1 || true)
+  conf=$(printf '%s' "$args" | sed -n 's/.*config_file=\([^ ]*\).*/\1/p')
+  if [ -n "$conf" ] && [ -f "$(dirname "$conf")/pg_hba.conf" ]; then echo "$(dirname "$conf")/pg_hba.conf"; return; fi
+  data=$(printf '%s' "$args" | sed -n 's/.* -D \([^ ]*\).*/\1/p')
+  if [ -n "$data" ] && [ -f "$data/pg_hba.conf" ]; then echo "$data/pg_hba.conf"; return; fi
+  ls /etc/postgresql/*/*/pg_hba.conf 2>/dev/null | sort -V | tail -n 1 || true
+}
+"#;
+
 /// A user name safe to put in the script (Linux user names are like this).
 pub fn valid_user(user: &str) -> bool {
     !user.is_empty()
@@ -164,7 +178,10 @@ pub fn valid_user(user: &str) -> bool {
 pub fn script(fixes: &[Fix], user: &str) -> String {
     assert!(valid_user(user), "not a user name: {user}");
     let mut s = String::from(
-        "set -eu\nexport DEBIAN_FRONTEND=noninteractive\n\
+        // A language the machine has not installed (e.g. LANG=id_ID.UTF-8 without its
+        // pack) makes PostgreSQL's install skip creating its database folder: use the
+        // neutral one every Ubuntu has.
+        "set -eu\nexport DEBIAN_FRONTEND=noninteractive LANG=C.UTF-8 LC_ALL=C.UTF-8\nunset LANGUAGE\n\
          say() { echo \"== $*\"; }\n",
     );
     let mut packages: Vec<&str> = fixes
@@ -192,20 +209,30 @@ pub fn script(fixes: &[Fix], user: &str) -> String {
     }
     if fixes.contains(&Fix::StartPostgres) {
         // systemd on a laptop; plain `service` where there is none (containers).
+        // Installed but without a database folder (a cluster), nothing can start:
+        // make the usual one first.
         s.push_str(
-            "say Starting PostgreSQL\n\
+            "if command -v pg_lsclusters >/dev/null && [ -z \"$(pg_lsclusters -h 2>/dev/null)\" ]; then\n\
+             \x20 say Creating the PostgreSQL database folder\n\
+             \x20 pg_createcluster \"$(ls /usr/lib/postgresql | sort -V | tail -n 1)\" main\n\
+             fi\n\
+             say Starting PostgreSQL\n\
              if [ -d /run/systemd/system ]; then systemctl enable --now postgresql; \
              else service postgresql start; fi\n",
         );
     }
     if fixes.contains(&Fix::CreateUser) {
+        s.push_str(FIND_HBA);
         // Some machines' pg_hba.conf (changed by another tool) has no rule for local
         // connections ("no pg_hba.conf entry for host [local]"): let this user, and
         // PostgreSQL's own admin, in from this computer as Ubuntu does by default, at
         // the top so they win. Each rule is added once; the old file is backed up.
         s.push_str(&format!(
             "if ! runuser -u '{user}' -- psql -d postgres -tAc 'SELECT 1' >/dev/null 2>&1; then\n\
-             \x20 hba=$(runuser -u postgres -- psql -tAc 'SHOW hba_file' 2>/dev/null || ls /etc/postgresql/*/main/pg_hba.conf | tail -n 1)\n\
+             \x20 hba=$(find_hba)\n\
+             \x20 if [ -z \"$hba\" ]; then\n\
+             \x20   echo \"Could not find PostgreSQL's access file (pg_hba.conf). Is PostgreSQL running?\" >&2; exit 1\n\
+             \x20 fi\n\
              \x20 for who in postgres '{user}'; do\n\
              \x20   if ! grep -Eq \"^local[[:space:]]+all[[:space:]]+(all|$who)[[:space:]]+peer\" \"$hba\"; then\n\
              \x20     say Letting $who into PostgreSQL\n\
@@ -384,7 +411,8 @@ mod tests {
         );
         // Only when they cannot connect, each rule once, with a backup, then reloaded.
         assert!(s.contains("runuser -u 'ana' -- psql -d postgres"), "{s}");
-        assert!(s.contains("/etc/postgresql/*/main/pg_hba.conf"), "{s}");
+        assert!(s.contains("/etc/postgresql/*/*/pg_hba.conf"), "{s}");
+        assert!(s.contains("Could not find PostgreSQL's access file"), "{s}");
         assert!(s.contains(".before-odoo-dev-specs"), "{s}");
         assert!(s.contains("systemctl reload postgresql"), "{s}");
     }
