@@ -93,7 +93,7 @@ pub fn report(p: &SystemProbe) -> SystemReport {
     } else if !p.postgres_running {
         Some("PostgreSQL is not running.".to_string())
     } else if !p.postgres_user {
-        Some("Your database user does not exist yet.".to_string())
+        Some("The app cannot log in to PostgreSQL yet (your database user or its access is missing).".to_string())
     } else {
         None
     };
@@ -199,6 +199,24 @@ pub fn script(fixes: &[Fix], user: &str) -> String {
         );
     }
     if fixes.contains(&Fix::CreateUser) {
+        // Some machines' pg_hba.conf (changed by another tool) has no rule for local
+        // connections ("no pg_hba.conf entry for host [local]"): let this user, and
+        // PostgreSQL's own admin, in from this computer as Ubuntu does by default, at
+        // the top so they win. Each rule is added once; the old file is backed up.
+        s.push_str(&format!(
+            "if ! runuser -u '{user}' -- psql -d postgres -tAc 'SELECT 1' >/dev/null 2>&1; then\n\
+             \x20 hba=$(runuser -u postgres -- psql -tAc 'SHOW hba_file' 2>/dev/null || ls /etc/postgresql/*/main/pg_hba.conf | tail -n 1)\n\
+             \x20 for who in postgres '{user}'; do\n\
+             \x20   if ! grep -Eq \"^local[[:space:]]+all[[:space:]]+(all|$who)[[:space:]]+peer\" \"$hba\"; then\n\
+             \x20     say Letting $who into PostgreSQL\n\
+             \x20     [ -f \"$hba.before-odoo-dev-specs\" ] || cp -p \"$hba\" \"$hba.before-odoo-dev-specs\"\n\
+             \x20     {{ echo \"local   all   $who   peer   # added by Odoo Dev Specs\"; cat \"$hba\"; }} > \"$hba.new\"\n\
+             \x20     cat \"$hba.new\" > \"$hba\"; rm -f \"$hba.new\"\n\
+             \x20   fi\n\
+             \x20 done\n\
+             \x20 if [ -d /run/systemd/system ]; then systemctl reload postgresql; else service postgresql reload; fi\n\
+             fi\n"
+        ));
         s.push_str(&format!(
             "say Creating your database user\n\
              if ! runuser -u postgres -- psql -tAc \"SELECT 1 FROM pg_roles WHERE rolname='{user}'\" | grep -q 1; then\n\
@@ -350,8 +368,25 @@ mod tests {
         assert!(!s.contains("apt-get"), "nothing to install: {s}");
         assert_eq!(
             report(&p).requirements[0].problem,
-            "Your database user does not exist yet."
+            "The app cannot log in to PostgreSQL yet (your database user or its access is missing)."
         );
+    }
+
+    #[test]
+    fn the_user_is_let_in_even_when_postgresql_has_no_local_rule_for_them() {
+        // A pg_hba.conf changed by another tool: "no pg_hba.conf entry for host [local]".
+        let s = script(&[Fix::CreateUser], "ana");
+        let rule = s.find("for who in postgres 'ana'").expect(&s);
+        let user = s.find("createuser --superuser 'ana'").unwrap();
+        assert!(
+            rule < user,
+            "access first, or even creating the user fails: {s}"
+        );
+        // Only when they cannot connect, each rule once, with a backup, then reloaded.
+        assert!(s.contains("runuser -u 'ana' -- psql -d postgres"), "{s}");
+        assert!(s.contains("/etc/postgresql/*/main/pg_hba.conf"), "{s}");
+        assert!(s.contains(".before-odoo-dev-specs"), "{s}");
+        assert!(s.contains("systemctl reload postgresql"), "{s}");
     }
 
     #[test]
