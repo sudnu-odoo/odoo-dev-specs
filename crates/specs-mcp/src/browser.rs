@@ -3,7 +3,7 @@
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-use anyhow::{anyhow, ensure, Context, Result};
+use anyhow::{anyhow, bail, ensure, Context, Result};
 use chromiumoxide::browser::{Browser, BrowserConfig};
 use chromiumoxide::cdp::browser_protocol::emulation::SetDeviceMetricsOverrideParams;
 use chromiumoxide::cdp::browser_protocol::page::CaptureScreenshotFormat;
@@ -122,9 +122,28 @@ pub async fn screenshot(base_url: &str, page: &str, viewport: Viewport, out: &Pa
 /// Capture several pages with one Chrome, logged in once, and map what is on each:
 /// returns, per shot, the positions of its fields, labels, buttons and so on.
 pub async fn screenshots(base_url: &str, shots: &[Shot]) -> Result<Vec<Vec<Element>>> {
+    screenshots_prepared(base_url, shots, None).await
+}
+
+/// Scripts run in the logged-in page around the screenshots: `setup` prepares the
+/// database and answers a JSON string, whose `pages` map placeholder pages (like
+/// `model:x_matrix`) to real ones and whose `error` stops the shots; `undo` turns
+/// that answer into a script that removes what was prepared. It always runs.
+pub struct Prepare {
+    pub setup: String,
+    pub undo: fn(&str) -> String,
+}
+
+/// Like [`screenshots`], with the database prepared first and restored after.
+pub async fn screenshots_prepared(
+    base_url: &str,
+    shots: &[Shot],
+    prepare: Option<&Prepare>,
+) -> Result<Vec<Vec<Element>>> {
     for shot in shots {
+        let placeholder = prepare.is_some() && shot.page.starts_with("model:");
         ensure!(
-            shot.page.starts_with('/') && !shot.page.starts_with("//"),
+            placeholder || (shot.page.starts_with('/') && !shot.page.starts_with("//")),
             "Give a path on the local Odoo starting with /, like /odoo/sales."
         );
     }
@@ -149,7 +168,7 @@ pub async fn screenshots(base_url: &str, shots: &[Shot]) -> Result<Vec<Vec<Eleme
         .context("Could not start Chrome. Is Google Chrome or Chromium installed?")?;
     let events = tokio::spawn(async move { while handler.next().await.is_some() {} });
 
-    let result = capture_all(&browser, base_url, shots).await;
+    let result = capture_all(&browser, base_url, shots, prepare).await;
     let _ = browser.close().await;
     let _ = browser.wait().await;
     events.abort();
@@ -160,21 +179,74 @@ async fn capture_all(
     browser: &Browser,
     base_url: &str,
     shots: &[Shot],
+    prepare: Option<&Prepare>,
 ) -> Result<Vec<Vec<Element>>> {
     // Log in through the login page once; the session cookie serves every page after.
-    let login_url = format!(
-        "{base_url}/web/login?redirect={}",
-        percent_encode(&shots[0].page)
-    );
+    let first = match shots[0].page.as_str() {
+        page if page.starts_with('/') => page,
+        _ => "/web",
+    };
+    let login_url = format!("{base_url}/web/login?redirect={}", percent_encode(first));
     let tab = browser
         .new_page(login_url.as_str())
         .await
         .context("Could not open Odoo in Chrome.")?;
     tab.wait_for_navigation().await?;
     log_in_if_asked(&tab).await?;
+    let Some(prepare) = prepare else {
+        return capture_each(&tab, base_url, shots, &Default::default()).await;
+    };
+    wait_until_drawn(&tab).await;
+    let answer: String = evaluate_settled(&tab, &prepare.setup)
+        .await
+        .context("Could not prepare the prototype on the database.")?
+        .into_value()
+        .unwrap_or_default();
+    let parsed: serde_json::Value = serde_json::from_str(&answer).unwrap_or_default();
+    let result = match parsed["error"].as_str() {
+        Some(error) => Err(anyhow!("Could not create the prototype: {error}")),
+        None => {
+            let pages = parsed["pages"]
+                .as_object()
+                .map(|m| {
+                    m.iter()
+                        .filter_map(|(k, v)| Some((k.clone(), v.as_str()?.to_string())))
+                        .collect()
+                })
+                .unwrap_or_default();
+            capture_each(&tab, base_url, shots, &pages).await
+        }
+    };
+    // Whatever happened, take the prototype away again.
+    let undone: String = evaluate_settled(&tab, &(prepare.undo)(&answer))
+        .await
+        .ok()
+        .and_then(|r| r.into_value().ok())
+        .unwrap_or_default();
+    match (result, undone.as_str()) {
+        (Ok(maps), "[]") => Ok(maps),
+        (Ok(_), other) => Err(anyhow!(
+            "The screenshots were taken but the prototype could not be fully removed: {other}"
+        )),
+        (Err(e), _) => Err(e),
+    }
+}
 
+async fn capture_each(
+    tab: &Page,
+    base_url: &str,
+    shots: &[Shot],
+    pages: &std::collections::HashMap<String, String>,
+) -> Result<Vec<Vec<Element>>> {
     let mut maps = Vec::with_capacity(shots.len());
     for shot in shots {
+        let page = match pages.get(&shot.page) {
+            Some(real) => real.as_str(),
+            None if shot.page.starts_with("model:") => {
+                bail!("{} is not one of the prototype's new models.", shot.page)
+            }
+            None => shot.page.as_str(),
+        };
         tab.execute(SetDeviceMetricsOverrideParams::new(
             shot.viewport.width,
             shot.viewport.height,
@@ -183,13 +255,13 @@ async fn capture_all(
         ))
         .await
         .context("Could not size the browser window.")?;
-        tab.goto(format!("{base_url}{}", shot.page))
+        tab.goto(format!("{base_url}{page}"))
             .await
             .with_context(|| format!("Could not open {} in Chrome.", shot.page))?;
         tab.wait_for_navigation().await?;
         // The session may have expired: then this page is the login form.
-        log_in_if_asked(&tab).await?;
-        wait_until_drawn(&tab).await;
+        log_in_if_asked(tab).await?;
+        wait_until_drawn(tab).await;
 
         let png = tab
             .screenshot(
@@ -201,7 +273,7 @@ async fn capture_all(
             .context("Chrome could not take the screenshot.")?;
         std::fs::write(&shot.out, png)
             .with_context(|| format!("Could not save {}.", shot.out.display()))?;
-        let found: String = evaluate_settled(&tab, ELEMENTS_JS)
+        let found: String = evaluate_settled(tab, ELEMENTS_JS)
             .await
             .ok()
             .and_then(|r| r.into_value().ok())

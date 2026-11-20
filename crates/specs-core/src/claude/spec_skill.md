@@ -80,24 +80,21 @@ Nothing else: no rules / fields table, no "flows that must keep working" and no 
 
 ## Drawing with your tools
 
-- Call diagram_summary first when the diagram is not empty, and build on what is there.
-- Screenshots: first decide every page the spec needs, then take them all in one odoo_screenshots call (Odoo 19.0 unless the user names another version, with the modules the feature needs). The database has demo data: open existing records that show the feature with real values (e.g. a quotation with order lines, "/odoo/sales/<id>"; a report as "/report/html/<report>/<id>"), not empty new forms. Place each with diagram_add_image (width 900).
-- Position by name, not by eye: the odoo_screenshots answer lists what is on each screenshot (field:validity_date, label:validity_date, button:action_confirm, column:product_id, tab:..., or texts on reports). Use these as `anchor` with image_id; the tools then place things exactly. Use pixel positions only for something the list does not have.
-- A new field, column or button (it does not exist yet), always the same way:
-  1. Write its label on the screenshot where it will appear: diagram_add_text with image_id, the anchor of the neighbouring field's label and place "below" (or "right"), font_size 16, no colour, so it reads like part of the screen (e.g. "Delivery Window" with anchor "label:validity_date", place "below"). Put the example value the same way under the neighbouring field (anchor "validity_date"). A new list column: its header inside the header row and an example value in the first rows, in the column's place; never below or beside the list.
-  2. Write a red note to the right of the screenshot, exactly three lines (the name with `x_` on Odoo Online, without on Odoo.sh):
-     New field: x_delivery_window
-     type: date
-     value: "Dec 20 -> Dec 27"
-     (one more short line only if really needed, e.g. "read-only after confirmation").
-  3. Connect them with diagram_add_arrow to the note, starting from the text closest to the note (usually the example value, which sits right of the label), so the arrow never crosses your own writing.
-  No outline box around a new field, and never redraw a screen or a table inside a box.
-- Layout: one column starting at x = 0. Leave 80px between sections. Put red notes to the right of the screenshot (x = 960 or more), level with what they describe, a few words each with real line breaks.
-- Annotate existing parts with diagram_add_text (color "red") for notes, diagram_add_pointer from the note to what it is about (image_id + anchor), and diagram_add_highlight (image_id + anchor; "row:<field>" outlines a field with its label) around what changes.
-- Text sizes: title 36, section headings 28, everything else 20 (never smaller).
-- Plain text (no colour) for titles, context and test cases. Use boxes only for a small mockup of something that does not exist yet (e.g. a new button or field), never for process steps.
-- When a tool answer says "Warning: it overlaps ...", fix it right away with diagram_move.
-- Before your final answer, always call diagram_summary and check the whole diagram yourself: nothing overlaps, every note is next to what it describes, sections follow each other top to bottom. Fix what is wrong, then answer.
+Build the whole spec with one spec_build call: you write the content, the tool takes every screenshot in one go and lays everything out (sections, notes next to what they point at, nothing overlapping). Do not place things yourself.
+
+The plan:
+- `title`, `need` (one line), `context` (3 to 5 short lines), `version` (the session's Odoo version), `modules` the screens need.
+- `sections`, top to bottom, numbered for you. `kind`: "as_is" (how it works today, numbered steps in `text`), "to_be" (the expected result), "config" (settings or rights to turn on). `text` is 1 to 3 short lines. A typical spec: as_is, then to_be sections, one per place the user meets the feature. Put two screens `side_by_side` only to compare (captions "CURRENT" / "EXPECTED").
+- Each screen: a unique `name`, the `page` (an existing record with real demo values, e.g. "/odoo/sales/1", a list "/odoo/sales", a report "/report/html/<report>/<id>"), its `model` (written above it), an optional `caption`, `notes` and `new_fields`.
+- `notes`: a few short lines each, with the `anchor` they are about ("button:action_confirm", "row:validity_date" for a field with its label, "column:product_id", "tab:...", or a visible text). The tool outlines it in red and draws the arrow. Leave the anchor out for a general note.
+- `new_fields`: `near` (the existing field it goes next to), `label`, `value` (an example), `technical` (with `x_` on Odoo Online, without on Odoo.sh), `type`, and `extra` for one more short line if really needed. The tool writes the label on the screen and adds the red note "New field: <name> / type / value".
+- `links`: a dashed red arrow from one screen to another carrying a rule, e.g. "partner_id = the user's partner". Use them sparingly.
+- `tests`: "<role>: <action> -> <expected result>", numbered for you.
+
+Show new things for real with a `prototype`: list the new fields (`model`, `name` starting with `x_`, `label`, `type`, `relation` for many2one / many2many, `selection` choices; `after` = the form field it comes after, `list_after` = the list column it comes after) and new models (`model` starting with `x_`, `label`). They are created on the local database only for the screenshots and removed right after, so the to-be screens show the new field in its real place, and a new model's screen can be taken with page "model:x_name" (its list) or "model:x_name/new" (its form). Still list each new field under the screen's `new_fields`: the tool then outlines the real one and adds its note. The prototype is only a picture: on Odoo.sh the real field names have no `x_`, so write the real `technical` name in `new_fields`.
+
+When the answer lists warnings (an anchor not found, text overlapping), fix the plan with the names it lists and send the whole corrected plan to spec_build again; it replaces what it built before. To change the spec later, do the same. Use the other diagram tools (diagram_summary, diagram_set_text, diagram_move...) only for a small touch the plan cannot express, and odoo_screenshots alone only to look at a screen before you write the plan.
+
 - The user does not run tools. Never ask them to check the layout or to call a tool, and do not mention tool names in your answer.
 
 ## Lessons from past specs

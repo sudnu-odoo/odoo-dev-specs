@@ -5,6 +5,7 @@ pub mod anchors;
 pub mod browser;
 mod options;
 pub mod plan;
+pub mod proto;
 
 pub use options::{parse_args, Options};
 
@@ -443,7 +444,7 @@ send the corrected plan. Anchors are names on the screen such as \"validity_date
 
 impl DiagramServer {
     async fn take_screenshots(&self, p: Screenshots) -> Result<String> {
-        let (mut answer, taken) = self.shoot(&p.version, &p.modules, &p.pages).await?;
+        let (mut answer, taken) = self.shoot(&p.version, &p.modules, &p.pages, None).await?;
         for (stem, shot, map) in &taken {
             answer.push_str(&format!(
                 "\nscreenshots/{stem}.png ({}x{}) of {}:\n{}\n",
@@ -464,6 +465,7 @@ impl DiagramServer {
         version: &str,
         modules: &[String],
         pages: &[PageShot],
+        prepare: Option<&browser::Prepare>,
     ) -> Result<(String, Vec<(String, Shot, Vec<Element>)>)> {
         ensure!(!pages.is_empty(), "Give at least one page.");
         let files: Vec<String> = pages
@@ -520,7 +522,7 @@ impl DiagramServer {
                 out: self.session_dir.join(format!("screenshots/{stem}.png")),
             })
             .collect();
-        let maps = browser::screenshots(&running.url(), &shots).await?;
+        let maps = browser::screenshots_prepared(&running.url(), &shots, prepare).await?;
 
         let whose = if chosen {
             "the session's database, chosen by the user"
@@ -568,7 +570,17 @@ impl DiagramServer {
         let mut shots = std::collections::HashMap::new();
         let mut database = String::new();
         if !pages.is_empty() {
-            let (header, taken) = self.shoot(&p.version, &p.modules, &pages).await?;
+            let prepare = p
+                .prototype
+                .as_ref()
+                .filter(|proto| !proto.is_empty())
+                .map(|proto| browser::Prepare {
+                    setup: proto::setup_js(proto),
+                    undo: proto::undo_js,
+                });
+            let (header, taken) = self
+                .shoot(&p.version, &p.modules, &pages, prepare.as_ref())
+                .await?;
             database = header
                 .split(". Place")
                 .next()

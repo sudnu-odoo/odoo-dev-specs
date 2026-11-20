@@ -280,3 +280,56 @@ fn plan_mistakes_are_explained() {
         "sections": [{"title": "S", "kind": "flowchart"}]}));
     assert!(validate(&kind).is_err());
 }
+
+#[test]
+fn a_prototyped_field_is_outlined_where_it_really_is() {
+    let p = plan(json!({
+        "title": "T", "need": "N", "version": "19.0",
+        "prototype": {"fields": [{"model": "sale.order", "name": "x_delivery_deadline", "label": "Delivery Deadline",
+                                  "type": "date", "after": "validity_date"}]},
+        "sections": [{"title": "S", "screens": [{"name": "a", "page": "/odoo/sales/3",
+            "new_fields": [{"near": "validity_date", "label": "Delivery Deadline", "value": "12/20/2026",
+                            "technical": "x_delivery_deadline", "type": "date"}]}]}]
+    }));
+    let mut shot = quotation();
+    shot.map.push(el(
+        "label",
+        "x_delivery_deadline",
+        "Delivery Deadline",
+        100.0,
+        340.0,
+        150.0,
+        24.0,
+    ));
+    shot.map.push(el(
+        "field",
+        "x_delivery_deadline",
+        "",
+        300.0,
+        340.0,
+        200.0,
+        24.0,
+    ));
+    let mut scene = Scene::parse(EMPTY).unwrap();
+    let report = build(&mut scene, &p, &HashMap::from([("a".to_string(), shot)])).unwrap();
+    assert!(report.warnings.is_empty(), "{:?}", report.warnings);
+    let t = texts(&scene);
+    assert!(
+        !t.contains(&"Delivery Deadline".to_string()),
+        "no fake label: the real one is on the screen"
+    );
+    assert!(t
+        .iter()
+        .any(|x| x.starts_with("New field: x_delivery_deadline")));
+    let all = live(&scene);
+    assert!(all
+        .iter()
+        .any(|e| e["type"] == "rectangle" && e["strokeColor"] == "#e03131" && e["opacity"] == 100));
+}
+
+#[test]
+fn a_prototype_page_must_name_a_new_model() {
+    let p = plan(json!({"title": "T", "need": "N", "version": "19.0",
+        "sections": [{"title": "S", "screens": [{"name": "a", "page": "model:x_matrix"}]}]}));
+    assert!(validate(&p).unwrap_err().to_string().contains("x_matrix"));
+}

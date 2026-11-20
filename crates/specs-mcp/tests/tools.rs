@@ -431,7 +431,9 @@ async fn every_tool_the_spec_skill_names_exists() {
         .collect();
     let named: std::collections::BTreeSet<&str> = skill
         .split(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
-        .filter(|w| w.starts_with("diagram_") || w.starts_with("odoo_"))
+        .filter(|w| {
+            w.starts_with("diagram_") || w.starts_with("odoo_") || w.starts_with("spec_build")
+        })
         .collect();
     assert!(
         named.len() >= 5,

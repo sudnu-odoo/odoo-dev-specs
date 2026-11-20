@@ -43,6 +43,9 @@ pub struct SpecPlan {
     /// Modules the screens need, e.g. ["sale_management"].
     #[serde(default)]
     pub modules: Vec<String>,
+    /// New fields and models created for real on the local database just for the
+    /// screenshots (removed right after), so "to be" screens show them in place.
+    pub prototype: Option<crate::proto::Prototype>,
     /// The parts of the spec, top to bottom.
     pub sections: Vec<Section>,
     /// Dashed red arrows between two screens (by screen name), carrying a rule.
@@ -74,7 +77,8 @@ pub struct Section {
 pub struct Screen {
     /// Short unique name, e.g. "quotation_form"; also the screenshot's file name.
     pub name: String,
-    /// Path on the local Odoo, e.g. "/odoo/sales/3" or "/report/html/sale.report_saleorder/3".
+    /// Path on the local Odoo, e.g. "/odoo/sales/3" or "/report/html/sale.report_saleorder/3";
+    /// for a prototype's new model "model:x_name" (its list) or "model:x_name/new".
     pub page: String,
     /// Model shown, e.g. "sale.order"; written above the screenshot.
     pub model: Option<String>,
@@ -148,6 +152,15 @@ pub struct Report {
 /// Plan mistakes found before any screenshot is taken.
 pub fn validate(plan: &SpecPlan) -> Result<()> {
     ensure!(!plan.sections.is_empty(), "Give at least one section.");
+    if let Some(p) = &plan.prototype {
+        p.validate()?;
+    }
+    let new_models: Vec<&str> = plan
+        .prototype
+        .iter()
+        .flat_map(|p| &p.models)
+        .map(|m| m.model.as_str())
+        .collect();
     let mut names = Vec::new();
     for screen in plan.sections.iter().flat_map(|s| &s.screens) {
         ensure!(
@@ -156,6 +169,14 @@ pub fn validate(plan: &SpecPlan) -> Result<()> {
             screen.name
         );
         names.push(screen.name.clone());
+        if let Some(model) = screen.page.strip_prefix("model:") {
+            let model = model.strip_suffix("/new").unwrap_or(model);
+            ensure!(
+                new_models.contains(&model),
+                "Screen \"{}\" shows {model}, which is not a new model of the prototype.",
+                screen.name
+            );
+        }
         for f in &screen.new_fields {
             if let Some(p) = f.place.as_deref() {
                 ensure!(
@@ -336,7 +357,10 @@ impl Builder<'_> {
         self.scene.set_source(&image, &shot.path)?;
         self.made.push(image.clone());
         self.images.insert(screen.name.clone(), image.clone());
-        let (_, iy, iw, ih) = self.scene.bounds(std::slice::from_ref(&image)).expect("just added");
+        let (_, iy, iw, ih) = self
+            .scene
+            .bounds(std::slice::from_ref(&image))
+            .expect("just added");
         let notes_x = x + iw + NOTES_GAP;
         // Notes go top to bottom in their column, each level with what it is about.
         let mut free = iy;
@@ -410,6 +434,47 @@ impl Builder<'_> {
         notes_x: f64,
         free: f64,
     ) -> Result<f64> {
+        let note_lines = || {
+            let mut lines = vec![
+                format!("New field: {}", f.technical),
+                format!("type: {}", f.field_type),
+            ];
+            if let Some(value) = &f.value {
+                lines.push(format!("value: \"{value}\""));
+            }
+            lines.extend(f.extra.clone());
+            lines.join("\n")
+        };
+        // Prototyped: the field is really on the screen; outline it and point at it.
+        if let Ok(real) = anchors::locate(&shot.map, &format!("row:{}", f.technical))
+            .or_else(|_| anchors::locate(&shot.map, &format!("column:{}", f.technical)))
+        {
+            let (_, my) = self.on_image(image, real.x, real.y + real.h / 2.0)?;
+            let note = self.scene.add_text(
+                &note_lines(),
+                at(notes_x, (my - LINE / 2.0).max(free)),
+                Some(BODY),
+                Some(Color::Red),
+            );
+            self.made.push(note.clone());
+            let tip = Target::OnImage {
+                image: image.to_string(),
+                x: real.x + real.w,
+                y: real.y + real.h / 2.0,
+            };
+            self.made.push(self.scene.add_pointer(&note, &tip, None)?);
+            let corner = Target::OnImage {
+                image: image.to_string(),
+                x: real.x - 4.0,
+                y: real.y - 4.0,
+            };
+            self.made.push(self.scene.add_highlight(
+                &corner,
+                (real.w + 8.0, real.h + 8.0),
+                None,
+            )?);
+            return Ok(self.bottom(&note));
+        }
         let label_area = anchors::locate(&shot.map, &format!("label:{}", f.near))
             .or_else(|_| anchors::locate(&shot.map, &f.near))?;
         let field_area =
