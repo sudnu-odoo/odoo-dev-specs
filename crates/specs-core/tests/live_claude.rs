@@ -212,6 +212,9 @@ async fn real_claude_starts_a_screen_change_from_a_screenshot() {
     let ws = Workspace::new(dir.path());
     ws.create_project("P").unwrap();
     let id = ws.create_session("P", "live", "claude").unwrap().id;
+    // Hosting and version chosen, as the app asks before the first message.
+    ws.set_hosting("P", &id, Some("online")).unwrap();
+    ws.set_version("P", &id, Some("19.0")).unwrap();
     // The model the business team gets by default, not the cheap one.
     let claude = ClaudeConfig {
         diagram_tools: Some(mcp),
@@ -221,6 +224,7 @@ async fn real_claude_starts_a_screen_change_from_a_screenshot() {
         ..real_claude()
     };
 
+    let started = std::time::Instant::now();
     let done = turn(
         &ws,
         &id,
@@ -228,6 +232,23 @@ async fn real_claude_starts_a_screen_change_from_a_screenshot() {
         "Add a new button beside the Confirm button of sale orders called \"Revise Quotation\"",
     )
     .await;
+    // It asks what the button does first; answer like the business analyst would.
+    let done =
+        match done {
+            ChatEvent::Finished {
+                is_error: false, ..
+            } => turn(
+                &ws,
+                &id,
+                &claude,
+                "1a, cancel the original. 2: only quotations not confirmed. 3: all salespeople. \
+4: a Revisions smart button, no PDF change. 5: customers ask for changes after the quote. \
+6: no past task. Please draw the spec.",
+            )
+            .await,
+            other => other,
+        };
+    let took = started.elapsed();
     runtime.stop_all().unwrap();
     assert_eq!(
         done,
@@ -248,14 +269,17 @@ async fn real_claude_starts_a_screen_change_from_a_screenshot() {
             _ => None,
         })
         .collect();
+    eprintln!("took {took:?}; tools: {tools:?}");
+    // The whole spec in one plan, not dozens of drawing calls.
     assert!(
-        tools.iter().any(|t| t == "mcp__specs__odoo_screenshots"),
+        tools.iter().any(|t| t == "mcp__specs__spec_build"),
         "{tools:?}"
     );
-    assert!(
-        tools.iter().any(|t| t == "mcp__specs__diagram_add_image"),
-        "{tools:?}"
-    );
+    let drawing = tools
+        .iter()
+        .filter(|t| t.starts_with("mcp__specs__diagram_"))
+        .count();
+    assert!(drawing <= 5, "{drawing} drawing calls: {tools:?}");
     let scene: serde_json::Value = serde_json::from_str(&ws.read_scene("P", &id).unwrap()).unwrap();
     assert!(scene["elements"]
         .as_array()
