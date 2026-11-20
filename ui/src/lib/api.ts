@@ -12,6 +12,7 @@ import type {
   DatabaseInfo,
   Hosting,
   OdooVersions,
+  PublishedVersions,
   NewDatabase,
   EnvReport,
   Model,
@@ -87,6 +88,7 @@ export const api = {
   /** Make the app's SSH key and add it to GitHub with one sign-in (a terminal window). */
   githubConnect: () => invoke<void>("github_connect"),
   odooVersions: () => invoke<OdooVersions>("odoo_versions"),
+  odooPublishedVersions: () => invoke<PublishedVersions>("odoo_published_versions"),
   removeOdooVersion: (version: string) => invoke<void>("remove_odoo_version", { version }),
   updateOdooVersion: (version: string) => invoke<void>("update_odoo_version", { version }),
   setSessionVersion: (ref: SessionRef, version: string | null) =>

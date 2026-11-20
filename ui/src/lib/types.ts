@@ -193,12 +193,20 @@ export interface VersionInfo {
   /** Unix time in ms of the last update; 0 when unknown. */
   updated: number;
   sizeBytes: number;
+  /** Where each edition's files really are (a download or the person's own folder). */
+  communityPath: string | null;
+  enterprisePath: string | null;
 }
 
-/** The versions Odoo publishes and the ones on this computer. */
+/** The versions on this computer (answers at once). */
 export interface OdooVersions {
-  /** Newest first; empty until GitHub is connected. */
+  downloaded: VersionInfo[];
+  /** Where downloads go, one folder per version, e.g. ~/odoo-versions. */
+  downloadsFolder: string;
+}
+
+/** The versions Odoo publishes on GitHub, newest first (may take a few seconds). */
+export interface PublishedVersions {
   available: string[];
   latestSaas: string | null;
-  downloaded: VersionInfo[];
 }

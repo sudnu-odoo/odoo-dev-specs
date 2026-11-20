@@ -367,29 +367,49 @@ gh ssh-key add "$1" --title "Odoo Dev Specs ($(hostname))" 2>&1 | grep -v "alrea
     ])
 }
 
-/// Every Odoo version: the ones Odoo publishes, and the ones on this computer.
+/// The Odoo versions on this computer, and where downloads go. Local only, so it
+/// answers at once; the versions Odoo publishes come from `odoo_published_versions`.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct OdooVersions {
-    /// Empty when GitHub cannot be reached (not connected yet, offline).
-    pub available: Vec<String>,
-    pub latest_saas: Option<String>,
     pub downloaded: Vec<VersionInfo>,
+    /// The folder downloads go to, e.g. ~/odoo-versions (one folder per version).
+    pub downloads_folder: String,
 }
 
 #[tauri::command]
 pub async fn odoo_versions(state: State<'_, AppState>) -> Result<OdooVersions, String> {
     let odoo = state.odoo.clone();
-    tauri::async_runtime::spawn_blocking(move || {
-        let available = odoo.available_versions().unwrap_or_default();
-        OdooVersions {
-            latest_saas: available.iter().find(|v| v.starts_with("saas-")).cloned(),
-            available,
-            downloaded: odoo.downloaded_versions(),
-        }
+    tauri::async_runtime::spawn_blocking(move || OdooVersions {
+        downloaded: odoo.downloaded_versions(),
+        downloads_folder: odoo.downloads_dir().display().to_string(),
     })
     .await
     .map_err(|e| e.to_string())
+}
+
+/// The versions Odoo publishes on GitHub (may take a few seconds, or fail offline).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PublishedVersions {
+    pub available: Vec<String>,
+    pub latest_saas: Option<String>,
+}
+
+#[tauri::command]
+pub async fn odoo_published_versions(
+    state: State<'_, AppState>,
+) -> Result<PublishedVersions, String> {
+    let odoo = state.odoo.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let available = odoo.available_versions().map_err(|e| format!("{e:#}"))?;
+        Ok(PublishedVersions {
+            latest_saas: available.iter().find(|v| v.starts_with("saas-")).cloned(),
+            available,
+        })
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]

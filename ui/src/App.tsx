@@ -109,6 +109,7 @@ export default function App() {
             latestSaas={versions.latestSaas ?? localVersions.find((v) => v.startsWith("saas-")) ?? null}
             defaultVersion={startVersion}
             disabled={app.chat.running}
+            loading={versions.loading || (versions.publishedLoading && localVersions.length === 0)}
             onChange={app.setSessionTarget}
           />
           <DatabaseMenu

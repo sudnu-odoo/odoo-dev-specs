@@ -59,6 +59,7 @@ impl Env {
 case "$*" in
   *"init --bare"*) for last; do :; done; mkdir -p "$last"; exit 0;;
   *ls-remote*)
+    [ -f '{d}/slow' ] && sleep 30
     [ -f '{d}/deny' ] && {{ echo 'git@github.com: Permission denied (publickey).' >&2; exit 128; }}
     printf 'a\trefs/heads/16.0\na\trefs/heads/17.0\na\trefs/heads/saas-17.4\na\trefs/heads/18.0\na\trefs/heads/saas-18.4\na\trefs/heads/19.0\na\trefs/heads/saas-19.1\na\trefs/heads/saas-19.2\na\trefs/heads/master\na\trefs/heads/19.0-fix-something\n'
     exit 0;;
@@ -168,7 +169,9 @@ echo PRIVATE > "$last"; echo "ssh-ed25519 AAAAfake odoo-dev-specs" > "$last.pub"
             ssh_keygen: bin.join("ssh-keygen"),
         };
         let rt = Runtime::new(d.join("runtime"), tools)
-            .with_odoo_git_url("https://example.invalid/odoo.git");
+            .with_odoo_git_url("https://example.invalid/odoo.git")
+            .with_downloads_dir(d.join("odoo-versions"))
+            .with_network_timeout(Duration::from_secs(2));
         Env {
             rt,
             dir,
@@ -421,7 +424,11 @@ fn source_dirs_lists_the_downloaded_versions_for_the_assistant() {
     let env = Env::new(&[], false);
     assert!(env.rt.source_dirs().is_empty());
     env.rt.ensure_database("19.0", &[], true).unwrap();
-    assert_eq!(env.rt.source_dirs(), [env.rt.source_dir("19.0")]);
+    // The real folder, whose path names the version.
+    assert_eq!(
+        env.rt.source_dirs(),
+        [env.dir.path().join("odoo-versions/19.0/odoo")]
+    );
 }
 
 #[test]
@@ -1056,7 +1063,13 @@ fn versions_share_one_repository_with_a_worktree_each() {
         .collect();
     assert_eq!(worktrees.len(), 2);
     assert!(
-        worktrees[1].contains(&env.rt.source_dir("saas-19.2").display().to_string()),
+        worktrees[1].contains(
+            &env.dir
+                .path()
+                .join("odoo-versions/saas-19.2/odoo")
+                .display()
+                .to_string()
+        ),
         "{worktrees:?}"
     );
     assert!(worktrees[1].contains("--detach"), "{worktrees:?}");
@@ -1305,4 +1318,102 @@ fn a_chosen_folder_is_understood_whichever_level_is_picked() {
     assert!(found.enterprise.is_some());
     // Not Odoo at all.
     assert!(env.rt.source_at(env.dir.path()).is_none());
+}
+
+// --- Downloads in a folder people can see, one per version ---
+
+#[test]
+fn downloads_go_to_a_visible_folder_per_version_like_odev() {
+    let env = Env::new(&[], false);
+    for edition in [Edition::Community, Edition::Enterprise] {
+        env.rt
+            .download_source("19.0", edition, &mut |_| {})
+            .unwrap();
+    }
+    let folder = env.dir.path().join("odoo-versions/19.0");
+    assert!(folder.join("odoo/odoo-bin").is_file());
+    assert!(folder.join("enterprise/web_enterprise").is_dir());
+    assert_eq!(env.rt.downloads_dir(), env.dir.path().join("odoo-versions"));
+    // Downloaded by the app, so it is updated and removed by the app too.
+    assert_eq!(
+        env.rt.source_state("19.0", Edition::Community),
+        SourceState::Ready { linked: false }
+    );
+    let info = &env.rt.downloaded_versions()[0];
+    assert_eq!(
+        info.community_path.as_deref(),
+        Some(folder.join("odoo").as_path())
+    );
+    assert_eq!(
+        info.enterprise_path.as_deref(),
+        Some(folder.join("enterprise").as_path())
+    );
+    assert!(env.rt.update_if_stale("19.0", Duration::ZERO).unwrap());
+
+    env.rt.remove_version("19.0").unwrap();
+    assert!(!folder.join("odoo").exists(), "its files are freed");
+    assert!(env.rt.downloaded_versions().is_empty());
+}
+
+#[test]
+fn a_linked_folder_is_listed_with_its_own_path() {
+    let env = Env::new(&[], false);
+    let mine = env.dir.path().join("odev/worktrees/19.0/odoo");
+    fs::create_dir_all(mine.join("odoo")).unwrap();
+    fs::write(mine.join("odoo-bin"), "").unwrap();
+    fs::write(
+        mine.join("odoo/release.py"),
+        "version_info = (19, 0, 0, FINAL, 0)\n",
+    )
+    .unwrap();
+    env.rt
+        .use_folder("19.0", Edition::Community, &mine)
+        .unwrap();
+    let info = &env.rt.downloaded_versions()[0];
+    assert_eq!(info.community_path.as_deref(), Some(mine.as_path()));
+    assert_eq!(info.enterprise_path, None);
+    assert_eq!(info.community, SourceState::Ready { linked: true });
+}
+
+#[test]
+fn the_published_versions_give_up_when_github_does_not_answer() {
+    let env = Env::new(&[], false);
+    fs::write(env.dir.path().join("slow"), "").unwrap();
+    let started = std::time::Instant::now();
+    let err = env.rt.available_versions().unwrap_err();
+    assert!(
+        started.elapsed() < Duration::from_secs(10),
+        "{:?}",
+        started.elapsed()
+    );
+    assert!(format!("{err:#}").contains("did not answer"), "{err:#}");
+}
+
+#[test]
+fn version_sizes_are_remembered_so_listing_stays_quick() {
+    let env = Env::new(&[], false);
+    env.rt
+        .download_source("19.0", Edition::Community, &mut |_| {})
+        .unwrap();
+    let first = env.rt.downloaded_versions()[0].size_bytes;
+    // Walking every file each time made the list slow: the size is remembered...
+    fs::write(
+        env.dir.path().join("odoo-versions/19.0/odoo/big"),
+        vec![0u8; 100_000],
+    )
+    .unwrap();
+    assert_eq!(env.rt.downloaded_versions()[0].size_bytes, first);
+    // ...until the version changes.
+    env.rt.update_if_stale("19.0", Duration::ZERO).unwrap();
+    assert!(env.rt.downloaded_versions()[0].size_bytes >= first + 100_000);
+}
+
+#[test]
+fn a_runtime_keeps_downloads_in_its_own_folder_unless_told() {
+    let dir = tempfile::tempdir().unwrap();
+    let rt = Runtime::new(dir.path().join("runtime"), Tools::default());
+    assert_eq!(rt.downloads_dir(), dir.path().join("runtime/downloads"));
+    let app = Runtime::for_app(dir.path().join("runtime"), Tools::default());
+    assert_eq!(app.downloads_dir(), Runtime::default_downloads_dir());
+    assert!(Runtime::default_downloads_dir().ends_with("odoo-versions"));
 }

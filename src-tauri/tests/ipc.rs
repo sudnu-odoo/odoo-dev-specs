@@ -171,7 +171,9 @@ exit 0
             git,
             ..Tools::default()
         },
-    );
+    )
+    // Never the person's real ~/odoo-versions.
+    .with_downloads_dir(dir.path().join("odoo-versions"));
     let machine = Arc::new(Mutex::new(SystemProbe {
         python: Some((3, 12)),
         ..SystemProbe::default()
@@ -850,13 +852,22 @@ fn the_versions_list_shows_what_odoo_publishes_and_what_is_here() {
         }
         std::thread::sleep(Duration::from_millis(50));
     }
-    let versions = h.call("odoo_versions", json!({})).unwrap();
+    // What Odoo publishes comes separately: it needs GitHub and may take a while.
+    let published = h.call("odoo_published_versions", json!({})).unwrap();
     assert_eq!(
-        versions["available"],
+        published["available"],
         json!(["saas-19.2", "saas-19.1", "19.0", "18.0"])
     );
-    assert_eq!(versions["latestSaas"], "saas-19.2");
+    assert_eq!(published["latestSaas"], "saas-19.2");
+    // What is here answers at once, with where its files are and where downloads go.
+    let versions = h.call("odoo_versions", json!({})).unwrap();
     assert_eq!(versions["downloaded"][0]["version"], "saas-19.2");
+    let folder = versions["downloadsFolder"].as_str().unwrap();
+    assert!(folder.ends_with("odoo-versions"), "{folder}");
+    assert_eq!(
+        versions["downloaded"][0]["enterprisePath"],
+        format!("{folder}/saas-19.2/enterprise")
+    );
     h.call("remove_odoo_version", json!({"version": "saas-19.2"}))
         .unwrap();
     let versions = h.call("odoo_versions", json!({})).unwrap();

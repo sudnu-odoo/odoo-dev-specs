@@ -62,7 +62,7 @@ impl AppState {
             launch: Arc::new(crate::environment::open_in_terminal),
             settings: Arc::new(settings),
             probe: Arc::new(crate::environment::probe),
-            odoo: Arc::new(OdooRuntime::new(
+            odoo: Arc::new(OdooRuntime::for_app(
                 OdooRuntime::default_root(),
                 Tools::default(),
             )),
@@ -605,6 +605,7 @@ pub fn register<R: Runtime>(builder: tauri::Builder<R>, state: AppState) -> taur
             crate::setup::use_source_folder,
             crate::setup::github_status_cmd,
             crate::setup::odoo_versions,
+            crate::setup::odoo_published_versions,
             crate::setup::remove_odoo_version,
             crate::setup::update_odoo_version,
             crate::setup::use_odoo_folder,

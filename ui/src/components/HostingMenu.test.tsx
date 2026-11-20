@@ -60,4 +60,21 @@ describe("HostingMenu", () => {
     await userEvent.click(screen.getByRole("menuitemradio", { name: "Odoo.sh" }));
     expect(onChange).toHaveBeenCalledWith("sh", "19.0");
   });
+
+  it("says the versions are loading instead of guessing them", async () => {
+    render(
+      <HostingMenu
+        hosting="sh"
+        version="19.0"
+        available={[]}
+        latestSaas={null}
+        defaultVersion="19.0"
+        loading
+        onChange={vi.fn()}
+      />,
+    );
+    await userEvent.click(chip());
+    expect(screen.getByRole("status")).toHaveTextContent("Loading versions…");
+    expect(screen.queryByRole("menuitemradio", { name: "17.0" })).not.toBeInTheDocument();
+  });
 });

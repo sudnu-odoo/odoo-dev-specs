@@ -12,7 +12,7 @@ async fn main() -> Result<()> {
     let options = parse_args(std::env::args().skip(1))?;
     let mut server = DiagramServer::new(options.session_dir).with_demo_data(options.demo_data);
     if let Some(root) = options.runtime_dir {
-        server = server.with_runtime(Runtime::new(root, Tools::default()));
+        server = server.with_runtime(Runtime::for_app(root, Tools::default()));
     }
     server
         .serve(rmcp::transport::stdio())

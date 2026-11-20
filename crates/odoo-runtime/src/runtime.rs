@@ -208,16 +208,55 @@ pub struct Runtime {
     odoo_git_url: String,
     /// Optional enterprise source folder per version.
     enterprise: BTreeMap<String, PathBuf>,
+    /// Where downloaded versions go, one folder each: `<version>/odoo`, `/enterprise`.
+    downloads_dir: PathBuf,
+    /// Longest wait for GitHub when only listing (versions, access).
+    network_timeout: Duration,
+    /// Each version's size and when it was measured: walking every file is slow.
+    sizes: std::sync::Arc<std::sync::Mutex<BTreeMap<String, (u64, Instant)>>>,
 }
 
 impl Runtime {
+    /// Downloads stay inside `root` unless `with_downloads_dir` says otherwise, so a
+    /// runtime made for a test never writes in the person's home.
     pub fn new(root: impl Into<PathBuf>, tools: Tools) -> Self {
+        let root = root.into();
         Self {
-            root: root.into(),
+            downloads_dir: root.join("downloads"),
+            root,
             tools,
             odoo_git_url: ODOO_GIT_URL.into(),
             enterprise: BTreeMap::new(),
+            network_timeout: Duration::from_secs(20),
+            sizes: Default::default(),
         }
+    }
+
+    /// The app's runtime: the usual folder, downloads in `~/odoo-versions`.
+    pub fn for_app(root: impl Into<PathBuf>, tools: Tools) -> Self {
+        Self::new(root, tools).with_downloads_dir(Self::default_downloads_dir())
+    }
+
+    /// `~/odoo-versions`: visible, laid out like odev's worktrees.
+    pub fn default_downloads_dir() -> PathBuf {
+        dirs::home_dir()
+            .unwrap_or_else(std::env::temp_dir)
+            .join("odoo-versions")
+    }
+
+    pub fn with_downloads_dir(mut self, dir: impl Into<PathBuf>) -> Self {
+        self.downloads_dir = dir.into();
+        self
+    }
+
+    pub fn with_network_timeout(mut self, timeout: Duration) -> Self {
+        self.network_timeout = timeout;
+        self
+    }
+
+    /// Where downloaded versions go.
+    pub fn downloads_dir(&self) -> &Path {
+        &self.downloads_dir
     }
 
     /// `~/.local/share/odoo-dev-specs/runtime`
@@ -341,6 +380,7 @@ impl Runtime {
         self.run_to_end(&python, &["-c", CORE_IMPORTS])
             .with_context(|| format!("The Python packages for Odoo {version} are incomplete."))?;
         fs::write(venv.join(VENV_READY), "")?;
+        self.forget_size(version);
         Ok(python)
     }
 

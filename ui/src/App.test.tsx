@@ -37,6 +37,7 @@ vi.mock("./lib/api", () => ({
     databaseForm: vi.fn(),
     checkUpdate: vi.fn(),
     odooVersions: vi.fn(),
+    odooPublishedVersions: vi.fn(),
     setSessionHosting: vi.fn(),
     setSessionVersion: vi.fn(),
     createDatabase: vi.fn(),
@@ -142,10 +143,10 @@ beforeEach(() => {
   ]);
   mocked.setupStatus.mockResolvedValue(readyComputer);
   mocked.checkUpdate.mockResolvedValue(null);
-  mocked.odooVersions.mockResolvedValue({
+  mocked.odooVersions.mockResolvedValue({ downloaded: [], downloadsFolder: "/home/me/odoo-versions" });
+  mocked.odooPublishedVersions.mockResolvedValue({
     available: ["saas-19.2", "19.0"],
     latestSaas: "saas-19.2",
-    downloaded: [],
   });
   mocked.setSessionHosting.mockResolvedValue(undefined);
   mocked.setSessionVersion.mockResolvedValue(undefined);

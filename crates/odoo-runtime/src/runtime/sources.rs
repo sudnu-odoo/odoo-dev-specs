@@ -64,6 +64,9 @@ pub struct VersionInfo {
     pub updated: u64,
     /// The version's own files: its worktrees and Python environment.
     pub size_bytes: u64,
+    /// Where each edition's files really are (a download or the person's folder).
+    pub community_path: Option<PathBuf>,
+    pub enterprise_path: Option<PathBuf>,
 }
 
 /// A database's version from its `base` module ("19.0.1.3" -> "19.0",
@@ -210,8 +213,46 @@ impl Runtime {
             return SourceState::Missing;
         }
         SourceState::Ready {
-            linked: fs::symlink_metadata(&path).is_ok_and(|m| m.file_type().is_symlink()),
+            // A download is a link to the downloads folder too, but it is the app's.
+            linked: is_link(&path) && !self.stamp(version, edition).exists(),
         }
+    }
+
+    /// A version's size, measured again at most every 10 minutes or after it changed.
+    fn remembered_size(&self, version: &str, measure: impl FnOnce() -> u64) -> u64 {
+        const FRESH: Duration = Duration::from_secs(600);
+        let mut sizes = self.sizes.lock().unwrap();
+        match sizes.get(version) {
+            Some((size, at)) if at.elapsed() < FRESH => *size,
+            _ => {
+                let size = measure();
+                sizes.insert(version.to_string(), (size, Instant::now()));
+                size
+            }
+        }
+    }
+
+    /// Forget a version's size: its files changed.
+    pub(super) fn forget_size(&self, version: &str) {
+        self.sizes.lock().unwrap().remove(version);
+    }
+
+    /// Where an edition's files really are, when it is ready.
+    pub fn real_source_path(&self, version: &str, edition: Edition) -> Option<PathBuf> {
+        if self.source_state(version, edition) == SourceState::Missing {
+            return None;
+        }
+        let path = self.source_path(version, edition);
+        Some(fs::read_link(&path).unwrap_or(path))
+    }
+
+    /// Where a download of this edition goes: `<downloads>/<version>/odoo|enterprise`.
+    fn download_path(&self, version: &str, edition: Edition) -> PathBuf {
+        let name = match edition {
+            Edition::Community => "odoo",
+            Edition::Enterprise => "enterprise",
+        };
+        self.downloads_dir.join(version).join(name)
     }
 
     fn repo_dir(&self, edition: Edition) -> PathBuf {
@@ -305,6 +346,45 @@ impl Runtime {
         Ok(text)
     }
 
+    /// Like `git_quiet`, but gives up after the network time limit: listing should
+    /// never leave the app waiting on a slow or unreachable GitHub.
+    fn git_timed(&self, args: &[&str]) -> Result<String> {
+        let mut child = self
+            .git()
+            .args(args)
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .context("Could not run git. Is it installed?")?;
+        let mut out = child.stdout.take().expect("piped");
+        let mut err = child.stderr.take().expect("piped");
+        let reading = std::thread::spawn(move || {
+            let (mut a, mut b) = (String::new(), String::new());
+            let _ = out.read_to_string(&mut a);
+            let _ = err.read_to_string(&mut b);
+            a + &b
+        });
+        let started = Instant::now();
+        let status = loop {
+            if let Some(status) = child.try_wait()? {
+                break status;
+            }
+            if started.elapsed() > self.network_timeout {
+                let _ = child.kill();
+                let _ = child.wait();
+                bail!(
+                    "GitHub did not answer within {} s.",
+                    self.network_timeout.as_secs()
+                );
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        };
+        let text = reading.join().unwrap_or_default();
+        ensure!(status.success(), "git failed:\n{}", tail(&text));
+        Ok(text)
+    }
+
     /// Download a version's source, reporting 0..=100 as it goes: the latest commit of
     /// its branch into the edition's shared repository, then a worktree for it.
     pub fn download_source(
@@ -343,13 +423,30 @@ impl Runtime {
             edition,
             on_progress,
         )?;
-        // A worktree left half-made by a stopped download is replaced.
-        let target = self.source_path(version, edition);
-        if fs::symlink_metadata(&target).is_ok() && !is_link(&target) {
+        // The files go to the visible downloads folder; the app finds them through
+        // a link at its usual place. A worktree left half-made by a stopped download
+        // is replaced, but never a folder the person made there.
+        let target = self.download_path(version, edition);
+        if target.exists() {
+            let ours = target.join(".git").is_file()
+                || fs::read_dir(&target).is_ok_and(|mut d| d.next().is_none());
+            ensure!(
+                ours,
+                "{} already exists and is not an Odoo download: move it away first.",
+                target.display()
+            );
             let _ = fs::remove_dir_all(&target);
         }
+        let link = self.source_path(version, edition);
+        if fs::symlink_metadata(&link).is_ok() {
+            if is_link(&link) {
+                fs::remove_file(&link)?;
+            } else {
+                let _ = fs::remove_dir_all(&link);
+            }
+        }
         let _ = self.git_quiet(&["-C", &repo_path, "worktree", "prune"]);
-        fs::create_dir_all(target.parent().expect("source path has a parent"))?;
+        fs::create_dir_all(target.parent().expect("download path has a parent"))?;
         let branch = format!("refs/heads/{version}");
         self.git_quiet(&[
             "-C",
@@ -362,7 +459,10 @@ impl Runtime {
             &branch,
         ])
         .context("Could not set up the Odoo source.")?;
+        fs::create_dir_all(link.parent().expect("source path has a parent"))?;
+        std::os::unix::fs::symlink(&target, &link).context("Could not link the download.")?;
         fs::write(self.stamp(version, edition), now_ms().to_string())?;
+        self.forget_size(version);
         on_progress(100);
         Ok(())
     }
@@ -370,7 +470,7 @@ impl Runtime {
     /// The versions Odoo publishes (17.0 and newer, stable and SaaS), newest first.
     pub fn available_versions(&self) -> Result<Vec<String>> {
         let out = self
-            .git_quiet(&["ls-remote", "--heads", self.git_url(Edition::Community)])
+            .git_timed(&["ls-remote", "--heads", self.git_url(Edition::Community)])
             .context("Could not get the list of Odoo versions from GitHub.")?;
         let mut versions: Vec<(String, (u32, u32))> = out
             .lines()
@@ -394,7 +494,7 @@ impl Runtime {
     /// Can this computer read Odoo's repositories with the app's key?
     pub fn github_access(&self) -> GithubAccess {
         let readable = |edition| {
-            self.git_quiet(&["ls-remote", "--heads", self.git_url(edition), "HEAD"])
+            self.git_timed(&["ls-remote", "--heads", self.git_url(edition), "HEAD"])
                 .is_ok()
         };
         GithubAccess {
@@ -448,6 +548,7 @@ impl Runtime {
             )?;
             self.git_quiet(&["-C", &path, "reset", "--hard", "-q", "FETCH_HEAD"])?;
             fs::write(self.stamp(version, edition), now_ms().to_string())?;
+            self.forget_size(version);
             updated = true;
         }
         Ok(updated)
@@ -549,15 +650,28 @@ impl Runtime {
                             .filter_map(|t| t.trim().parse().ok())
                             .max()
                             .unwrap_or(0);
-                        let size_bytes = dir_size(&self.source_path(&version, Edition::Community))
-                            + dir_size(&self.source_path(&version, Edition::Enterprise))
-                            + dir_size(&self.venv_dir(&version));
+                        let community_path = self.real_source_path(&version, Edition::Community);
+                        let enterprise_path = self.real_source_path(&version, Edition::Enterprise);
+                        // Only the app's own files count, not a folder the person linked.
+                        let own = |path: &Option<PathBuf>, state: &SourceState| match state {
+                            SourceState::Ready { linked: false } => {
+                                path.as_deref().map_or(0, dir_size)
+                            }
+                            _ => 0,
+                        };
+                        let size_bytes = self.remembered_size(&version, || {
+                            own(&community_path, &community)
+                                + own(&enterprise_path, &enterprise)
+                                + dir_size(&self.venv_dir(&version))
+                        });
                         VersionInfo {
                             version: version.clone(),
                             community,
                             enterprise,
                             updated,
                             size_bytes,
+                            community_path,
+                            enterprise_path,
                         }
                     },
                 )
@@ -577,7 +691,25 @@ impl Runtime {
         );
         for edition in [Edition::Community, Edition::Enterprise] {
             let path = self.source_path(version, edition);
-            if is_link(&path) {
+            let downloaded = self.stamp(version, edition).exists();
+            if is_link(&path) && downloaded {
+                // A download: free its files in the downloads folder, then the link.
+                let real = fs::read_link(&path)?;
+                let repo = self.repo_dir(edition).display().to_string();
+                let _ = self.git_quiet(&[
+                    "-C",
+                    &repo,
+                    "worktree",
+                    "remove",
+                    "--force",
+                    &real.display().to_string(),
+                ]);
+                let _ = fs::remove_dir_all(&real);
+                fs::remove_file(&path)?;
+                if let Some(parent) = real.parent() {
+                    let _ = fs::remove_dir(parent);
+                }
+            } else if is_link(&path) {
                 fs::remove_file(&path)?;
             } else if path.exists() {
                 let repo = self.repo_dir(edition).display().to_string();
@@ -595,6 +727,7 @@ impl Runtime {
         }
         let _ = fs::remove_dir(self.root.join("sources").join(version));
         let _ = fs::remove_dir_all(self.venv_dir(version));
+        self.forget_size(version);
         Ok(())
     }
 
@@ -632,6 +765,7 @@ impl Runtime {
             fs::remove_file(&target)?;
         }
         fs::create_dir_all(target.parent().expect("source path has a parent"))?;
+        self.forget_size(version);
         std::os::unix::fs::symlink(folder, &target).context("Could not use that folder.")
     }
 }

@@ -21,6 +21,8 @@ export interface HostingMenuProps {
   /** The stable version used when nothing else says (Settings). */
   defaultVersion: string;
   disabled?: boolean;
+  /** The version list is still being fetched: say so rather than guess. */
+  loading?: boolean;
   onChange: (hosting: Hosting, version: string) => void;
 }
 
@@ -35,6 +37,7 @@ export default function HostingMenu({
   latestSaas,
   defaultVersion,
   disabled,
+  loading,
   onChange,
 }: HostingMenuProps) {
   const [open, setOpen] = useState(false);
@@ -104,7 +107,12 @@ export default function HostingMenu({
               />
             ))}
           </div>
-          {hosting && versions.length > 0 && (
+          {hosting && loading && available.length === 0 && (
+            <div role="status" className="menu-group menu-loading">
+              <span className="spinner" aria-hidden="true" /> Loading versions…
+            </div>
+          )}
+          {hosting && versions.length > 0 && !(loading && available.length === 0) && (
             <div role="group" aria-label="Odoo version" className="menu-group">
               <div className="menu-head" aria-hidden="true">
                 Odoo version
