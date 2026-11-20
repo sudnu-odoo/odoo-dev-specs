@@ -17,21 +17,23 @@ export function Dialog({ title, children }: { title: string; children: ReactNode
 /** The "New database" form: suggested name, version, edition, apps, demo data. */
 export default function NewDatabaseDialog({
   defaultVersion,
+  versions: local = [],
   formFor,
   onCancel,
   onCreate,
 }: {
   defaultVersion: string;
+  /** The versions on this computer; the list falls back to the usual ones when empty. */
+  versions?: string[];
   formFor: (version: string) => Promise<DatabaseForm>;
   onCancel: () => void;
   onCreate: (db: NewDatabase) => void;
 }) {
+  const choices = local.length ? local : ODOO_VERSIONS;
   const [label, setLabel] = useState("");
   // Until the user types a name, the next free one is suggested ("db-19-3").
   const [named, setNamed] = useState(false);
-  const [version, setVersion] = useState(
-    ODOO_VERSIONS.includes(defaultVersion) ? defaultVersion : ODOO_VERSIONS[0],
-  );
+  const [version, setVersion] = useState(choices.includes(defaultVersion) ? defaultVersion : choices[0]);
   const [modules, setModules] = useState<string[]>([]);
   const [demoData, setDemoData] = useState(true);
   const [form, setForm] = useState<DatabaseForm | null>(null);
@@ -79,7 +81,7 @@ export default function NewDatabaseDialog({
         <label className="dialog-field">
           <span>Odoo version</span>
           <select value={version} onChange={(e) => setVersion(e.target.value)}>
-            {ODOO_VERSIONS.map((v) => (
+            {choices.map((v) => (
               <option key={v}>{v}</option>
             ))}
           </select>

@@ -348,7 +348,11 @@ pub fn github_connect(state: State<'_, AppState>) -> Result<(), String> {
     let public = state.odoo.ssh_key_path().with_extension("pub");
     // Already signed in: only ask for the extra permission; then add the key
     // ("already in use" just means it was added before).
-    let script = r#"if gh auth status --hostname github.com >/dev/null 2>&1; then
+    let script = r#"echo "GitHub shows a one-time code below (like ABCD-1234)."
+echo "Type it on the GitHub page that opens (github.com/login/device)."
+echo "It is not sent by email: it is only shown here."
+echo
+if gh auth status --hostname github.com >/dev/null 2>&1; then
   gh auth refresh --hostname github.com --scopes admin:public_key
 else
   gh auth login --hostname github.com --web --scopes admin:public_key

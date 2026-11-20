@@ -28,7 +28,7 @@ const SALES = db({
 });
 const AUTO = db({ name: "specs_19_0_stock_demo", label: "Auto 19.0: stock", modules: ["stock"], auto: true });
 
-function setup(over: Partial<Databases> = {}, usage: Record<string, number> = {}) {
+function setup(over: Partial<Databases> = {}, usage: Record<string, number> = {}, versions?: string[]) {
   const dbs = {
     databases: [AUTO, SALES],
     busy: {},
@@ -50,7 +50,9 @@ function setup(over: Partial<Databases> = {}, usage: Record<string, number> = {}
     })),
     ...over,
   } as unknown as Databases;
-  render(<DatabasesPage dbs={dbs} usage={usage} />);
+  render(
+    <DatabasesPage dbs={dbs} usage={usage} versions={versions} defaultVersion={versions?.[0] ?? "19.0"} />,
+  );
   return dbs;
 }
 
@@ -168,5 +170,18 @@ describe("DatabasesPage", () => {
   it("invites to create a first database", () => {
     setup({ databases: [AUTO] });
     expect(screen.getByText(/None yet/)).toBeInTheDocument();
+  });
+
+  it("offers only the Odoo versions on this computer, 19.0 or not", async () => {
+    setup({}, {}, ["18.0", "17.0"]);
+    await userEvent.click(screen.getByRole("button", { name: "New database" }));
+    const dialog = screen.getByRole("dialog", { name: "New database" });
+    const select = within(dialog).getByLabelText("Odoo version");
+    expect(
+      within(select)
+        .getAllByRole("option")
+        .map((o) => o.textContent),
+    ).toEqual(["18.0", "17.0"]);
+    expect(select).toHaveValue("18.0");
   });
 });

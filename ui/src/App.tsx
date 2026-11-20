@@ -3,6 +3,7 @@ import { Panel, PanelGroup, PanelResizeHandle } from "react-resizable-panels";
 import { useDatabases } from "./app/useDatabases";
 import { useOdooVersions } from "./app/useOdooVersions";
 import { useSetup } from "./app/useSetup";
+import { newestFirst, preferredVersion } from "./lib/versions";
 import { useSpecsApp } from "./app/useSpecsApp";
 import NewDatabaseDialog from "./components/NewDatabaseDialog";
 import SetupScreen from "./components/SetupScreen";
@@ -24,6 +25,9 @@ export default function App() {
   const app = useSpecsApp();
   const dbs = useDatabases();
   const versions = useOdooVersions();
+  // Only versions on this computer are offered, the newest stable one first.
+  const localVersions = newestFirst(versions.downloaded.map((v) => v.version));
+  const startVersion = preferredVersion(localVersions) ?? "19.0";
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [view, setView] = useState<"session" | "databases">("session");
   // "New database…" from a session's chip: the form, then the session it is for.
@@ -101,15 +105,9 @@ export default function App() {
             hosting={sessionHosting}
             version={sessionVersion}
             // Without GitHub, the versions found on this computer.
-            available={
-              versions.available.length ? versions.available : versions.downloaded.map((v) => v.version)
-            }
-            latestSaas={
-              versions.latestSaas ??
-              versions.downloaded.map((v) => v.version).find((v) => v.startsWith("saas-")) ??
-              null
-            }
-            defaultVersion="19.0"
+            available={versions.available.length ? versions.available : localVersions}
+            latestSaas={versions.latestSaas ?? localVersions.find((v) => v.startsWith("saas-")) ?? null}
+            defaultVersion={startVersion}
             disabled={app.chat.running}
             onChange={app.setSessionTarget}
           />
@@ -176,7 +174,7 @@ export default function App() {
           </div>
         )}
         {view === "databases" ? (
-          <DatabasesPage dbs={dbs} usage={usage} />
+          <DatabasesPage dbs={dbs} usage={usage} defaultVersion={startVersion} versions={localVersions} />
         ) : app.diagramDetached ? (
           <div className="main-panels detached">
             <div className="detached-bar">
@@ -218,7 +216,8 @@ export default function App() {
       </div>
       {newDatabaseFor && (
         <NewDatabaseDialog
-          defaultVersion="19.0"
+          defaultVersion={startVersion}
+          versions={localVersions}
           formFor={dbs.formFor}
           onCancel={() => setNewDatabaseFor(null)}
           onCreate={async (db) => {

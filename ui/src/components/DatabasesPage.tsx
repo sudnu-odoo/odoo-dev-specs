@@ -9,6 +9,8 @@ export interface DatabasesPageProps {
   /** Database name -> how many sessions use it. */
   usage: Record<string, number>;
   defaultVersion?: string;
+  /** The Odoo versions on this computer. */
+  versions?: string[];
 }
 
 const BUSY_TEXT: Record<DatabaseBusy, string> = {
@@ -24,7 +26,7 @@ const BUSY_TEXT: Record<DatabaseBusy, string> = {
  * screenshots below. Each can be opened in the browser, stopped, renamed, copied,
  * reset or deleted; new ones are made fresh with the chosen apps.
  */
-export default function DatabasesPage({ dbs, usage, defaultVersion = "19.0" }: DatabasesPageProps) {
+export default function DatabasesPage({ dbs, usage, defaultVersion = "19.0", versions }: DatabasesPageProps) {
   const [creatingForm, setCreatingForm] = useState(false);
   const [asking, setAsking] = useState<{ kind: "rename" | "duplicate"; db: DatabaseInfo } | null>(null);
   const mine = dbs.databases.filter((d) => !d.auto);
@@ -78,6 +80,7 @@ export default function DatabasesPage({ dbs, usage, defaultVersion = "19.0" }: D
       {creatingForm && (
         <NewDatabaseDialog
           defaultVersion={defaultVersion}
+          versions={versions}
           formFor={dbs.formFor}
           onCancel={() => setCreatingForm(false)}
           onCreate={(db) => {

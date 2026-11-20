@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../lib/api";
 import VersionsPage from "./VersionsPage";
+import { useOdooVersions } from "../app/useOdooVersions";
+import { newestFirst } from "../lib/versions";
 import { setCanvasTheme, useCanvasTheme, type CanvasTheme } from "../lib/canvasTheme";
 import type { EnvCheck, EnvReport, ProviderStatus, Settings } from "../lib/types";
 
@@ -21,6 +23,7 @@ type Page = "general" | "versions" | "ai";
 export default function SettingsPanel({ onClose, onOpenSetup }: SettingsPanelProps) {
   const [page, setPage] = useState<Page>("general");
   const canvasTheme = useCanvasTheme();
+  const odoo = useOdooVersions();
   const [report, setReport] = useState<EnvReport | null>(null);
   const [assistants, setAssistants] = useState<ProviderStatus[] | null>(null);
   const [settings, setSettings] = useState<Settings | null>(null);
@@ -69,10 +72,11 @@ export default function SettingsPanel({ onClose, onOpenSetup }: SettingsPanelPro
 
   // Only what needs fixing is shown; a healthy setup stays out of the way.
   const problems = report?.checks.filter((c) => c.status !== "ok" && c.key !== "ai") ?? [];
+  // The versions on this computer (the usual ones until it has any).
+  const local = newestFirst(odoo.downloaded.map((v) => v.version));
+  const offered = local.length ? local : VERSIONS;
   const versions =
-    settings && !VERSIONS.includes(settings.defaultVersion)
-      ? [settings.defaultVersion, ...VERSIONS]
-      : VERSIONS;
+    settings && !offered.includes(settings.defaultVersion) ? [settings.defaultVersion, ...offered] : offered;
 
   return (
     <div
@@ -110,7 +114,7 @@ export default function SettingsPanel({ onClose, onOpenSetup }: SettingsPanelPro
               <p className="settings-lead">The local Odoo used for screenshots.</p>
               {settings && (
                 <div className="settings-card">
-                  <Row label="Odoo version" hint="Version used for new specs">
+                  <Row label="Odoo version" hint="For new specs; the versions on this computer">
                     <select
                       aria-label="Odoo version"
                       value={settings.defaultVersion}
