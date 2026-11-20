@@ -35,6 +35,19 @@ function setup(overrides: Partial<SidebarProps> = {}) {
 }
 
 describe("Sidebar", () => {
+  it("shows or hides a project's sessions when its name is clicked", async () => {
+    setup();
+    const acme = screen.getByRole("button", { name: "Acme" });
+    expect(acme).toHaveAttribute("aria-expanded", "true");
+    await userEvent.click(acme);
+    expect(acme).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByRole("button", { name: "Delivery window" })).not.toBeInTheDocument();
+    // Still possible to start a session in a closed project.
+    expect(screen.getByRole("button", { name: "New session in Acme" })).toBeInTheDocument();
+    await userEvent.click(acme);
+    expect(screen.getByRole("button", { name: "Delivery window" })).toBeInTheDocument();
+  });
+
   it("lists projects with their sessions and marks the open one", () => {
     setup();
     expect(screen.getByText("Acme")).toBeInTheDocument();

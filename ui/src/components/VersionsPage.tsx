@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useOdooVersions } from "../app/useOdooVersions";
 import { api } from "../lib/api";
 import { confirmAction } from "../lib/confirm";
@@ -301,14 +301,7 @@ export default function VersionsPage() {
                 (e.g. from odev).
               </small>
             </div>
-            <select aria-label="Version to add" value={adding} onChange={(e) => setAdding(e.target.value)}>
-              <option value="">Choose…</option>
-              {addable.map((v) => (
-                <option key={v} value={v}>
-                  {versionLabel(v)}
-                </option>
-              ))}
-            </select>
+            <VersionPicker versions={addable} value={adding} onChange={setAdding} />
             <button
               className="btn btn-small"
               disabled={!adding}
@@ -334,5 +327,90 @@ export default function VersionsPage() {
         )}
       </div>
     </>
+  );
+}
+
+/**
+ * The version to add, in the app's own list: a system dropdown is drawn below the
+ * button and cut off at the window's edge. This one scrolls, and opens upward when
+ * there is no room below.
+ */
+function VersionPicker({
+  versions,
+  value,
+  onChange,
+}: {
+  versions: string[];
+  value: string;
+  onChange: (version: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [up, setUp] = useState(false);
+  const root = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const close = (e: MouseEvent) => !root.current?.contains(e.target as Node) && setOpen(false);
+    const esc = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);
+    document.addEventListener("mousedown", close);
+    document.addEventListener("keydown", esc);
+    return () => {
+      document.removeEventListener("mousedown", close);
+      document.removeEventListener("keydown", esc);
+    };
+  }, [open]);
+
+  function toggle() {
+    const box = root.current?.getBoundingClientRect();
+    // The list is at most 260 px tall: open it where it fits.
+    if (box) setUp(window.innerHeight - box.bottom < 270 && box.top > window.innerHeight - box.bottom);
+    setOpen((o) => !o);
+  }
+
+  return (
+    <div className="version-picker" ref={root}>
+      <button
+        type="button"
+        className="btn btn-small version-picker-button"
+        aria-label={`Version to add: ${value ? versionLabel(value) : "none chosen"}`}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        onClick={toggle}
+      >
+        {value ? versionLabel(value) : "Choose…"}
+        <svg viewBox="0 0 12 12" width="10" height="10" aria-hidden="true">
+          <path d="M3 4.5 6 7.5 9 4.5" fill="none" stroke="currentColor" strokeWidth="1.5" />
+        </svg>
+      </button>
+      {open && (
+        <ul
+          className={"menu version-list" + (up ? " version-list-up" : "")}
+          role="listbox"
+          aria-label="Versions Odoo publishes"
+        >
+          {versions.map((v) => (
+            <li
+              key={v}
+              role="option"
+              aria-selected={v === value}
+              className="menu-item"
+              tabIndex={0}
+              onClick={() => {
+                onChange(v);
+                setOpen(false);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  onChange(v);
+                  setOpen(false);
+                }
+              }}
+            >
+              {versionLabel(v)}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
   );
 }

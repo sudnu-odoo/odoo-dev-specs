@@ -1,4 +1,4 @@
-import { useRef, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import type { ProjectInfo, SessionRef } from "../lib/types";
 
 export interface SidebarProps {
@@ -33,6 +33,7 @@ export default function Sidebar({
   download,
   onOpenSetup,
 }: SidebarProps) {
+  const closed = useClosedProjects();
   return (
     <aside className="sidebar">
       <div className="sidebar-header">
@@ -69,29 +70,50 @@ export default function Sidebar({
         {projects.map((p) => (
           <div key={p.name} className="tree-project">
             <div className="tree-project-header">
-              <span className="tree-project-name">{p.name}</span>
+              <button
+                className="tree-project-name"
+                aria-expanded={!closed.has(p.name)}
+                title={closed.has(p.name) ? "Show sessions" : "Hide sessions"}
+                onClick={() => closed.toggle(p.name)}
+              >
+                <svg
+                  className="tree-chevron"
+                  viewBox="0 0 12 12"
+                  width="10"
+                  height="10"
+                  aria-hidden="true"
+                  data-open={!closed.has(p.name)}
+                >
+                  <path d="M4.5 3 7.5 6 4.5 9" fill="none" stroke="currentColor" strokeWidth="1.5" />
+                </svg>
+                {p.name}
+              </button>
               <button
                 className="icon-btn"
                 aria-label={`New session in ${p.name}`}
                 title="New session"
-                onClick={() => onCreateSession(p.name)}
+                onClick={() => {
+                  closed.open(p.name);
+                  onCreateSession(p.name);
+                }}
               >
                 +
               </button>
             </div>
-            {p.sessions.map((s) => {
-              const ref = { project: p.name, sessionId: s.id };
-              return (
-                <SessionRow
-                  key={s.id}
-                  title={s.title}
-                  active={!databasesOpen && selected?.project === p.name && selected.sessionId === s.id}
-                  onSelect={() => onSelect(ref)}
-                  onRename={(title) => onRenameSession(ref, title)}
-                  onDelete={() => onDeleteSession(ref)}
-                />
-              );
-            })}
+            {!closed.has(p.name) &&
+              p.sessions.map((s) => {
+                const ref = { project: p.name, sessionId: s.id };
+                return (
+                  <SessionRow
+                    key={s.id}
+                    title={s.title}
+                    active={!databasesOpen && selected?.project === p.name && selected.sessionId === s.id}
+                    onSelect={() => onSelect(ref)}
+                    onRename={(title) => onRenameSession(ref, title)}
+                    onDelete={() => onDeleteSession(ref)}
+                  />
+                );
+              })}
           </div>
         ))}
       </nav>
@@ -119,6 +141,42 @@ export default function Sidebar({
       )}
     </aside>
   );
+}
+
+const CLOSED_KEY = "sidebar.closedProjects";
+
+/** The projects whose sessions are hidden, remembered on this computer. */
+function useClosedProjects() {
+  const [names, setNames] = useState<Set<string>>(() => {
+    try {
+      return new Set(JSON.parse(localStorage.getItem(CLOSED_KEY) ?? "[]") as string[]);
+    } catch {
+      return new Set();
+    }
+  });
+  useEffect(() => {
+    try {
+      localStorage.setItem(CLOSED_KEY, JSON.stringify([...names]));
+    } catch {
+      // Not remembered this time; nothing else depends on it.
+    }
+  }, [names]);
+  return {
+    has: (name: string) => names.has(name),
+    toggle: (name: string) =>
+      setNames((n) => {
+        const next = new Set(n);
+        if (next.has(name)) next.delete(name);
+        else next.add(name);
+        return next;
+      }),
+    open: (name: string) =>
+      setNames((n) => {
+        const next = new Set(n);
+        next.delete(name);
+        return next;
+      }),
+  };
 }
 
 interface SessionRowProps {

@@ -62,7 +62,44 @@ beforeEach(() => {
   });
 });
 
+/** Pick a version in the app's own list (a system dropdown is cut off at the window edge). */
+async function choose(version: string, expected?: string[]) {
+  await userEvent.click(await screen.findByRole("button", { name: /^Version to add/ }));
+  const list = screen.getByRole("listbox", { name: "Versions Odoo publishes" });
+  if (expected)
+    expect(
+      within(list)
+        .getAllByRole("option")
+        .map((o) => o.textContent),
+    ).toEqual(expected);
+  await userEvent.click(within(list).getByRole("option", { name: version }));
+  expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
+  expect(screen.getByRole("button", { name: /^Version to add/ })).toHaveTextContent(version);
+}
+
 describe("VersionsPage", () => {
+  it("lists many versions in a list that scrolls and fits the window", async () => {
+    const many = [
+      "saas-19.4",
+      "saas-19.3",
+      "saas-19.2",
+      "19.0",
+      "saas-18.4",
+      "saas-18.3",
+      "18.0",
+      "17.0",
+      "16.0",
+    ];
+    mocked.odooPublishedVersions.mockResolvedValue({ available: many, latestSaas: "saas-19.4" });
+    render(<VersionsPage />);
+    await userEvent.click(await screen.findByRole("button", { name: /^Version to add/ }));
+    const list = screen.getByRole("listbox", { name: "Versions Odoo publishes" });
+    expect(within(list).getAllByRole("option")).toHaveLength(7);
+    expect(list).toHaveClass("version-list");
+    await userEvent.keyboard("{Escape}");
+    expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
+  });
+
   it("lists the versions here with their editions, size and last update", async () => {
     render(<VersionsPage />);
     const saas = await screen.findByRole("group", { name: "Odoo 19.2" });
@@ -110,13 +147,7 @@ describe("VersionsPage", () => {
 
   it("downloads Community then Enterprise, showing each one's progress until it is ready", async () => {
     render(<VersionsPage />);
-    const select = await screen.findByRole("combobox", { name: "Version to add" });
-    expect(
-      within(select)
-        .getAllByRole("option")
-        .map((o) => o.textContent),
-    ).toEqual(["Choose…", "18.0"]);
-    await userEvent.selectOptions(select, "18.0");
+    await choose("18.0", ["18.0"]);
     await userEvent.click(screen.getByRole("button", { name: "Download" }));
     expect(mocked.downloadOdoo).toHaveBeenCalledWith("18.0", "community");
     // The row stays, with what is happening.
@@ -164,7 +195,7 @@ describe("VersionsPage", () => {
     expect(within(own).queryByRole("button", { name: "Use a folder…" })).not.toBeInTheDocument();
 
     folders.push("/home/me/odoo-18", null);
-    await userEvent.selectOptions(screen.getByRole("combobox", { name: "Version to add" }), "18.0");
+    await choose("18.0");
     const add = screen.getByRole("button", { name: "Download" }).parentElement!;
     await userEvent.click(within(add).getByRole("button", { name: "Use a folder…" }));
     expect(mocked.useOdooFolder).toHaveBeenCalledWith("18.0", "community", "/home/me/odoo-18");

@@ -121,11 +121,32 @@ body {
   padding: 10px 4px 4px 8px;
 }
 .tree-project-name {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 1;
+  min-width: 0;
+  background: none;
+  border: none;
+  padding: 2px 0;
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
   font-size: 12px;
   font-weight: 600;
   color: var(--muted);
   text-transform: uppercase;
   letter-spacing: 0.04em;
+}
+.tree-project-name:hover {
+  color: var(--text);
+}
+.tree-chevron {
+  flex: none;
+  transition: transform 0.15s;
+}
+.tree-chevron[data-open="true"] {
+  transform: rotate(90deg);
 }
 .tree-session {
   display: flex;
@@ -1701,4 +1722,35 @@ button.usage-line:hover {
   padding: 8px 12px;
   color: var(--muted);
   font-size: 13px;
+}
+
+/* The version to add: the app's own list, scrolling, above the button when needed. */
+.version-picker {
+  position: relative;
+}
+.version-picker-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 96px;
+  justify-content: space-between;
+}
+.version-list {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 20;
+  min-width: 140px;
+  max-height: 260px;
+  overflow-y: auto;
+  margin: 0;
+  padding: 4px;
+  list-style: none;
+}
+.version-list-up {
+  top: auto;
+  bottom: calc(100% + 4px);
+}
+.version-list [aria-selected="true"] {
+  font-weight: 600;
 }
