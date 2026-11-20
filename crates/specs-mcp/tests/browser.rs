@@ -26,11 +26,12 @@ const FORM: &str = r#"<html><body style="margin:0"><div class="o_action_manager"
 <div class="o_field_widget" name="hidden_one" style="display:none">x</div>
 </div></div></body></html>"#;
 
-/// A report: no Odoo fields, so its visible texts are what can be pointed at.
-const REPORT: &str = r#"<html><body style="margin:0"><div class="o_action_manager"><div class="o_view_controller">
+/// A report as /report/html serves it: no Odoo web client around it, and no fields,
+/// so its visible texts are what can be pointed at.
+const REPORT: &str = r#"<html><body style="margin:0"><main><div class="article"><div class="page">
 <h2 style="position:absolute;left:60px;top:500px;margin:0;font-size:20px">Quotation # S00003</h2>
 <span style="position:absolute;left:470px;top:440px">Ready Mat</span>
-</div></div></body></html>"#;
+</div></div></main></body></html>"#;
 
 /// Serves the fake Odoo; records the request lines it received.
 fn fake_odoo() -> (String, Arc<Mutex<Vec<String>>>) {
@@ -148,16 +149,27 @@ async fn a_batch_uses_one_chrome_logs_in_once_and_maps_what_is_on_screen() {
         },
         out: out.path().join(name),
     };
+    let started = std::time::Instant::now();
     let maps = tokio::time::timeout(
         Duration::from_secs(90),
         screenshots(
             &url,
-            &[shot("/form", "form.png"), shot("/report", "report.png")],
+            &[
+                shot("/form", "form.png"),
+                shot("/report/html/x", "report.png"),
+            ],
         ),
     )
     .await
     .expect("timed out")
     .unwrap();
+    // A report page is taken as soon as it is loaded, not after the 45 s wait for
+    // an Odoo view that never comes.
+    assert!(
+        started.elapsed() < Duration::from_secs(20),
+        "took {:?}",
+        started.elapsed()
+    );
 
     for name in ["form.png", "report.png"] {
         assert_eq!(

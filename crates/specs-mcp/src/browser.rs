@@ -60,8 +60,11 @@ const ELEMENTS_JS: &str = r#"(() => {
   return JSON.stringify(out.slice(0, 300));
 })()"#;
 
-/// True once an Odoo view is drawn and nothing is loading any more.
-const READY_JS: &str = "!!document.querySelector('.o_action_manager > *, .o_home_menu') \
+/// True once an Odoo view is drawn and nothing is loading any more. A report page
+/// (/report/html/...) has no web client around it: it is ready once loaded.
+const READY_JS: &str = "(location.pathname.startsWith('/report/') \
+    ? document.readyState === 'complete' \
+    : !!document.querySelector('.o_action_manager > *, .o_home_menu')) \
     && !document.querySelector('.o_loading_indicator, .o_blockUI, .o_loading')";
 
 /// Size of the browser window, in pixels.

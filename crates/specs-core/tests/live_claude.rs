@@ -328,3 +328,90 @@ async fn real_claude_reports_plan_usage_to_the_ui() {
         "no plan usage in {events:?}"
     );
 }
+
+/// A second kind of request: a report change and two business flows (sales and
+/// delivery), where Odoo already has the field.
+#[tokio::test]
+#[ignore = "calls the real Claude Code; run with `make test-live`"]
+async fn real_claude_specs_a_report_change_over_two_flows() {
+    let mcp =
+        std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/debug/specs-mcp");
+    let runtime = odoo_runtime::runtime::Runtime::new(
+        odoo_runtime::runtime::Runtime::default_root(),
+        Default::default(),
+    );
+    let dir = tempfile::tempdir().unwrap();
+    let ws = Workspace::new(dir.path());
+    ws.create_project("P").unwrap();
+    let id = ws.create_session("P", "live", "claude").unwrap().id;
+    ws.set_hosting("P", &id, Some("online")).unwrap();
+    ws.set_version("P", &id, Some("19.0")).unwrap();
+    let claude = ClaudeConfig {
+        diagram_tools: Some(mcp),
+        runtime_dir: Some(odoo_runtime::runtime::Runtime::default_root()),
+        model: None,
+        effort: None,
+        ..real_claude()
+    };
+
+    let started = std::time::Instant::now();
+    let done = turn(
+        &ws,
+        &id,
+        &claude,
+        "Our customers send a PO number with each order. Salespeople must enter it on the \
+quotation before confirming, it must be printed on the quotation PDF, and the warehouse \
+wants it printed on the delivery slip too.",
+    )
+    .await;
+    let built = |ws: &Workspace| {
+        ws.read_transcript("P", &id).unwrap().iter().any(
+            |e| matches!(e, TranscriptEntry::Tool { name, .. } if name.ends_with("spec_build")),
+        )
+    };
+    let done = match done {
+        ChatEvent::Finished {
+            is_error: false, ..
+        } if !built(&ws) => {
+            turn(
+                &ws,
+                &id,
+                &claude,
+                "Required for all customers. Under the order number on both PDFs. \
+All salespeople. No past task. Please draw the spec.",
+            )
+            .await
+        }
+        other => other,
+    };
+    let took = started.elapsed();
+    runtime.stop_all().unwrap();
+    assert_eq!(
+        done,
+        ChatEvent::Finished {
+            is_error: false,
+            message: None
+        }
+    );
+    let tools: Vec<String> = ws
+        .read_transcript("P", &id)
+        .unwrap()
+        .into_iter()
+        .filter_map(|e| match e {
+            TranscriptEntry::Tool { name, is_error } => {
+                Some(format!("{name}{}", if is_error { " (error)" } else { "" }))
+            }
+            _ => None,
+        })
+        .collect();
+    eprintln!("took {took:?}; tools: {tools:?}");
+    assert!(built(&ws), "{tools:?}");
+    let keep =
+        std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/test-fixtures");
+    std::fs::create_dir_all(&keep).unwrap();
+    std::fs::write(
+        keep.join("live_po_number.excalidraw"),
+        ws.read_scene("P", &id).unwrap(),
+    )
+    .unwrap();
+}

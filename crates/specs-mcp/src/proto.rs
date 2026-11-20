@@ -33,6 +33,19 @@ pub struct Prototype {
     /// New buttons on an existing form: in the header, or a smart button.
     #[serde(default)]
     pub buttons: Vec<ProtoButton>,
+    /// Existing fields moved to another place on the form.
+    #[serde(default)]
+    pub moves: Vec<ProtoMove>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct ProtoMove {
+    /// Model of the form, e.g. "sale.order".
+    pub model: String,
+    /// The existing field that moves, e.g. "client_order_ref".
+    pub field: String,
+    /// The form field it now comes after, e.g. "payment_term_id".
+    pub after: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
@@ -84,7 +97,10 @@ pub struct ProtoField {
 
 impl Prototype {
     pub fn is_empty(&self) -> bool {
-        self.models.is_empty() && self.fields.is_empty() && self.buttons.is_empty()
+        self.models.is_empty()
+            && self.fields.is_empty()
+            && self.buttons.is_empty()
+            && self.moves.is_empty()
     }
 
     pub fn validate(&self) -> Result<()> {
@@ -151,6 +167,17 @@ impl Prototype {
                 ensure!(
                     name.chars()
                         .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '.'),
+                    "\"{name}\" is not a technical name."
+                );
+            }
+        }
+        for m in &self.moves {
+            for name in [&m.model, &m.field, &m.after] {
+                ensure!(
+                    !name.is_empty()
+                        && name
+                            .chars()
+                            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '.'),
                     "\"{name}\" is not a technical name."
                 );
             }
@@ -257,6 +284,13 @@ const SETUP_JS: &str = r#"(async () => {
       if (f.after) await extend(f, 'form', f.after);
       if (f.list_after) await extend(f, 'list', f.list_after);
     }
+    // An existing field shown somewhere else on the form.
+    for (const m of P.moves) {
+      undo.views.push(await rpc('ir.ui.view', 'create', [{ name: 'prototype move ' + m.field, model: m.model,
+        inherit_id: await parentOf(m.model, 'form', m.field), mode: 'extension', priority: 99,
+        arch: '<xpath expr="//field[@name=\'' + m.after + '\']" position="after">' +
+          '<xpath expr="//field[@name=\'' + m.field + '\']" position="move"/></xpath>' }]));
+    }
     // A button does nothing: it is only there for the screenshot.
     for (const b of P.buttons) {
       const ids = await rpc('ir.model', 'search', [[['model', '=', b.model]]]);
@@ -289,6 +323,12 @@ const SETUP_JS: &str = r#"(async () => {
   } catch (e) {
     return JSON.stringify({ pages, undo, error: String((e && e.message) || e) + ' (on ' + location.href + ')' });
   }
+  // Odoo 19+ keeps views in a browser cache it only clears for changes made through
+  // its own client: clear it, or the screenshots show the views from before.
+  try {
+    odoo.loader.modules.get('@web/core/network/rpc').rpcBus.trigger('CLEAR-CACHES');
+    await new Promise((r) => setTimeout(r, 300));
+  } catch (e) { /* older Odoo: no such cache */ }
   return JSON.stringify({ pages, undo });
 })()"#;
 
@@ -377,7 +417,7 @@ mod tests {
                 label: "Matrix".into(),
             }],
             fields: vec![f],
-            buttons: vec![],
+            ..Default::default()
         };
         p.validate().unwrap();
     }
@@ -409,6 +449,32 @@ mod tests {
     }
 
     #[test]
+    fn the_browser_view_cache_is_cleared_after_setup() {
+        // Odoo 19+ keeps views in the browser and only forgets them when they change
+        // through its own client; the prototype changes them directly.
+        let js = setup_js(&Prototype {
+            fields: vec![field("x_deadline", "date")],
+            ..Default::default()
+        });
+        assert!(js.contains("CLEAR-CACHES"));
+    }
+
+    #[test]
+    fn a_moved_field_needs_technical_names() {
+        let p = |field: &str| Prototype {
+            moves: vec![ProtoMove {
+                model: "sale.order".into(),
+                field: field.into(),
+                after: "payment_term_id".into(),
+            }],
+            ..Default::default()
+        };
+        p("client_order_ref").validate().unwrap();
+        assert!(p("x']|//y").validate().is_err());
+        assert!(setup_js(&p("client_order_ref")).contains("position=\"move\""));
+    }
+
+    #[test]
     fn button_labels_are_escaped_and_undone() {
         let js = setup_js(&Prototype {
             buttons: vec![button(Some("action_confirm"), false)],
@@ -423,7 +489,7 @@ mod tests {
         let p = Prototype {
             models: vec![],
             fields: vec![field("x_deadline", "date")],
-            buttons: vec![],
+            ..Default::default()
         };
         let js = setup_js(&p);
         assert!(js.contains("\"x_deadline\"") && js.contains("call_kw") && !js.contains("__"));

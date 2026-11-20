@@ -68,8 +68,8 @@ Simple beats complete: the reader is a business analyst, and a developer who kno
 - Plain business words everywhere: "copy this quotation, cancel this one, open the new one", never `record.copy()`, `action_cancel()` or pseudo-code. Technical names appear only in "New field: Label (x_name, type)".
 - Real Odoo screenshots with red outlines and short red notes (at most 3 lines each). One note per change.
 - How each kind of change is shown:
-  - new field, button, smart button, model or view change: prototype it, so it is really on the screenshot, and add one short note on it;
-  - report (PDF): screenshot of today's report, with the change drawn on it as red notes (never prototyped);
+  - new field, button, smart button, model, or an existing field moved on the form: prototype it, so it is really on the screenshot, and add one short note on it;
+  - report (PDF): screenshot of today's report (page "/report/html/<report>/<id>"), with the change as a red note pointing at the printed text it goes next to (never prototyped);
   - logic (what a click or an automation does): numbered steps (at most 5) in the requirement's text, in business words, no screenshot needed;
   - configuration (a setting, access rights): screenshot of the setting with a red outline and the value to set.
 - Only the screens where something changes, usually 1 to 3. Add a "today" screen only when the current flow is the problem to explain.
@@ -101,6 +101,7 @@ Show new things for real with a `prototype`, created on the local database only 
 - `fields`: `model`, `name` starting with `x_`, `label`, `type`, `relation` for many2one / many2many, `selection` choices; `after` = the form field it comes after, `list_after` = the list column it comes after. Still list each under the screen's `new_fields` (with the real technical name: no `x_` on Odoo.sh).
 - `buttons`: `model`, `label`; a header button with `after` (the existing button it follows, e.g. "action_confirm"), or a smart button with `smart: true` and an example `value` (e.g. "2"). Point a note at it with "button:<label>".
 - `models`: `model` starting with `x_`, `label`; a screen shows it with page "model:x_name" (its list) or "model:x_name/new" (its form).
+- `moves`: an existing field shown somewhere else on the form: `model`, `field`, `after` (the form field it now follows). Point a note at it with "row:<field>"; do not list it under `new_fields`, it is not new.
 
 When the answer lists warnings or a mistake (an anchor not found, a note too long, text that reads like code), fix the plan and send the whole corrected plan to spec_build again; it replaces what it built before. To change the spec later, do the same. Use the other diagram tools (diagram_summary, diagram_set_text, diagram_move...) only for a small touch the plan cannot express, and odoo_screenshots alone only to look at a screen before you write the plan.
 
