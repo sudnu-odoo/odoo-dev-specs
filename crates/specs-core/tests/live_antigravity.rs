@@ -145,6 +145,8 @@ async fn real_agy_starts_a_screen_change_from_a_screenshot() {
     let agy = ClaudeConfig {
         diagram_tools: Some(mcp),
         runtime_dir: Some(odoo_runtime::runtime::Runtime::default_root()),
+        // The Odoo source of the session's version, as the app passes it.
+        read_dirs: runtime.source_dirs_for("19.0"),
         model: None,
         ..real_agy()
     };

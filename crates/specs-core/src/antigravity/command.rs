@@ -24,7 +24,11 @@ pub struct TurnSpec {
 /// system-prompt flag, so our instructions lead the first message.
 pub fn args(spec: &TurnSpec) -> Vec<String> {
     let prompt = match &spec.conversation {
-        None => format!("{SYSTEM_PROMPT}\n\n---\n\n{}", spec.prompt),
+        None => format!(
+            "{SYSTEM_PROMPT}\n\n{}\n\n---\n\n{}",
+            sources_note(&spec.read_dirs),
+            spec.prompt
+        ),
         // A leading dash would be read as a flag.
         Some(_) if spec.prompt.starts_with('-') => format!(" {}", spec.prompt),
         Some(_) => spec.prompt.clone(),
@@ -47,19 +51,39 @@ pub fn args(spec: &TurnSpec) -> Vec<String> {
     for dir in &spec.read_dirs {
         a.extend(["--add-dir".to_string(), dir.display().to_string()]);
     }
-    if let Some(model) = &spec.model {
-        a.extend(["--model".to_string(), model.clone()]);
-    }
+    // agy's own default (Flash High) is slow and quota-hungry: use the app's default.
+    let model = spec
+        .model
+        .clone()
+        .unwrap_or_else(|| crate::models::default_model(crate::settings::Provider::Antigravity));
+    a.extend(["--model".to_string(), model.clone()]);
     // Some models carry their effort in their id (e.g. gemini-3.8-flash-low): agy
     // refuses a second one, so the chosen effort only applies to the others.
-    let model_sets_effort = spec
-        .model
-        .as_deref()
-        .is_some_and(|m| ["-low", "-medium", "-high"].iter().any(|s| m.ends_with(s)));
+    let model_sets_effort = ["-low", "-medium", "-high"]
+        .iter()
+        .any(|s| model.ends_with(s));
     if let Some(effort) = spec.effort.as_ref().filter(|_| !model_sets_effort) {
         a.extend(["--effort".to_string(), effort.clone()]);
     }
     a
+}
+
+/// Where the Odoo source is. agy can read `--add-dir` folders but does not tell the
+/// model about them, so it would otherwise search the whole disk.
+fn sources_note(dirs: &[PathBuf]) -> String {
+    if dirs.is_empty() {
+        return "No Odoo source is available on this computer for this session: rely on the \
+local Odoo screenshots, and do not search the disk for it."
+            .into();
+    }
+    let list: Vec<String> = dirs.iter().map(|d| format!("- {}", d.display())).collect();
+    format!(
+        "The Odoo source of this session's version (read-only) is here:\n{}\n\
+Search only there, with targeted commands, several at once \
+(e.g. `grep -rn \"def action_confirm\" <dir>/addons/sale/models`). \
+Do not look for Odoo anywhere else on the disk.",
+        list.join("\n")
+    )
 }
 
 /// Write `<session>/.agents/mcp_config.json`, where agy looks for the workspace's MCP servers.
@@ -104,6 +128,29 @@ mod tests {
     }
 
     #[test]
+    fn the_first_message_says_where_the_odoo_source_is() {
+        // agy gives access to --add-dir folders without telling the model about them,
+        // so without this it searches the whole disk for Odoo.
+        let a = args(&spec(None));
+        assert!(a[1].contains("/src/odoo"), "{}", a[1]);
+        assert!(a[1].contains("grep"));
+        let mut none = spec(None);
+        none.read_dirs.clear();
+        assert!(args(&none)[1].contains("No Odoo source"));
+        // Later turns stay short.
+        assert!(!args(&spec(Some("c")))[1].contains("/src/odoo"));
+    }
+
+    #[test]
+    fn without_a_chosen_model_the_balanced_one_is_used() {
+        // agy's own default thinks longest and uses the most quota.
+        assert_eq!(
+            value_after(&args(&spec(None)), "--model"),
+            Some("gemini-3.8-flash-medium")
+        );
+    }
+
+    #[test]
     fn later_turns_resume_the_conversation_with_the_bare_message() {
         let a = args(&spec(Some("conv-1")));
         assert_eq!(a[1], "Add a field");
@@ -127,6 +174,7 @@ mod tests {
     #[test]
     fn effort_is_passed_when_chosen() {
         let mut s = spec(None);
+        s.model = Some("claude-sonnet-4-6".into());
         s.effort = Some("low".into());
         assert_eq!(value_after(&args(&s), "--effort"), Some("low"));
     }
