@@ -351,6 +351,7 @@ async fn real_claude_specs_a_report_change_over_two_flows() {
     let claude = ClaudeConfig {
         diagram_tools: Some(mcp),
         runtime_dir: Some(odoo_runtime::runtime::Runtime::default_root()),
+        read_dirs: runtime.source_dirs_for("19.0"),
         model: None,
         effort: None,
         ..real_claude()
