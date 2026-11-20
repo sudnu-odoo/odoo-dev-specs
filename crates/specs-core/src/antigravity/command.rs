@@ -76,15 +76,41 @@ fn sources_note(dirs: &[PathBuf]) -> String {
 local Odoo screenshots, and do not search the disk for it."
             .into();
     }
-    let list: Vec<String> = dirs.iter().map(|d| format!("- {}", d.display())).collect();
+    let list: Vec<String> = dirs
+        .iter()
+        .map(|d| format!("- {}: {}", source_label(d), d.display()))
+        .collect();
     format!(
-        "The Odoo source (read-only; each folder is named by its Odoo version, use the \
-client's version) is here:\n{}\n\
+        "The Odoo source (read-only; use the folders of the client's version) is here:\n{}\n\
 Search only there, with targeted commands, several at once \
 (e.g. `grep -rn \"def action_confirm\" <dir>/addons/sale/models`). \
 Do not look for Odoo anywhere else on the disk.",
         list.join("\n")
     )
+}
+
+/// "Odoo 19.0 Community" / "Odoo 19.0 Enterprise", read from Odoo's own files: a
+/// folder's name (e.g. ~/src/odoo) does not always say its version. Enterprise has no
+/// version file: the Community folder next to it tells.
+fn source_label(dir: &Path) -> String {
+    let version_in = |community: &Path| {
+        std::fs::read_to_string(community.join("odoo/release.py"))
+            .ok()
+            .and_then(|r| odoo_runtime::runtime::release_version(&r))
+    };
+    let (edition, version) =
+        if dir.join("odoo-bin").is_file() || dir.join("odoo/release.py").is_file() {
+            ("Community", version_in(dir))
+        } else {
+            (
+                "Enterprise",
+                dir.parent().and_then(|p| version_in(&p.join("odoo"))),
+            )
+        };
+    match version {
+        Some(v) => format!("Odoo {v} {edition}"),
+        None => format!("Odoo {edition}"),
+    }
 }
 
 /// Write `<session>/.agents/mcp_config.json`, where agy looks for the workspace's MCP servers.
@@ -140,6 +166,32 @@ mod tests {
         assert!(args(&none)[1].contains("No Odoo source"));
         // Later turns stay short.
         assert!(!args(&spec(Some("c")))[1].contains("/src/odoo"));
+    }
+
+    #[test]
+    fn each_source_folder_is_labelled_with_its_version_and_edition() {
+        // A folder like ~/src/odoo does not say its version: Odoo's own files do.
+        let home = tempfile::tempdir().unwrap();
+        let community = home.path().join("src/odoo");
+        let enterprise = home.path().join("src/enterprise");
+        std::fs::create_dir_all(community.join("odoo")).unwrap();
+        std::fs::create_dir_all(&enterprise).unwrap();
+        std::fs::write(
+            community.join("odoo/release.py"),
+            "version_info = (19, 0, 0, FINAL, 0, '')\n",
+        )
+        .unwrap();
+        let mut s = spec(None);
+        s.read_dirs = vec![community.clone(), enterprise.clone()];
+        let first = &args(&s)[1];
+        assert!(
+            first.contains(&format!("- Odoo 19.0 Community: {}", community.display())),
+            "{first}"
+        );
+        assert!(
+            first.contains(&format!("- Odoo 19.0 Enterprise: {}", enterprise.display())),
+            "{first}"
+        );
     }
 
     #[test]
