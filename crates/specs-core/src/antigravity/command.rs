@@ -78,7 +78,8 @@ local Odoo screenshots, and do not search the disk for it."
     }
     let list: Vec<String> = dirs.iter().map(|d| format!("- {}", d.display())).collect();
     format!(
-        "The Odoo source of this session's version (read-only) is here:\n{}\n\
+        "The Odoo source (read-only; each folder is named by its Odoo version, use the \
+client's version) is here:\n{}\n\
 Search only there, with targeted commands, several at once \
 (e.g. `grep -rn \"def action_confirm\" <dir>/addons/sale/models`). \
 Do not look for Odoo anywhere else on the disk.",
