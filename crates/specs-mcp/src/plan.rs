@@ -402,6 +402,7 @@ impl Builder<'_> {
         mut y: f64,
         width: f64,
     ) -> Result<(f64, f64)> {
+        let first = self.made.len();
         if let Some(caption) = &screen.caption {
             y = self.text(caption, x, y, BODY, None) + 4.0;
         }
@@ -495,7 +496,14 @@ impl Builder<'_> {
             }
         }
         bottom = bottom.max(free);
-        Ok((notes_x + NOTES_WIDTH, bottom))
+        // The right edge of what this screen drew: a long note may be wider than
+        // the notes column, and the next screen of a row must clear it.
+        let right = self
+            .scene
+            .bounds(&self.made[first..])
+            .map_or(0.0, |(bx, _, bw, _)| bx + bw)
+            .max(notes_x + NOTES_WIDTH);
+        Ok((right, bottom))
     }
 
     /// The new field's label and example value written on the screenshot, and its red

@@ -33,6 +33,10 @@ const REPORT: &str = r#"<html><body style="margin:0"><main><div class="article">
 <span style="position:absolute;left:470px;top:440px">Ready Mat</span>
 </div></div></main></body></html>"#;
 
+/// A page that opens a dialog, which blocks Chrome until someone answers it.
+const ALERT: &str = r#"<html><body><div class="o_action_manager"><div class="o_view_controller">Alert</div></div>
+<script>setTimeout(() => alert('Something went wrong'), 100);</script></body></html>"#;
+
 /// Serves the fake Odoo; records the request lines it received.
 fn fake_odoo() -> (String, Arc<Mutex<Vec<String>>>) {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
@@ -45,10 +49,20 @@ fn fake_odoo() -> (String, Arc<Mutex<Vec<String>>>) {
             let mut request = String::new();
             reader.read_line(&mut request).unwrap_or_default();
             log.lock().unwrap().push(request.trim().to_string());
+            // A page that never finishes loading: keep the connection open, say nothing.
+            if request.contains(" /hang") {
+                std::thread::spawn(move || {
+                    let _keep = stream;
+                    std::thread::sleep(Duration::from_secs(600));
+                });
+                continue;
+            }
             let body = if request.contains(" /after") || request.contains(" /odoo/sales") {
                 AFTER
             } else if request.contains(" /form") {
                 FORM
+            } else if request.contains(" /alert") {
+                ALERT
             } else if request.contains(" /report") {
                 REPORT
             } else if request.contains(" /web/login") {
@@ -216,4 +230,44 @@ async fn a_batch_uses_one_chrome_logs_in_once_and_maps_what_is_on_screen() {
         (heading.kind.as_str(), heading.x, heading.y),
         ("text", 60.0, 500.0)
     );
+}
+
+#[tokio::test]
+async fn a_page_that_never_loads_fails_instead_of_hanging() {
+    let (url, _) = fake_odoo();
+    let out = tempfile::tempdir().unwrap();
+    let shot = |page: &str, name: &str| Shot {
+        page: page.into(),
+        viewport: Viewport::default(),
+        out: out.path().join(name),
+    };
+    let started = std::time::Instant::now();
+    let result = tokio::time::timeout(
+        Duration::from_secs(120),
+        screenshots(&url, &[shot("/form", "a.png"), shot("/hang", "b.png")]),
+    )
+    .await
+    .expect("hung: no page time limit");
+    let err = result.unwrap_err().to_string();
+    assert!(err.contains("/hang"), "{err}");
+    assert!(started.elapsed() < Duration::from_secs(60));
+}
+
+#[tokio::test]
+async fn a_dialog_on_the_page_does_not_block_the_screenshots() {
+    let (url, _) = fake_odoo();
+    let out = tempfile::tempdir().unwrap();
+    let shot = |page: &str, name: &str| Shot {
+        page: page.into(),
+        viewport: Viewport::default(),
+        out: out.path().join(name),
+    };
+    tokio::time::timeout(
+        Duration::from_secs(60),
+        screenshots(&url, &[shot("/alert", "a.png"), shot("/form", "b.png")]),
+    )
+    .await
+    .expect("hung on the dialog")
+    .unwrap();
+    assert!(out.path().join("b.png").is_file());
 }

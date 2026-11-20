@@ -374,3 +374,22 @@ fn a_single_requirement_needs_no_frame() {
         .iter()
         .any(|e| e["customData"]["frame"] == true));
 }
+
+#[test]
+fn a_long_note_pushes_the_next_screen_of_a_row_to_the_right() {
+    let p = plan(json!({
+        "title": "T", "need": "N", "version": "19.0",
+        "sections": [{"title": "Both PDFs", "horizontal": true,
+            "screens": [{"name": "a", "page": "/odoo", "notes": [{"lines": [
+                "A rather long note line that is much wider than the usual notes column is"]}]},
+                        {"name": "b", "page": "/odoo"}]}]
+    }));
+    let mut scene = Scene::parse(EMPTY).unwrap();
+    let report = build(&mut scene, &p, &shots(&["a", "b"])).unwrap();
+    assert!(report.warnings.is_empty(), "{:?}", report.warnings);
+    let all = live(&scene);
+    let note = find_text(&all, "A rather long");
+    let note_right = note["x"].as_f64().unwrap() + note["width"].as_f64().unwrap();
+    let second = all.iter().filter(|e| e["type"] == "image").nth(1).unwrap();
+    assert!(second["x"].as_f64().unwrap() > note_right);
+}

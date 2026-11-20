@@ -6,7 +6,9 @@ use std::time::{Duration, Instant};
 use anyhow::{anyhow, bail, ensure, Context, Result};
 use chromiumoxide::browser::{Browser, BrowserConfig};
 use chromiumoxide::cdp::browser_protocol::emulation::SetDeviceMetricsOverrideParams;
-use chromiumoxide::cdp::browser_protocol::page::CaptureScreenshotFormat;
+use chromiumoxide::cdp::browser_protocol::page::{
+    CaptureScreenshotFormat, EventJavascriptDialogOpening, HandleJavaScriptDialogParams,
+};
 use chromiumoxide::handler::viewport::Viewport as ChromeViewport;
 use chromiumoxide::page::ScreenshotParams;
 use chromiumoxide::Page;
@@ -15,6 +17,8 @@ use serde::{Deserialize, Serialize};
 
 /// Longest wait for Odoo to finish drawing a view; after that the page is taken as is.
 const RENDER_TIMEOUT: Duration = Duration::from_secs(45);
+/// Longest time for one page from opening it to its PNG; more means it is stuck.
+const PAGE_TIMEOUT: Duration = Duration::from_secs(90);
 /// Extra time for animations and late images once Odoo looks ready.
 const SETTLE: Duration = Duration::from_millis(600);
 /// Submits Odoo's login form as admin when the page shows one; returns whether it did.
@@ -194,6 +198,20 @@ async fn capture_all(
         .new_page(login_url.as_str())
         .await
         .context("Could not open Odoo in Chrome.")?;
+    // A dialog (an alert, "leave this page?") blocks Chrome until it is answered:
+    // answer every one at once, so a page can never hang the screenshots.
+    let mut dialogs = tab
+        .event_listener::<EventJavascriptDialogOpening>()
+        .await
+        .context("Could not watch the page for dialogs.")?;
+    let answering = tab.clone();
+    tokio::spawn(async move {
+        while dialogs.next().await.is_some() {
+            let _ = answering
+                .execute(HandleJavaScriptDialogParams::new(true))
+                .await;
+        }
+    });
     tab.wait_for_navigation().await?;
     log_in_if_asked(&tab).await?;
     let Some(prepare) = prepare else {
@@ -243,6 +261,28 @@ async fn capture_each(
 ) -> Result<Vec<Vec<Element>>> {
     let mut maps = Vec::with_capacity(shots.len());
     for shot in shots {
+        let map = tokio::time::timeout(PAGE_TIMEOUT, capture_one(tab, base_url, shot, pages))
+            .await
+            .map_err(|_| {
+                anyhow!(
+                    "{} did not finish loading within {} s: leave it out or try another page.",
+                    shot.page,
+                    PAGE_TIMEOUT.as_secs()
+                )
+            })??;
+        maps.push(map);
+    }
+    Ok(maps)
+}
+
+/// Open one page, wait for it, save its PNG and map what is on it.
+async fn capture_one(
+    tab: &Page,
+    base_url: &str,
+    shot: &Shot,
+    pages: &std::collections::HashMap<String, String>,
+) -> Result<Vec<Element>> {
+    {
         let page = match pages.get(&shot.page) {
             Some(real) => real.as_str(),
             None if shot.page.starts_with("model:") => {
@@ -281,9 +321,8 @@ async fn capture_each(
             .ok()
             .and_then(|r| r.into_value().ok())
             .unwrap_or_default();
-        maps.push(serde_json::from_str(&found).unwrap_or_default());
+        Ok(serde_json::from_str(&found).unwrap_or_default())
     }
-    Ok(maps)
 }
 
 /// Run a script in the page. While a page is being replaced (a redirect right after
