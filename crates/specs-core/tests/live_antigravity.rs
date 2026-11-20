@@ -117,3 +117,97 @@ async fn real_agy_draws_with_the_diagram_tools() {
         assert!(texts.contains(&expected), "missing {expected}: {texts:?}");
     }
 }
+
+async fn turn(ws: &Workspace, id: &str, agy: &ClaudeConfig, text: &str) -> ChatEvent {
+    let (_tx, rx) = oneshot::channel();
+    send_message(ws, "P", id, text, agy, |_| {}, rx)
+        .await
+        .unwrap()
+}
+
+/// The same request as the Claude live test, to compare both assistants.
+#[tokio::test]
+#[ignore = "calls the real Antigravity CLI; run with `make test-live`"]
+async fn real_agy_starts_a_screen_change_from_a_screenshot() {
+    let mcp =
+        std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/debug/specs-mcp");
+    let runtime = odoo_runtime::runtime::Runtime::new(
+        odoo_runtime::runtime::Runtime::default_root(),
+        Default::default(),
+    );
+    let dir = tempfile::tempdir().unwrap();
+    let ws = Workspace::new(dir.path());
+    ws.create_project("P").unwrap();
+    let id = ws.create_session("P", "live", "antigravity").unwrap().id;
+    ws.set_hosting("P", &id, Some("online")).unwrap();
+    ws.set_version("P", &id, Some("19.0")).unwrap();
+    // The model the business team gets by default.
+    let agy = ClaudeConfig {
+        diagram_tools: Some(mcp),
+        runtime_dir: Some(odoo_runtime::runtime::Runtime::default_root()),
+        model: None,
+        ..real_agy()
+    };
+
+    let started = std::time::Instant::now();
+    let done = turn(
+        &ws,
+        &id,
+        &agy,
+        "Add a new button beside the Confirm button of sale orders called \"Revise Quotation\"",
+    )
+    .await;
+    // Answer its questions like the business analyst would.
+    let done =
+        match done {
+            ChatEvent::Finished {
+                is_error: false, ..
+            } if !used_spec_build(&ws, &id) => turn(
+                &ws,
+                &id,
+                &agy,
+                "1a, cancel the original. 2: only quotations not confirmed. 3: all salespeople. \
+4: a Revisions smart button, no PDF change. 5: customers ask for changes after the quote. \
+6: no past task. Please draw the spec.",
+            )
+            .await,
+            other => other,
+        };
+    let took = started.elapsed();
+    runtime.stop_all().unwrap();
+    assert_eq!(
+        done,
+        ChatEvent::Finished {
+            is_error: false,
+            message: None
+        }
+    );
+    let tools = tools(&ws, &id);
+    eprintln!("took {took:?}; tools: {tools:?}");
+    assert!(used_spec_build(&ws, &id), "{tools:?}");
+    let keep =
+        std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/test-fixtures");
+    std::fs::create_dir_all(&keep).unwrap();
+    std::fs::write(
+        keep.join("live_agy_revise_quotation.excalidraw"),
+        ws.read_scene("P", &id).unwrap(),
+    )
+    .unwrap();
+}
+
+fn tools(ws: &Workspace, id: &str) -> Vec<String> {
+    ws.read_transcript("P", id)
+        .unwrap()
+        .into_iter()
+        .filter_map(|e| match e {
+            TranscriptEntry::Tool { name, is_error } => {
+                Some(format!("{name}{}", if is_error { " (error)" } else { "" }))
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+fn used_spec_build(ws: &Workspace, id: &str) -> bool {
+    tools(ws, id).iter().any(|t| t.ends_with("spec_build"))
+}

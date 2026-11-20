@@ -267,7 +267,8 @@ pub fn build(
         y = b.text(&plan.context.join("\n"), 0.0, y, BODY, None);
     }
     for (n, section) in plan.sections.iter().enumerate() {
-        y = b.section(n + 1, section, y + SECTION_GAP, shots)?;
+        let framed = plan.sections.len() > 1;
+        y = b.section(n + 1, section, y + SECTION_GAP, shots, framed)?;
     }
     for link in &plan.links {
         b.link(link)?;
@@ -348,6 +349,7 @@ impl Builder<'_> {
         section: &Section,
         top: f64,
         shots: &HashMap<String, ShotData>,
+        framed: bool,
     ) -> Result<f64> {
         let first = self.made.len();
         let mut y = self.text(&format!("{n}. {}", section.title), 0.0, top, HEADING, None) + 12.0;
@@ -376,6 +378,10 @@ impl Builder<'_> {
         }
         let ids = self.made[first..].to_vec();
         let (bx, by, bw, bh) = self.scene.bounds(&ids).unwrap_or((0.0, top, 0.0, 0.0));
+        // A frame only tells requirements apart: one requirement needs none.
+        if !framed {
+            return Ok(by + bh);
+        }
         let panel = self.scene.add_outline((
             bx - PANEL_PADDING,
             by - PANEL_PADDING,

@@ -79,7 +79,7 @@ Simple beats complete: the reader is a business analyst, and a developer who kno
 
 1. Title + one-line need (title 36px, need 20px).
 2. Business context (3 to 5 short lines): why the client needs it, and its hosting (Odoo Online or Odoo.sh); explain any unusual flow.
-3. One numbered section per requirement or business flow ("1. Revise a quotation"), each in its own plain frame, stacked top to bottom: a heading, up to 5 short lines (the steps), and its screenshots with red notes. A second business flow gets a second section below.
+3. One numbered section per requirement or business flow ("1. Revise a quotation"), stacked top to bottom (when there are several, each gets a plain frame): a heading, up to 5 short lines (the steps), and its screenshots with red notes. A second business flow gets a second section below.
 4. Test cases, a checkbox list: "[ ] 1. <role>: <action> -> <expected result>". Include restricted and privileged users, and corner cases (e.g. an empty setting). Keep it to the cases that matter, usually 5 to 10.
 
 Nothing else: no rules / fields table, no "flows that must keep working" and no "known limitations" section. Technical names belong in the red notes on the screenshots.

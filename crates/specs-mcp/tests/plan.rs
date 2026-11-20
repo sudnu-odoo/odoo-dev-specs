@@ -360,3 +360,17 @@ fn notes_follow_the_order_of_what_they_point_at_so_arrows_do_not_cross() {
         "button note {button} should be above field note {field}"
     );
 }
+
+#[test]
+fn a_single_requirement_needs_no_frame() {
+    let p = plan(json!({
+        "title": "T", "need": "N", "version": "19.0",
+        "sections": [{"title": "Revise a quotation", "text": ["1. Click", "2. A copy opens"],
+            "screens": [{"name": "a", "page": "/odoo/sales/3"}, {"name": "b", "page": "/odoo/sales"}]}]
+    }));
+    let mut scene = Scene::parse(EMPTY).unwrap();
+    build(&mut scene, &p, &shots(&["a", "b"])).unwrap();
+    assert!(!live(&scene)
+        .iter()
+        .any(|e| e["customData"]["frame"] == true));
+}
