@@ -190,9 +190,12 @@ mod tests {
     #[test]
     fn the_spec_skill_keeps_its_key_rules() {
         for rule in [
-            "Real Odoo screenshots, annotated in red",
+            "Real Odoo screenshots with red outlines",
             "No flow charts",
-            "Vertical",
+            "stacked top to bottom",
+            "Plain business words everywhere",
+            "report (PDF): screenshot of today's report",
+            "One numbered section per requirement or business flow",
             "Never ask for, read or reproduce customer data",
             "Test cases",
             "no \"known limitations\" section",

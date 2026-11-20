@@ -611,7 +611,7 @@ async fn spec_build_lays_out_a_plan_in_one_call() {
     let plan = json!({
         "title": "Approval matrix", "need": "Expenses go through department and finance approval.",
         "context": ["Odoo.sh 19.0"], "version": "19.0",
-        "sections": [{"title": "Expense flow", "kind": "to_be", "text": ["1. Draft", "2. Dept review"]}],
+        "sections": [{"title": "Expense flow", "text": ["1. Draft", "2. Dept review"]}],
         "tests": ["Employee: submits -> Dept review"]
     });
     let result = call(&client, "spec_build", plan.clone()).await;

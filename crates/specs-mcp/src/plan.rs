@@ -58,19 +58,18 @@ pub struct SpecPlan {
 
 #[derive(Debug, Clone, Deserialize, JsonSchema)]
 pub struct Section {
-    /// Heading; it is numbered for you, e.g. "Sales > Orders > Quotation form".
+    /// One requirement or business flow, in one plain frame; numbered for you,
+    /// e.g. "Revise a quotation".
     pub title: String,
-    /// "as_is" (today), "to_be" (expected), "config" (settings to turn on), or leave out.
-    pub kind: Option<String>,
-    /// 1 to 3 short lines under the heading; numbered steps are fine.
+    /// Up to 5 short lines under the heading, in business words; numbered steps are fine.
     #[serde(default)]
     pub text: Vec<String>,
-    /// Real Odoo screens, stacked top to bottom.
+    /// Real Odoo screens of this requirement, top to bottom.
     #[serde(default)]
     pub screens: Vec<Screen>,
-    /// Put the screens next to each other (only to compare, e.g. current vs expected).
-    #[serde(default)]
-    pub side_by_side: bool,
+    /// Put the screens next to each other, when that reads better (e.g. before / after).
+    #[serde(default, alias = "side_by_side")]
+    pub horizontal: bool,
 }
 
 #[derive(Debug, Clone, Deserialize, JsonSchema)]
@@ -195,9 +194,44 @@ pub fn validate(plan: &SpecPlan) -> Result<()> {
         }
     }
     for section in &plan.sections {
-        if let Some(kind) = section.kind.as_deref() {
-            section_color(Some(kind))?;
+        ensure!(
+            section.text.len() <= MAX_TEXT_LINES,
+            "Section \"{}\" has {} lines of text: keep it to {MAX_TEXT_LINES}.",
+            section.title,
+            section.text.len()
+        );
+        plain(&section.text)?;
+        for screen in &section.screens {
+            for note in &screen.notes {
+                ensure!(
+                    note.lines.len() <= MAX_NOTE_LINES,
+                    "A note on screen \"{}\" has {} lines: keep each note to {MAX_NOTE_LINES} lines (split it or shorten it).",
+                    screen.name,
+                    note.lines.len()
+                );
+                plain(&note.lines)?;
+            }
         }
+    }
+    plain(&plan.context)?;
+    Ok(())
+}
+
+const MAX_NOTE_LINES: usize = 3;
+const MAX_TEXT_LINES: usize = 5;
+
+/// Business words, not code: the reader is a business analyst and a developer who
+/// knows Odoo, so "cancel this quotation", not "action_cancel()".
+fn plain(lines: &[String]) -> Result<()> {
+    for line in lines {
+        let code = line.contains("()")
+            || line.contains("record.")
+            || line.contains("self.")
+            || line.contains("env[");
+        ensure!(
+            !code,
+            "\"{line}\" reads like code: write it in business words (e.g. \"cancel this quotation\")."
+        );
     }
     Ok(())
 }
@@ -266,6 +300,25 @@ pub fn build(
     })
 }
 
+enum Item<'a> {
+    Field(&'a NewField),
+    Note(&'a Note),
+}
+
+/// Where a new field is on the screenshot (its real place once prototyped, else the
+/// field it goes next to); unknown ones go last.
+fn field_y(shot: &ShotData, f: &NewField) -> f64 {
+    [
+        format!("row:{}", f.technical),
+        format!("column:{}", f.technical),
+        format!("label:{}", f.near),
+        f.near.clone(),
+    ]
+    .iter()
+    .find_map(|a| anchors::locate(&shot.map, a).ok())
+    .map_or(f64::INFINITY, |a| a.y)
+}
+
 struct Builder<'a> {
     scene: &'a mut Scene,
     made: Vec<String>,
@@ -305,7 +358,7 @@ impl Builder<'_> {
         let mut x = 0.0;
         let mut bottom = y;
         for screen in &section.screens {
-            let width = if section.side_by_side {
+            let width = if section.horizontal {
                 SIDE_SCREEN_WIDTH
             } else {
                 SCREEN_WIDTH
@@ -315,7 +368,7 @@ impl Builder<'_> {
             })?;
             let (right, end) = self.screen(screen, shot, x, y, width)?;
             bottom = bottom.max(end);
-            if section.side_by_side {
+            if section.horizontal {
                 x = right + BLOCK_GAP;
             } else {
                 y = end + BLOCK_GAP;
@@ -323,16 +376,12 @@ impl Builder<'_> {
         }
         let ids = self.made[first..].to_vec();
         let (bx, by, bw, bh) = self.scene.bounds(&ids).unwrap_or((0.0, top, 0.0, 0.0));
-        let color = section_color(section.kind.as_deref())?;
-        let panel = self.scene.add_panel(
-            (
-                bx - PANEL_PADDING,
-                by - PANEL_PADDING,
-                bw + 2.0 * PANEL_PADDING,
-                bh + 2.0 * PANEL_PADDING,
-            ),
-            color,
-        );
+        let panel = self.scene.add_outline((
+            bx - PANEL_PADDING,
+            by - PANEL_PADDING,
+            bw + 2.0 * PANEL_PADDING,
+            bh + 2.0 * PANEL_PADDING,
+        ));
         self.made.push(panel);
         Ok(by + bh + PANEL_PADDING)
     }
@@ -366,16 +415,35 @@ impl Builder<'_> {
         let mut free = iy;
         let mut bottom = iy + ih;
 
-        for field in &screen.new_fields {
-            match self.new_field(&image, shot, field, notes_x, free) {
-                Ok(end) => free = end + 16.0,
-                Err(e) => self.warnings.push(format!(
-                    "{}: new field {}: {e:#}",
-                    screen.name, field.technical
-                )),
-            }
-        }
-        for note in &screen.notes {
+        // Top to bottom in the order of what they point at, so arrows do not cross.
+        let mut items: Vec<(f64, Item)> = screen
+            .new_fields
+            .iter()
+            .map(|f| (field_y(shot, f), Item::Field(f)))
+            .chain(screen.notes.iter().map(|n| {
+                let y = n
+                    .anchor
+                    .as_deref()
+                    .and_then(|a| anchors::locate(&shot.map, a).ok())
+                    .map_or(f64::INFINITY, |a| a.y);
+                (y, Item::Note(n))
+            }))
+            .collect();
+        items.sort_by(|a, b| a.0.total_cmp(&b.0));
+        for (_, item) in items {
+            let note = match item {
+                Item::Field(field) => {
+                    match self.new_field(&image, shot, field, notes_x, free) {
+                        Ok(end) => free = end + 16.0,
+                        Err(e) => self.warnings.push(format!(
+                            "{}: new field {}: {e:#}",
+                            screen.name, field.technical
+                        )),
+                    }
+                    continue;
+                }
+                Item::Note(note) => note,
+            };
             let area = match &note.anchor {
                 Some(anchor) => match anchors::locate(&shot.map, anchor) {
                     Ok(a) => Some(a),
@@ -434,17 +502,7 @@ impl Builder<'_> {
         notes_x: f64,
         free: f64,
     ) -> Result<f64> {
-        let note_lines = || {
-            let mut lines = vec![
-                format!("New field: {}", f.technical),
-                format!("type: {}", f.field_type),
-            ];
-            if let Some(value) = &f.value {
-                lines.push(format!("value: \"{value}\""));
-            }
-            lines.extend(f.extra.clone());
-            lines.join("\n")
-        };
+        let note_lines = || field_note(f);
         // Prototyped: the field is really on the screen; outline it and point at it.
         if let Ok(real) = anchors::locate(&shot.map, &format!("row:{}", f.technical))
             .or_else(|_| anchors::locate(&shot.map, &format!("column:{}", f.technical)))
@@ -499,17 +557,9 @@ impl Builder<'_> {
             self.made.push(v.clone());
             from = v;
         }
-        let mut lines = vec![
-            format!("New field: {}", f.technical),
-            format!("type: {}", f.field_type),
-        ];
-        if let Some(value) = &f.value {
-            lines.push(format!("value: \"{value}\""));
-        }
-        lines.extend(f.extra.clone());
         let ny = (ly - LINE / 2.0).max(free);
         let note = self.scene.add_text(
-            &lines.join("\n"),
+            &field_note(f),
             at(notes_x, ny),
             Some(BODY),
             Some(Color::Red),
@@ -545,14 +595,15 @@ impl Builder<'_> {
     }
 }
 
-fn section_color(kind: Option<&str>) -> Result<Color> {
-    Ok(match kind {
-        None => Color::Gray,
-        Some("as_is") => Color::Yellow,
-        Some("to_be") => Color::Green,
-        Some("config") => Color::Blue,
-        Some(other) => bail!("kind must be as_is, to_be or config, not \"{other}\"."),
-    })
+/// "New field: Delivery Deadline (x_delivery_deadline, date)" and, if given, one
+/// more short line. The example value is on the screenshot, not repeated here.
+fn field_note(f: &NewField) -> String {
+    let mut lines = vec![format!(
+        "New field: {} ({}, {})",
+        f.label, f.technical, f.field_type
+    )];
+    lines.extend(f.extra.clone());
+    lines.join("\n")
 }
 
 fn at(x: f64, y: f64) -> Placement {

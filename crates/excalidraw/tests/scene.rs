@@ -614,10 +614,10 @@ fn an_image_remembers_the_screenshot_it_came_from() {
 // ---- building blocks for laying out a whole spec ----
 
 #[test]
-fn a_panel_is_a_tinted_background_drawn_behind_everything() {
+fn an_outline_is_plain_and_drawn_behind_everything() {
     let mut s = empty();
     let text = s.add_text("Hello", at(10.0, 10.0), None, None);
-    let panel = s.add_panel((0.0, 0.0, 400.0, 200.0), Color::Blue);
+    let panel = s.add_outline((0.0, 0.0, 400.0, 200.0));
     let d = doc(&s);
     let elements = d["elements"].as_array().unwrap();
     assert_eq!(
@@ -628,11 +628,11 @@ fn a_panel_is_a_tinted_background_drawn_behind_everything() {
     assert_eq!(elements[1]["id"], text.as_str());
     let p = element(&s, &panel);
     assert_eq!(p["type"], "rectangle");
-    assert_ne!(p["backgroundColor"], "transparent");
-    assert!(p["opacity"].as_f64().unwrap() < 100.0);
+    assert_eq!(p["backgroundColor"], "transparent");
+    assert_eq!(p["customData"]["frame"], true);
     assert!(
         s.overlapping(&text).is_empty(),
-        "a panel never counts as an overlap"
+        "a frame never counts as an overlap"
     );
 }
 

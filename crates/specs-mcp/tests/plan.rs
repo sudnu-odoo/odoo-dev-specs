@@ -78,11 +78,11 @@ fn sample() -> SpecPlan {
         "version": "19.0",
         "modules": ["sale_management"],
         "sections": [
-            {"title": "Sales > Orders > Quotation", "kind": "as_is",
+            {"title": "Sales > Orders > Quotation",
              "text": ["1. The salesperson fills the quotation", "2. Confirms it"],
              "screens": [{"name": "today", "page": "/odoo/sales/3", "model": "sale.order", "caption": "CURRENT",
                           "notes": [{"lines": ["Confirm is allowed", "without a date"], "anchor": "button:action_confirm"}]}]},
-            {"title": "Quotation form", "kind": "to_be",
+            {"title": "Quotation form",
              "screens": [{"name": "expected", "page": "/odoo/sales/3", "model": "sale.order",
                           "new_fields": [{"near": "validity_date", "label": "Delivery Deadline", "value": "12/20/2026",
                                           "technical": "x_delivery_deadline", "type": "date"}],
@@ -142,7 +142,7 @@ fn builds_the_whole_spec_in_one_go_without_overlaps() {
         .any(|x| x.contains("[ ] 1. Salesperson") && x.contains("[ ] 2. Manager")));
     assert!(t
         .iter()
-        .any(|x| x == "New field: x_delivery_deadline\ntype: date\nvalue: \"12/20/2026\""));
+        .any(|x| x == "New field: Delivery Deadline (x_delivery_deadline, date)"));
     // Every readable text stands alone.
     for e in live(&scene)
         .iter()
@@ -159,7 +159,7 @@ fn builds_the_whole_spec_in_one_go_without_overlaps() {
 }
 
 #[test]
-fn sections_are_stacked_and_tinted() {
+fn each_requirement_gets_a_plain_frame_stacked_top_to_bottom() {
     let mut scene = Scene::parse(EMPTY).unwrap();
     build(&mut scene, &sample(), &shots(&["today", "expected"])).unwrap();
     let all = live(&scene);
@@ -167,13 +167,17 @@ fn sections_are_stacked_and_tinted() {
     let second = find_text(&all, "2. ")["y"].as_f64().unwrap();
     let tests = find_text(&all, "Test cases")["y"].as_f64().unwrap();
     assert!(first < second && second < tests);
-    let panels: Vec<&Value> = all
+    // A frame is an outline only: no fill, no tint.
+    let frames: Vec<&Value> = all
         .iter()
-        .filter(|e| e["type"] == "rectangle" && e["opacity"] == 30)
+        .filter(|e| e["type"] == "rectangle" && e["customData"]["frame"] == true)
         .collect();
-    assert_eq!(panels.len(), 2);
-    // The first section's panel ends above the second heading.
-    let p = panels
+    assert_eq!(frames.len(), 2);
+    for f in &frames {
+        assert_eq!(f["backgroundColor"], "transparent");
+        assert_ne!(f["strokeColor"], "#e03131");
+    }
+    let p = frames
         .iter()
         .find(|p| p["y"].as_f64().unwrap() < first)
         .unwrap();
@@ -220,10 +224,10 @@ fn links_are_red_dashed_arrows_between_screens() {
 }
 
 #[test]
-fn side_by_side_screens_share_a_row() {
+fn horizontal_requirements_put_screens_in_a_row() {
     let p = plan(json!({
         "title": "T", "need": "N", "version": "19.0",
-        "sections": [{"title": "Current vs expected", "side_by_side": true,
+        "sections": [{"title": "Current vs expected", "horizontal": true,
             "screens": [{"name": "a", "page": "/odoo", "caption": "CURRENT"},
                         {"name": "b", "page": "/odoo", "caption": "EXPECTED"}]}]
     }));
@@ -276,9 +280,16 @@ fn plan_mistakes_are_explained() {
         "sections": [{"title": "S", "screens": [{"name": "a", "page": "/x"}]}],
         "links": [{"from": "a", "to": "zz"}]}));
     assert!(validate(&link).unwrap_err().to_string().contains("zz"));
-    let kind = plan(json!({"title": "T", "need": "N", "version": "19.0",
-        "sections": [{"title": "S", "kind": "flowchart"}]}));
-    assert!(validate(&kind).is_err());
+    let long = plan(json!({"title": "T", "need": "N", "version": "19.0",
+        "sections": [{"title": "S", "screens": [{"name": "a", "page": "/x",
+            "notes": [{"lines": ["one", "two", "three", "four"]}]}]}]}));
+    assert!(validate(&long).unwrap_err().to_string().contains("3 lines"));
+    let code = plan(json!({"title": "T", "need": "N", "version": "19.0",
+        "sections": [{"title": "S", "text": ["Then record.action_cancel()"]}]}));
+    assert!(validate(&code)
+        .unwrap_err()
+        .to_string()
+        .contains("business words"));
 }
 
 #[test]
@@ -320,7 +331,7 @@ fn a_prototyped_field_is_outlined_where_it_really_is() {
     );
     assert!(t
         .iter()
-        .any(|x| x.starts_with("New field: x_delivery_deadline")));
+        .any(|x| x.starts_with("New field: Delivery Deadline (x_delivery_deadline")));
     let all = live(&scene);
     assert!(all
         .iter()
@@ -332,4 +343,20 @@ fn a_prototype_page_must_name_a_new_model() {
     let p = plan(json!({"title": "T", "need": "N", "version": "19.0",
         "sections": [{"title": "S", "screens": [{"name": "a", "page": "model:x_matrix"}]}]}));
     assert!(validate(&p).unwrap_err().to_string().contains("x_matrix"));
+}
+
+#[test]
+fn notes_follow_the_order_of_what_they_point_at_so_arrows_do_not_cross() {
+    let mut scene = Scene::parse(EMPTY).unwrap();
+    build(&mut scene, &sample(), &shots(&["today", "expected"])).unwrap();
+    let all = live(&scene);
+    // Confirm (y 120) is above Expiration (y 300) on the screenshot.
+    let button = find_text(&all, "Blocked if the")["y"].as_f64().unwrap();
+    let field = find_text(&all, "New field: Delivery Deadline")["y"]
+        .as_f64()
+        .unwrap();
+    assert!(
+        button < field,
+        "button note {button} should be above field note {field}"
+    );
 }

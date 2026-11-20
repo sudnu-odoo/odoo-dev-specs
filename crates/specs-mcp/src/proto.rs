@@ -30,6 +30,24 @@ pub struct Prototype {
     /// New fields, on existing models or on the new ones.
     #[serde(default)]
     pub fields: Vec<ProtoField>,
+    /// New buttons on an existing form: in the header, or a smart button.
+    #[serde(default)]
+    pub buttons: Vec<ProtoButton>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct ProtoButton {
+    /// Model of the form, e.g. "sale.order".
+    pub model: String,
+    /// Text on the button, e.g. "Revise Quotation" or, for a smart button, "Revisions".
+    pub label: String,
+    /// Header button: the existing button it comes after, e.g. "action_confirm".
+    pub after: Option<String>,
+    /// A smart button (top right of the form) instead of a header button.
+    #[serde(default)]
+    pub smart: bool,
+    /// Smart button: the example count shown, e.g. "2".
+    pub value: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
@@ -66,7 +84,7 @@ pub struct ProtoField {
 
 impl Prototype {
     pub fn is_empty(&self) -> bool {
-        self.models.is_empty() && self.fields.is_empty()
+        self.models.is_empty() && self.fields.is_empty() && self.buttons.is_empty()
     }
 
     pub fn validate(&self) -> Result<()> {
@@ -123,6 +141,20 @@ impl Prototype {
                 );
             }
         }
+        for b in &self.buttons {
+            ensure!(
+                b.smart || b.after.is_some(),
+                "Button \"{}\": give `after` (the header button it comes after, e.g. \"action_confirm\") or set `smart`.",
+                b.label
+            );
+            for name in [Some(&b.model), b.after.as_ref()].into_iter().flatten() {
+                ensure!(
+                    name.chars()
+                        .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '.'),
+                    "\"{name}\" is not a technical name."
+                );
+            }
+        }
         Ok(())
     }
 
@@ -165,7 +197,8 @@ const RPC_JS: &str = r#"
 const SETUP_JS: &str = r#"(async () => {
   const P = __ARGS__;
   __RPC__
-  const undo = { actions: [], views: [], access: [], fields: [], models: [] };
+  const undo = { actions: [], views: [], server: [], access: [], fields: [], models: [] };
+  const esc = (t) => String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   const pages = {};
   // A view type is "list" since Odoo 17 and "tree" before.
   const view = async (vals) => {
@@ -201,24 +234,45 @@ const SETUP_JS: &str = r#"(async () => {
       undo.fields.push(await rpc('ir.model.fields', 'create', [vals]));
     }
     const isNew = (model) => P.models.some((m) => m.model === model);
-    const extend = async (f, type, after) => {
+    const parentOf = async (model, type, what) => {
       let parents = [];
       for (const t of type === 'list' ? ['list', 'tree'] : [type]) {
         if (parents.length) break;
         try {
-          parents = await rpc('ir.ui.view', 'search', [[['model', '=', f.model], ['type', '=', t],
+          parents = await rpc('ir.ui.view', 'search', [[['model', '=', model], ['type', '=', t],
             ['mode', '=', 'primary'], ['inherit_id', '=', false]]], { order: 'priority, id', limit: 1 });
         } catch (e) { /* "tree" is not a view type any more */ }
       }
-      if (!parents.length) throw new Error('No ' + type + ' view of ' + f.model + ' to add ' + f.name + ' to.');
+      if (!parents.length) throw new Error('No ' + type + ' view of ' + model + ' to add ' + what + ' to.');
+      return parents[0];
+    };
+    const extend = async (f, type, after) => {
+      const parent = await parentOf(f.model, type, f.name);
       undo.views.push(await rpc('ir.ui.view', 'create', [{ name: 'prototype ' + f.name, model: f.model,
-        inherit_id: parents[0], mode: 'extension', priority: 99,
+        inherit_id: parent, mode: 'extension', priority: 99,
         arch: '<xpath expr="//field[@name=\'' + after + '\']" position="after"><field name="' + f.name + '"' +
           (type === 'list' ? ' optional="show"' : '') + '/></xpath>' }]));
     };
     for (const f of P.fields.filter((f) => !isNew(f.model))) {
       if (f.after) await extend(f, 'form', f.after);
       if (f.list_after) await extend(f, 'list', f.list_after);
+    }
+    // A button does nothing: it is only there for the screenshot.
+    for (const b of P.buttons) {
+      const ids = await rpc('ir.model', 'search', [[['model', '=', b.model]]]);
+      if (!ids.length) throw new Error('There is no model ' + b.model + ' on this database (is its module installed?).');
+      const act = await rpc('ir.actions.server', 'create', [{ name: 'prototype ' + b.label, model_id: ids[0],
+        state: 'code', code: 'pass' }]);
+      undo.server.push(act);
+      const arch = b.smart
+        ? '<xpath expr="//div[@name=\'button_box\']" position="inside"><button name="' + act +
+          '" type="action" class="oe_stat_button" icon="fa-files-o"><div class="o_stat_info">' +
+          '<span class="o_stat_value">' + esc(b.value || '') + '</span><span class="o_stat_text">' + esc(b.label) +
+          '</span></div></button></xpath>'
+        : '<xpath expr="(//header/button[@name=\'' + b.after + '\'])[last()]" position="after"><button name="' + act +
+          '" type="action" string="' + esc(b.label) + '"/></xpath>';
+      undo.views.push(await rpc('ir.ui.view', 'create', [{ name: 'prototype button ' + b.label, model: b.model,
+        inherit_id: await parentOf(b.model, 'form', 'the button ' + b.label), mode: 'extension', priority: 99, arch }]));
     }
     for (const m of P.models) {
       const fields = ['x_name', ...P.fields.filter((f) => f.model === m.model).map((f) => f.name)];
@@ -242,7 +296,7 @@ const UNDO_JS: &str = r#"(async () => {
   const U = __UNDO__ || {};
   __RPC__
   const errors = [];
-  const steps = [['ir.actions.act_window', U.actions], ['ir.ui.view', U.views],
+  const steps = [['ir.actions.act_window', U.actions], ['ir.ui.view', U.views], ['ir.actions.server', U.server],
     ...(U.access || []).map(([model, id]) => [model, [id]]),
     ['ir.model.fields', U.fields], ['ir.model', U.models]];
   for (const [model, ids] of steps) {
@@ -282,8 +336,8 @@ mod tests {
     #[test]
     fn names_must_be_x_and_types_known() {
         let ok = Prototype {
-            models: vec![],
             fields: vec![field("x_deadline", "date")],
+            ..Default::default()
         };
         ok.validate().unwrap();
         for bad in [
@@ -292,16 +346,16 @@ mod tests {
             field("x_partner", "many2one"),
         ] {
             let p = Prototype {
-                models: vec![],
                 fields: vec![bad],
+                ..Default::default()
             };
             assert!(p.validate().is_err());
         }
         let mut injected = field("x_d", "date");
         injected.after = Some("a']/..|//x[@n='".into());
         assert!(Prototype {
-            models: vec![],
-            fields: vec![injected]
+            fields: vec![injected],
+            ..Default::default()
         }
         .validate()
         .is_err());
@@ -312,8 +366,8 @@ mod tests {
         let mut f = field("x_d", "date");
         f.after = None;
         let p = Prototype {
-            models: vec![],
             fields: vec![f.clone()],
+            ..Default::default()
         };
         assert!(p.validate().unwrap_err().to_string().contains("after"));
         f.model = "x_matrix".into();
@@ -323,8 +377,45 @@ mod tests {
                 label: "Matrix".into(),
             }],
             fields: vec![f],
+            buttons: vec![],
         };
         p.validate().unwrap();
+    }
+
+    fn button(after: Option<&str>, smart: bool) -> ProtoButton {
+        ProtoButton {
+            model: "sale.order".into(),
+            label: "Revise <Quotation>".into(),
+            after: after.map(Into::into),
+            smart,
+            value: None,
+        }
+    }
+
+    #[test]
+    fn a_button_says_where_it_goes() {
+        let p = |b| Prototype {
+            buttons: vec![b],
+            ..Default::default()
+        };
+        p(button(Some("action_confirm"), false)).validate().unwrap();
+        p(button(None, true)).validate().unwrap();
+        assert!(p(button(None, false))
+            .validate()
+            .unwrap_err()
+            .to_string()
+            .contains("after"));
+        assert!(p(button(Some("x']|//y"), false)).validate().is_err());
+    }
+
+    #[test]
+    fn button_labels_are_escaped_and_undone() {
+        let js = setup_js(&Prototype {
+            buttons: vec![button(Some("action_confirm"), false)],
+            ..Default::default()
+        });
+        assert!(js.contains("Revise <Quotation>") && js.contains("esc(b.label)"));
+        assert!(undo_js(r#"{"undo":{"server":[4]}}"#).contains("ir.actions.server"));
     }
 
     #[test]
@@ -332,6 +423,7 @@ mod tests {
         let p = Prototype {
             models: vec![],
             fields: vec![field("x_deadline", "date")],
+            buttons: vec![],
         };
         let js = setup_js(&p);
         assert!(js.contains("\"x_deadline\"") && js.contains("call_kw") && !js.contains("__"));

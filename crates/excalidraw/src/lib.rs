@@ -542,15 +542,14 @@ impl Scene {
         Ok(doomed.len())
     }
 
-    /// A tinted background (x, y, width, height) behind everything, e.g. to set one
-    /// part of the spec apart. Never counts as covering text. Returns its id.
-    pub fn add_panel(&mut self, (x, y, w, h): (f64, f64, f64, f64), color: Color) -> String {
+    /// A plain outline around one requirement of a spec, drawn behind everything.
+    pub fn add_outline(&mut self, (x, y, w, h): (f64, f64, f64, f64)) -> String {
         let mut e = base("rectangle", x, y, w, h);
-        e["strokeColor"] = json!(color.stroke());
-        e["backgroundColor"] = json!(color.fill());
+        e["strokeColor"] = json!("#868e96");
+        e["backgroundColor"] = json!("transparent");
         e["strokeWidth"] = json!(1);
-        e["opacity"] = json!(30);
         e["roundness"] = json!({ "type": 3 });
+        e["customData"] = json!({ "frame": true });
         let id = str_of(&e, "id").to_string();
         self.elements_mut().insert(0, e);
         id
