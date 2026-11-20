@@ -287,8 +287,8 @@ export default function VersionsPage() {
           </div>
         ) : versions.publishedError && versions.available.length === 0 ? (
           <div className="settings-row settings-muted">
-            Could not get the versions from GitHub: {versions.publishedError} You can still use a folder you
-            already have, from a version above.
+            Could not get the versions from GitHub: {versions.publishedError} The versions above keep working;
+            downloading needs GitHub.
           </div>
         ) : addable.length === 0 ? (
           <div className="settings-row settings-muted">Every version Odoo publishes is here.</div>
