@@ -33,6 +33,7 @@ vi.mock("./lib/api", () => ({
     providerStatus: vi.fn(),
     installTools: vi.fn(),
     downloadOdoo: vi.fn(),
+    useFoundSources: vi.fn(),
     databaseForm: vi.fn(),
     checkUpdate: vi.fn(),
     odooVersions: vi.fn(),
@@ -69,11 +70,9 @@ vi.mock("./components/ExcalidrawPanel", () => ({
 
 const mocked = vi.mocked(api);
 const readyComputer: SetupStatus = {
-  version: "19.0",
   system: { requirements: [], ready: true },
-  community: { state: "ready", linked: false },
-  enterprise: { state: "missing" },
-  github: { installed: true, connected: true, enterprise: false },
+  versions: ["19.0"],
+  found: [],
   aiReady: true,
   tasks: {},
 };
@@ -433,7 +432,7 @@ describe("App", () => {
     expect(await screen.findByRole("button", { name: "Database: Sales demo" })).toBeInTheDocument();
   });
 
-  it("a fresh computer opens the setup first, which installs and then downloads", async () => {
+  it("a fresh computer opens the setup, which installs the tools and uses the Odoo it finds", async () => {
     const fresh: SetupStatus = {
       ...readyComputer,
       system: {
@@ -442,21 +441,20 @@ describe("App", () => {
           { key: "postgresql", label: "PostgreSQL", ok: false, problem: "PostgreSQL is not installed." },
         ],
       },
-      community: { state: "missing" },
+      versions: [],
+      found: [{ version: "19.0", community: "/home/me/odev/worktrees/19.0/odoo", enterprise: null }],
     };
     mocked.setupStatus.mockResolvedValue(fresh);
     mocked.installTools.mockImplementation(async () => {
       mocked.setupStatus.mockResolvedValue({ ...fresh, system: { ready: true, requirements: [] } });
     });
-    mocked.downloadOdoo.mockResolvedValue(undefined);
+    mocked.useFoundSources.mockResolvedValue(["19.0"]);
     render(<App />);
     expect(await screen.findByRole("heading", { name: "Get ready to write specs" })).toBeInTheDocument();
     expect(screen.getByRole("listitem", { name: "Tools" })).toHaveTextContent("Missing: PostgreSQL.");
     await userEvent.click(screen.getByRole("button", { name: "Set up everything" }));
     expect(mocked.installTools).toHaveBeenCalledTimes(1);
-    expect(mocked.downloadOdoo).toHaveBeenCalledWith("19.0", "community");
-    // Enterprise waits for a GitHub sign-in: never downloaded behind the user's back.
-    expect(mocked.downloadOdoo).not.toHaveBeenCalledWith("19.0", "enterprise");
+    expect(mocked.useFoundSources).toHaveBeenCalledTimes(1);
   });
 
   it("a ready computer goes straight to the app", async () => {

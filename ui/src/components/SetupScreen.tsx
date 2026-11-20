@@ -1,7 +1,8 @@
-import { useState, type ReactNode } from "react";
+import type { ReactNode } from "react";
 import type { Setup } from "../app/useSetup";
 import { pickFolder } from "../lib/pickFolder";
-import type { ProviderStatus, SetupTask } from "../lib/types";
+import type { ProviderStatus } from "../lib/types";
+import { versionLabel } from "./HostingMenu";
 
 export interface SetupScreenProps {
   setup: Setup;
@@ -12,14 +13,20 @@ export interface SetupScreenProps {
   onDone: () => void;
 }
 
-type RowState = "done" | "working" | "todo" | "attention" | "optional";
+type RowState = "done" | "working" | "todo" | "attention";
+
+/** "17.0, 18.0, 19.0 and 8 more" */
+function versionList(versions: string[]): string {
+  const shown = versions.slice(0, 4).map(versionLabel).join(", ");
+  return versions.length > 4 ? `${shown} and ${versions.length - 4} more` : shown;
+}
 
 /**
- * One card with the four things the app needs; "Set up everything" does all it can
- * by itself (one password prompt), and only what truly needs the person stays.
+ * One card with the three things the app needs: the tools, Odoo's source (found on
+ * the computer, never downloaded here) and an AI assistant. "Set up everything" does
+ * all it can by itself (one password prompt); only what needs the person stays.
  */
 export default function SetupScreen({ setup, providers, onLogin, onDone }: SetupScreenProps) {
-  const [folders, setFolders] = useState(false);
   const s = setup.status;
   if (!s) {
     return (
@@ -30,18 +37,14 @@ export default function SetupScreen({ setup, providers, onLogin, onDone }: Setup
       </div>
     );
   }
-  const v = s.version.replace(/\.0$/, "");
   const missing = s.system.requirements.filter((r) => !r.ok);
   const tools = setup.tools;
   const busy = tools?.state === "running";
-  const nothingToDo =
-    s.system.ready &&
-    s.github.connected &&
-    (s.community.state === "ready" || setup.community?.state === "running") &&
-    (s.enterprise.state === "ready" ||
-      !s.github.enterprise ||
-      setup.enterprise?.state === "running" ||
-      setup.enterprise?.state === "noAccess");
+  const nothingToDo = s.system.ready && s.found.length === 0;
+  const choose = async () => {
+    const path = await pickFolder("Choose your Odoo folder (e.g. an odev worktree)");
+    if (path) await setup.chooseFolder(path);
+  };
 
   return (
     <div className="setup" role="main" aria-labelledby="setup-title">
@@ -78,39 +81,7 @@ export default function SetupScreen({ setup, providers, onLogin, onDone }: Setup
             }
             progress={busy ? null : undefined}
           />
-          <Row
-            label="GitHub"
-            state={s.github.connected ? "done" : "todo"}
-            detail={
-              s.github.connected
-                ? "Connected: the app downloads and updates Odoo for you."
-                : "Odoo's code comes from GitHub: one sign-in in your browser, the app does the rest."
-            }
-            action={
-              !s.github.connected && (
-                <button
-                  className="btn btn-small"
-                  onClick={setup.githubConnect}
-                  disabled={!s.github.installed}
-                >
-                  Connect GitHub
-                </button>
-              )
-            }
-          />
-          <SourceRow
-            label={`Odoo ${v} Community`}
-            ready={s.community.state === "ready"}
-            linked={s.community.state === "ready" && s.community.linked}
-            task={setup.community}
-            todo={
-              s.github.connected
-                ? "About 1.5 GB, downloads in the background."
-                : "Downloads once GitHub is connected."
-            }
-            onRetry={() => setup.download("community")}
-          />
-          <EnterpriseRow setup={setup} v={v} />
+          <SourceRow versions={s.versions} found={s.found.map((f) => f.version)} onChoose={choose} />
           <AiRow ready={s.aiReady} providers={providers} onLogin={onLogin} />
         </ol>
 
@@ -128,42 +99,14 @@ export default function SetupScreen({ setup, providers, onLogin, onDone }: Setup
               {busy ? "Setting up…" : "Set up everything"}
             </button>
           )}
-          {!setup.complete && s.system.ready && s.community.state === "ready" && (
-            <p className="setup-note">Log in to an AI service to finish.</p>
-          )}
-          {!setup.complete && setup.community?.state === "running" && s.aiReady && s.system.ready && (
-            <button className="btn setup-later" onClick={onDone}>
-              Open the app while Odoo downloads
-            </button>
-          )}
         </div>
 
         {!setup.complete && (
           <div className="setup-footer">
-            <button className="link-btn" aria-expanded={folders} onClick={() => setFolders((f) => !f)}>
-              Use folders I already have
-            </button>
+            <span />
             <button className="link-btn" onClick={onDone}>
               Skip for now
             </button>
-          </div>
-        )}
-        {folders && !setup.complete && (
-          <div className="setup-folders">
-            <FolderChoice
-              label={`Odoo ${v} Community`}
-              onPick={async () => {
-                const path = await pickFolder(`Choose your Odoo ${s.version} folder`);
-                if (path) await setup.chooseFolder("community", path);
-              }}
-            />
-            <FolderChoice
-              label={`Odoo ${v} Enterprise`}
-              onPick={async () => {
-                const path = await pickFolder(`Choose your Odoo ${s.version} Enterprise folder`);
-                if (path) await setup.chooseFolder("enterprise", path);
-              }}
-            />
           </div>
         )}
       </div>
@@ -171,19 +114,59 @@ export default function SetupScreen({ setup, providers, onLogin, onDone }: Setup
   );
 }
 
+function SourceRow({
+  versions,
+  found,
+  onChoose,
+}: {
+  versions: string[];
+  found: string[];
+  onChoose: () => void;
+}) {
+  const choose = (
+    <button className="btn btn-small" onClick={onChoose}>
+      Choose a folder…
+    </button>
+  );
+  if (versions.length > 0 && found.length === 0)
+    return (
+      <Row
+        label="Odoo source"
+        state="done"
+        detail={`Using Odoo ${versionList(versions)} from your folders.`}
+        action={choose}
+      />
+    );
+  if (found.length > 0)
+    return (
+      <Row
+        label="Odoo source"
+        state="todo"
+        detail={`Found on this computer: Odoo ${versionList(found)}. Used where it is, nothing is downloaded.`}
+        action={choose}
+      />
+    );
+  return (
+    <Row
+      label="Odoo source"
+      state="attention"
+      detail="No Odoo source found on this computer. Choose the folder where it is (e.g. an odev worktree)."
+      action={choose}
+    />
+  );
+}
+
 function Row({
   label,
   state,
   detail,
-  tag,
   progress,
   action,
 }: {
   label: string;
   state: RowState;
   detail: ReactNode;
-  tag?: string;
-  /** A number shows a bar; null shows a moving bar; undefined shows none. */
+  /** null shows a moving bar; undefined shows none. */
   progress?: number | null;
   action?: ReactNode;
 }) {
@@ -193,10 +176,7 @@ function Row({
         {state === "done" ? "✓" : state === "working" ? <span className="spinner spinner-small" /> : ""}
       </span>
       <div className="setup-row-text">
-        <span className="setup-row-title">
-          {label}
-          {tag && <span className="setup-tag">{tag}</span>}
-        </span>
+        <span className="setup-row-title">{label}</span>
         <small>{detail}</small>
         {progress !== undefined && (
           <div
@@ -214,83 +194,6 @@ function Row({
       {action && <div className="setup-row-action">{action}</div>}
     </li>
   );
-}
-
-function SourceRow({
-  label,
-  ready,
-  linked,
-  task,
-  todo,
-  onRetry,
-}: {
-  label: string;
-  ready: boolean;
-  linked: boolean;
-  task?: SetupTask;
-  todo: string;
-  onRetry: () => void;
-}) {
-  if (task?.state === "running") {
-    const percent = task.progress;
-    return (
-      <Row
-        label={label}
-        state="working"
-        detail={percent === null ? task.message : `Downloading… ${percent}%`}
-        progress={percent}
-      />
-    );
-  }
-  if (ready) return <Row label={label} state="done" detail={linked ? "Using your folder." : "Ready."} />;
-  if (task?.state === "failed")
-    return (
-      <Row
-        label={label}
-        state="attention"
-        detail={task.message}
-        action={
-          <button className="btn btn-small" onClick={onRetry}>
-            Try again
-          </button>
-        }
-      />
-    );
-  return <Row label={label} state="todo" detail={todo} />;
-}
-
-function EnterpriseRow({ setup, v }: { setup: Setup; v: string }) {
-  const s = setup.status!;
-  const label = `Odoo ${v} Enterprise`;
-  const task = setup.enterprise;
-  if (s.enterprise.state === "ready" || task?.state === "running" || task?.state === "failed")
-    return (
-      <SourceRow
-        label={label}
-        ready={s.enterprise.state === "ready"}
-        linked={s.enterprise.state === "ready" && s.enterprise.linked}
-        task={task}
-        todo=""
-        onRetry={() => setup.download("enterprise")}
-      />
-    );
-  if (!s.github.connected)
-    return <Row label={label} tag="Optional" state="optional" detail="Downloads once GitHub is connected." />;
-  if (task?.state === "noAccess" || !s.github.enterprise)
-    return (
-      <Row
-        label={label}
-        tag="Optional"
-        state="optional"
-        detail="Not available yet: your GitHub account has no access to Odoo Enterprise. Ask for access, then Try again. Community works without it."
-        action={
-          <button className="btn btn-small" onClick={() => setup.download("enterprise")}>
-            Try again
-          </button>
-        }
-      />
-    );
-  return <Row label={label} tag="Optional" state="todo" detail="Downloads with Community." />;
 }
 
 function AiRow({
@@ -319,16 +222,5 @@ function AiRow({
         </button>
       ))}
     />
-  );
-}
-
-function FolderChoice({ label, onPick }: { label: string; onPick: () => void }) {
-  return (
-    <div className="setup-folder">
-      <span>{label}</span>
-      <button className="btn btn-small" onClick={onPick}>
-        Choose folder…
-      </button>
-    </div>
   );
 }

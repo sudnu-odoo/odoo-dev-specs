@@ -1,5 +1,5 @@
 //! What Ubuntu must provide for the app (PostgreSQL with a database user, Python
-//! that can make virtualenvs, Git, GitHub's `gh`, Chrome), whether it really works,
+//! that can make virtualenvs, Git, Chrome), whether it really works,
 //! and the one script that fixes whatever is missing, run once as root.
 //!
 //! The checks look at what works, not only at what is installed: PostgreSQL can be
@@ -13,10 +13,6 @@ use serde::Serialize;
 
 /// Oldest Python the supported Odoo versions run on.
 pub const MIN_PYTHON: (u32, u32) = (3, 10);
-
-/// Oldest `gh` with the sign-in options the app uses (`--git-protocol`); Ubuntu
-/// 22.04 ships 2.4, so it gets a current one from GitHub's own package source.
-pub const MIN_GH: (u32, u32) = (2, 20);
 
 /// Google's package for Chrome (no Ubuntu package ships it).
 const CHROME_DEB: &str =
@@ -36,8 +32,6 @@ pub struct SystemProbe {
     /// Python can make virtualenvs with pip (Ubuntu's `python3-venv`).
     pub python_venv: bool,
     pub git: bool,
-    /// GitHub's command-line tool (its version), for signing in to download Enterprise.
-    pub gh: Option<(u32, u32)>,
     pub chrome: bool,
 }
 
@@ -66,8 +60,6 @@ pub struct SystemReport {
 pub enum Fix {
     /// `apt-get install` these Ubuntu packages.
     Packages(Vec<&'static str>),
-    /// Install a current `gh` from GitHub's official package source.
-    GithubCli,
     /// Download and install Google Chrome.
     Chrome,
     /// Start PostgreSQL now and at every boot.
@@ -114,15 +106,6 @@ pub fn report(p: &SystemProbe) -> SystemReport {
             (!p.git).then(|| "Git is not installed.".into()),
         ),
         requirement(
-            "gh",
-            "GitHub sign-in",
-            match p.gh {
-                None => Some("GitHub's tool is not installed.".into()),
-                Some(v) if v < MIN_GH => Some("GitHub's tool is too old.".into()),
-                Some(_) => None,
-            },
-        ),
-        requirement(
             "chrome",
             "Chrome",
             (!p.chrome).then(|| "Chrome is not installed.".into()),
@@ -153,9 +136,6 @@ pub fn plan(p: &SystemProbe) -> Vec<Fix> {
     let mut fixes = Vec::new();
     if !packages.is_empty() {
         fixes.push(Fix::Packages(packages));
-    }
-    if p.gh.is_none_or(|v| v < MIN_GH) {
-        fixes.push(Fix::GithubCli);
     }
     if !p.chrome {
         fixes.push(Fix::Chrome);
@@ -195,25 +175,13 @@ pub fn script(fixes: &[Fix], user: &str) -> String {
         })
         .collect();
     let chrome = fixes.contains(&Fix::Chrome);
-    let github = fixes.contains(&Fix::GithubCli);
-    if chrome || github {
-        // To fetch Chrome's package and GitHub's signing key.
+    if chrome {
+        // To fetch Chrome's package.
         packages.extend(["wget", "ca-certificates"]);
     }
     if !packages.is_empty() {
         s.push_str("say Installing programs\napt-get update\n");
         s.push_str(&format!("apt-get install -y {}\n", packages.join(" ")));
-    }
-    if github {
-        // GitHub's own instructions (cli.github.com), so every Ubuntu gets a current gh.
-        s.push_str(
-            "say \"Installing GitHub's tool\"\n\
-             mkdir -p -m 755 /etc/apt/keyrings\n\
-             wget -q -O /etc/apt/keyrings/githubcli-archive-keyring.gpg https://cli.github.com/packages/githubcli-archive-keyring.gpg\n\
-             chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg\n\
-             echo \"deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main\" > /etc/apt/sources.list.d/github-cli.list\n\
-             apt-get update\napt-get install -y gh\n",
-        );
     }
     if chrome {
         s.push_str(&format!(
@@ -287,13 +255,6 @@ pub fn parse_python_version(text: &str) -> Option<(u32, u32)> {
     Some((parts.next()?.parse().ok()?, parts.next()?.parse().ok()?))
 }
 
-/// "gh version 2.4.0+dfsg1 (2022-03-23 …)" -> (2, 4).
-pub fn parse_gh_version(text: &str) -> Option<(u32, u32)> {
-    let version = text.split_whitespace().nth(2)?;
-    let mut parts = version.split(['.', '+', '-']);
-    Some((parts.next()?.parse().ok()?, parts.next()?.parse().ok()?))
-}
-
 /// Look at the real machine.
 pub fn probe() -> SystemProbe {
     let python = run("python3", &["--version"]).and_then(|v| parse_python_version(v.trim()));
@@ -311,7 +272,6 @@ pub fn probe() -> SystemProbe {
         python,
         python_venv,
         git: on_path("git"),
-        gh: run("gh", &["--version"]).and_then(|v| parse_gh_version(&v)),
         chrome: [
             "google-chrome",
             "google-chrome-stable",
@@ -335,7 +295,6 @@ mod tests {
             python: Some((3, 12)),
             python_venv: true,
             git: true,
-            gh: Some((2, 45)),
             chrome: true,
         }
     }
@@ -357,7 +316,6 @@ mod tests {
             fixes,
             [
                 Fix::Packages(vec!["postgresql", "python3-venv", "git"]),
-                Fix::GithubCli,
                 Fix::Chrome,
                 Fix::StartPostgres,
                 Fix::CreateUser
@@ -378,7 +336,7 @@ mod tests {
             .filter(|r| !r.ok)
             .map(|r| r.key)
             .collect();
-        assert_eq!(problems, ["postgresql", "python", "git", "gh", "chrome"]);
+        assert_eq!(problems, ["postgresql", "python", "git", "chrome"]);
     }
 
     #[test]
@@ -422,34 +380,10 @@ mod tests {
     }
 
     #[test]
-    fn ubuntu_22_04s_old_gh_is_replaced_by_githubs_own() {
-        let jammy = SystemProbe {
-            gh: Some((2, 4)),
-            python: Some((3, 10)),
-            ..all_good()
-        };
-        assert_eq!(plan(&jammy), [Fix::GithubCli]);
-        assert_eq!(
-            report(&jammy).requirements[3].problem,
-            "GitHub's tool is too old."
-        );
-        let s = script(&plan(&jammy), "ana");
-        assert!(
-            s.contains("https://cli.github.com/packages stable main"),
-            "{s}"
-        );
-        assert!(s.contains("apt-get install -y wget ca-certificates"), "{s}");
-        assert!(s.contains("apt-get install -y gh"), "{s}");
-        // Python 3.10 is new enough.
-        assert!(report(&jammy).requirements[1].ok);
-    }
-
-    #[test]
     fn every_script_is_valid_bash() {
         // Each fix on its own, all of them, and none: bash must accept the script.
         let all = [
             Fix::Packages(vec!["postgresql", "git"]),
-            Fix::GithubCli,
             Fix::Chrome,
             Fix::StartPostgres,
             Fix::CreateUser,
@@ -469,18 +403,6 @@ mod tests {
                 String::from_utf8_lossy(&out.stderr)
             );
         }
-    }
-
-    #[test]
-    fn reads_gh_versions() {
-        assert_eq!(
-            parse_gh_version("gh version 2.4.0+dfsg1 (2022-03-23 Ubuntu)"),
-            Some((2, 4))
-        );
-        assert_eq!(
-            parse_gh_version("gh version 2.45.0 (2024-03-04)\nhttps://…"),
-            Some((2, 45))
-        );
     }
 
     #[test]

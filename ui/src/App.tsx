@@ -69,7 +69,7 @@ export default function App() {
   }, [setupOpen]);
   const download = setup.downloading
     ? {
-        label: setup.community?.state === "running" ? "Downloading Odoo" : "Downloading Enterprise",
+        label: "Downloading Odoo",
         percent: setup.downloading.progress,
       }
     : null;
@@ -100,8 +100,15 @@ export default function App() {
           <HostingMenu
             hosting={sessionHosting}
             version={sessionVersion}
-            available={versions.available}
-            latestSaas={versions.latestSaas}
+            // Without GitHub, the versions found on this computer.
+            available={
+              versions.available.length ? versions.available : versions.downloaded.map((v) => v.version)
+            }
+            latestSaas={
+              versions.latestSaas ??
+              versions.downloaded.map((v) => v.version).find((v) => v.startsWith("saas-")) ??
+              null
+            }
             defaultVersion="19.0"
             disabled={app.chat.running}
             onChange={app.setSessionTarget}

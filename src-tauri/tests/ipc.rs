@@ -179,6 +179,8 @@ exit 0
     let scripts: Arc<Mutex<Vec<String>>> = Arc::default();
     let (probe_machine, fix_machine, ran) = (machine.clone(), machine.clone(), scripts.clone());
     let fail_install = dir.path().join("fail-install");
+    // A home where tests put Odoo checkouts, like odev's worktrees.
+    let home = dir.path().join("home");
     let hooks = SetupHooks {
         probe: Arc::new(move || probe_machine.lock().unwrap().clone()),
         elevate: Arc::new(move |script: &str| {
@@ -193,11 +195,11 @@ exit 0
                 python: Some((3, 12)),
                 python_venv: true,
                 git: true,
-                gh: Some((2, 45)),
                 chrome: true,
             };
             Ok("== Done".into())
         }),
+        home: home.clone(),
         github: Arc::new(|_| GithubStatus {
             installed: true,
             connected: false,
@@ -730,13 +732,9 @@ fn database_mistakes_come_back_as_readable_messages() {
 #[test]
 fn a_fresh_computer_is_set_up_with_one_password_prompt() {
     let h = harness(true);
-    let status = h.call("setup_status", json!({"version": "19.0"})).unwrap();
+    let status = h.call("setup_status", json!({})).unwrap();
     assert_eq!(status["system"]["ready"], false);
-    assert_eq!(status["community"]["state"], "missing");
-    assert_eq!(
-        status["github"],
-        json!({"installed": true, "connected": false, "enterprise": false})
-    );
+    assert_eq!(status["versions"], json!([]), "no Odoo here yet");
     assert_eq!(status["aiReady"], true);
 
     let events = collect_events(&h, "setup-progress", || {
@@ -751,7 +749,7 @@ fn a_fresh_computer_is_set_up_with_one_password_prompt() {
     );
     assert!(scripts[0].contains("createuser --superuser 'ana'"));
     assert_eq!(events.last().unwrap()["task"]["state"], "done");
-    let status = h.call("setup_status", json!({"version": "19.0"})).unwrap();
+    let status = h.call("setup_status", json!({})).unwrap();
     assert_eq!(status["system"]["ready"], true);
     assert_eq!(status["tasks"]["tools"]["state"], "done");
 
@@ -766,7 +764,7 @@ fn a_cancelled_password_is_reported_and_can_be_retried() {
     fs::write(h._dir.path().join("fail-install"), "").unwrap();
     let err = h.call("install_tools", json!({})).unwrap_err();
     assert!(err.contains("password was not given"), "{err}");
-    let status = h.call("setup_status", json!({"version": "19.0"})).unwrap();
+    let status = h.call("setup_status", json!({})).unwrap();
     assert_eq!(status["tasks"]["tools"]["state"], "failed");
     fs::remove_file(h._dir.path().join("fail-install")).unwrap();
     h.call("install_tools", json!({})).unwrap();
@@ -775,7 +773,7 @@ fn a_cancelled_password_is_reported_and_can_be_retried() {
 
 fn wait_for_task(h: &Harness, key: &str) -> Value {
     for _ in 0..100 {
-        let status = h.call("setup_status", json!({"version": "19.0"})).unwrap();
+        let status = h.call("setup_status", json!({})).unwrap();
         let task = status["tasks"][key].clone();
         if task["state"] != "running" && !task.is_null() {
             return task;
@@ -809,8 +807,8 @@ fn enterprise_downloads_in_the_background_or_says_there_is_no_access_yet() {
     )
     .unwrap();
     assert_eq!(wait_for_task(&h, "enterprise:19.0")["state"], "done");
-    let status = h.call("setup_status", json!({"version": "19.0"})).unwrap();
-    assert_eq!(status["enterprise"]["state"], "ready");
+    let versions = h.call("odoo_versions", json!({})).unwrap();
+    assert_eq!(versions["downloaded"][0]["enterprise"]["state"], "ready");
 }
 
 #[test]
@@ -846,9 +844,7 @@ fn the_versions_list_shows_what_odoo_publishes_and_what_is_here() {
     )
     .unwrap();
     for _ in 0..100 {
-        let s = h
-            .call("setup_status", json!({"version": "saas-19.2"}))
-            .unwrap();
+        let s = h.call("setup_status", json!({})).unwrap();
         if s["tasks"]["enterprise:saas-19.2"]["state"] == "done" {
             break;
         }
@@ -912,4 +908,40 @@ fn a_session_keeps_its_odoo_version() {
         )
         .unwrap_err()
         .contains("is not an Odoo version"));
+}
+
+/// A fake Odoo 19.0 checkout (with Enterprise) where odev keeps it.
+fn odev_worktree(h: &Harness, version: &str) {
+    let dir = h._dir.path().join("home/odev/worktrees").join(version);
+    fs::create_dir_all(dir.join("odoo/odoo")).unwrap();
+    fs::write(dir.join("odoo/odoo-bin"), "").unwrap();
+    let (major, minor) = version.split_once('.').unwrap();
+    fs::write(
+        dir.join("odoo/odoo/release.py"),
+        format!("version_info = ({major}, {minor}, 0, 'final', 0, '')\n"),
+    )
+    .unwrap();
+    fs::create_dir_all(dir.join("enterprise/web_enterprise")).unwrap();
+}
+
+#[test]
+fn the_setup_finds_odoo_on_the_computer_and_uses_it_without_downloading() {
+    let h = harness(true);
+    odev_worktree(&h, "19.0");
+    odev_worktree(&h, "18.0");
+    let status = h.call("setup_status", json!({})).unwrap();
+    assert_eq!(status["versions"], json!([]));
+    let found: Vec<_> = status["found"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|f| f["version"].as_str().unwrap().to_string())
+        .collect();
+    assert_eq!(found, ["19.0", "18.0"]);
+
+    let used = h.call("use_found_sources", json!({})).unwrap();
+    assert_eq!(used, json!(["19.0", "18.0"]));
+    let status = h.call("setup_status", json!({})).unwrap();
+    assert_eq!(status["versions"], json!(["19.0", "18.0"]));
+    assert_eq!(status["found"], json!([]), "nothing left to use");
 }

@@ -1,31 +1,28 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { api } from "../lib/api";
-import type { Edition, SetupStatus, SetupTask } from "../lib/types";
-
-export const SETUP_VERSION = "19.0";
-
-const key = (edition: Edition, version = SETUP_VERSION) => `${edition}:${version}`;
+import type { SetupStatus } from "../lib/types";
 
 /**
- * The first-run setup: what is missing, and "Set up everything", which installs the
- * tools (one password prompt) and then starts the downloads in the background.
+ * The first-run setup: what the computer is missing, and "Set up everything", which
+ * installs the tools (one password prompt) and uses the Odoo source already on the
+ * computer (e.g. odev's worktrees). Nothing is downloaded.
  */
-export function useSetup(version = SETUP_VERSION) {
+export function useSetup() {
   const [status, setStatus] = useState<SetupStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     try {
-      setStatus(await api.setupStatus(version));
+      setStatus(await api.setupStatus());
     } catch (e) {
       setError(String(e));
     }
-  }, [version]);
+  }, []);
 
   useEffect(() => {
     refresh();
-    const unlisten = api.onSetupProgress(({ key: k, task }) => {
-      setStatus((s) => (s ? { ...s, tasks: { ...s.tasks, [k]: task } } : s));
+    const unlisten = api.onSetupProgress(({ key, task }) => {
+      setStatus((s) => (s ? { ...s, tasks: { ...s.tasks, [key]: task } } : s));
       // A step finished: what is ready has changed.
       if (task.state !== "running") refresh();
     });
@@ -36,19 +33,6 @@ export function useSetup(version = SETUP_VERSION) {
       unlisten.then((stop) => stop());
     };
   }, [refresh]);
-
-  const task = (k: string): SetupTask | undefined => status?.tasks[k];
-
-  const download = useCallback(
-    async (edition: Edition) => {
-      try {
-        await api.downloadOdoo(version, edition);
-      } catch (e) {
-        setError(String(e));
-      }
-    },
-    [version],
-  );
 
   const installTools = useCallback(async () => {
     setError(null);
@@ -63,84 +47,54 @@ export function useSetup(version = SETUP_VERSION) {
     }
   }, [refresh]);
 
-  // "Set up everything" waits for GitHub to be connected, then downloads by itself.
-  const downloadsWaiting = useRef(false);
-
-  const startDownloads = useCallback(
-    async (s: SetupStatus) => {
-      const busy = (k: string) => s.tasks[k]?.state === "running";
-      if (s.community.state === "missing" && !busy(key("community", version))) await download("community");
-      if (s.enterprise.state === "missing" && s.github.enterprise && !busy(key("enterprise", version)))
-        await download("enterprise");
-    },
-    [download, version],
-  );
-
-  const githubConnect = useCallback(async () => {
+  const applyFound = useCallback(async () => {
     try {
-      await api.githubConnect();
+      await api.useFoundSources();
+      setError(null);
     } catch (e) {
       setError(String(e));
     }
-  }, []);
+    await refresh();
+  }, [refresh]);
 
   /** Everything that can be done without the user, in order. */
   const setUpEverything = useCallback(async () => {
     if (!status) return;
     if (!status.system.ready && !(await installTools())) return;
-    if (!status.github.connected) {
-      downloadsWaiting.current = true;
-      await githubConnect();
-      return;
-    }
-    await startDownloads(status);
-  }, [status, installTools, githubConnect, startDownloads]);
+    if (status.found.length) await applyFound();
+  }, [status, installTools, applyFound]);
 
-  // Back from the GitHub sign-in: the downloads start by themselves.
-  useEffect(() => {
-    if (downloadsWaiting.current && status?.github.connected) {
-      downloadsWaiting.current = false;
-      startDownloads(status);
-    }
-  }, [status, startDownloads]);
-
+  /** A folder the person picked: an odev worktree folder or an odoo checkout. */
   const chooseFolder = useCallback(
-    async (edition: Edition, path: string) => {
+    async (path: string) => {
       try {
-        await api.useOdooFolder(version, edition, path);
+        await api.useSourceFolder(path);
         setError(null);
       } catch (e) {
         setError(String(e));
       }
       await refresh();
     },
-    [refresh, version],
+    [refresh],
   );
 
-  const community = task(key("community", version));
-  const enterprise = task(key("enterprise", version));
-  const communityReady = status?.community.state === "ready" && community?.state !== "running";
-  /** What a person needs before writing a spec (Enterprise is optional). */
-  const complete = !!status && status.system.ready && communityReady && status.aiReady;
-  /** A download going on, for the small progress ring in the sidebar. */
-  const downloading = [community, enterprise].find((t) => t?.state === "running") ?? null;
+  /** What a person needs before writing a spec. */
+  const complete = !!status && status.system.ready && status.versions.length > 0 && status.aiReady;
+  /** A download from Settings still going on, for the small ring in the sidebar. */
+  const downloading =
+    Object.values(status?.tasks ?? {}).find((t) => t.state === "running" && t.progress !== null) ?? null;
 
   return {
-    version,
     status,
     error,
     dismissError: () => setError(null),
     refresh,
     complete,
     downloading,
-    community,
-    enterprise,
-    tools: task("tools"),
+    tools: status?.tasks.tools,
     setUpEverything,
     installTools,
-    download,
     chooseFolder,
-    githubConnect,
   };
 }
 

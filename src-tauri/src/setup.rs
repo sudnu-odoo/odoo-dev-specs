@@ -11,7 +11,9 @@ use std::time::Duration;
 /// Odoo fixes its branches every week: a version is brought up to date after that.
 const WEEK: Duration = Duration::from_secs(7 * 24 * 3600);
 
-use odoo_runtime::runtime::{Edition, NoAccess, Runtime as OdooRuntime, SourceState, VersionInfo};
+use odoo_runtime::runtime::{
+    Edition, FoundSource, NoAccess, Runtime as OdooRuntime, SourceState, VersionInfo,
+};
 use odoo_runtime::system::{self, SystemProbe, SystemReport};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Runtime, State};
@@ -42,6 +44,8 @@ pub struct SetupHooks {
     pub github: Arc<dyn Fn(&OdooRuntime) -> GithubStatus + Send + Sync>,
     /// The person's Linux user name, for their database user.
     pub user: String,
+    /// Their home folder, where Odoo checkouts are looked for (e.g. odev's worktrees).
+    pub home: PathBuf,
 }
 
 impl Default for SetupHooks {
@@ -51,6 +55,7 @@ impl Default for SetupHooks {
             elevate: Arc::new(run_as_root),
             github: Arc::new(github_status),
             user: std::env::var("USER").unwrap_or_default(),
+            home: dirs::home_dir().unwrap_or_default(),
         }
     }
 }
@@ -101,11 +106,11 @@ impl SetupState {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SetupStatus {
-    pub version: String,
     pub system: SystemReport,
-    pub community: SourceState,
-    pub enterprise: SourceState,
-    pub github: GithubStatus,
+    /// Odoo versions ready to use (their source is on this computer), newest first.
+    pub versions: Vec<String>,
+    /// Odoo source found on the computer that is not used yet.
+    pub found: Vec<FoundSource>,
     /// At least one AI assistant is installed and logged in.
     pub ai_ready: bool,
     /// Long steps still going or finished in this run of the app.
@@ -152,26 +157,82 @@ fn finished(state: &'static str, message: impl Into<String>) -> Task {
 }
 
 #[tauri::command]
-pub async fn setup_status(
-    state: State<'_, AppState>,
-    version: String,
-) -> Result<SetupStatus, String> {
+pub async fn setup_status(state: State<'_, AppState>) -> Result<SetupStatus, String> {
     let (setup, odoo, providers) = (
         state.setup.clone(),
         state.odoo.clone(),
         state.providers.clone(),
     );
-    tauri::async_runtime::spawn_blocking(move || SetupStatus {
-        system: system::report(&(setup.hooks.probe)()),
-        community: odoo.source_state(&version, Edition::Community),
-        enterprise: odoo.source_state(&version, Edition::Enterprise),
-        github: (setup.hooks.github)(&odoo),
-        ai_ready: providers().iter().any(|p| p.ready()),
-        tasks: setup.tasks.lock().unwrap().clone(),
-        version,
+    tauri::async_runtime::spawn_blocking(move || {
+        let versions: Vec<String> = odoo
+            .downloaded_versions()
+            .into_iter()
+            .filter(|v| v.community != SourceState::Missing)
+            .map(|v| v.version)
+            .collect();
+        let found = odoo
+            .find_sources(&setup.hooks.home)
+            .into_iter()
+            .filter(|f| {
+                !versions.contains(&f.version)
+                    || (f.enterprise.is_some()
+                        && odoo.source_state(&f.version, Edition::Enterprise)
+                            == SourceState::Missing)
+            })
+            .collect();
+        SetupStatus {
+            system: system::report(&(setup.hooks.probe)()),
+            versions,
+            found,
+            ai_ready: providers().iter().any(|p| p.ready()),
+            tasks: setup.tasks.lock().unwrap().clone(),
+        }
     })
     .await
     .map_err(|e| e.to_string())
+}
+
+/// Use the Odoo source found on the computer where it is: nothing is downloaded and
+/// the folders are never changed. Returns the versions newly available.
+#[tauri::command]
+pub async fn use_found_sources(state: State<'_, AppState>) -> Result<Vec<String>, String> {
+    let (odoo, home) = (state.odoo.clone(), state.setup.hooks.home.clone());
+    tauri::async_runtime::spawn_blocking(move || odoo.use_found_sources(&home))
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|e| format!("{e:#}"))
+}
+
+/// Use a folder the person picked (an odev worktree folder, or an `odoo` checkout):
+/// its version is read from the code. Returns that version.
+#[tauri::command]
+pub fn use_source_folder(state: State<'_, AppState>, path: PathBuf) -> Result<String, String> {
+    let found = state.odoo.source_at(&path).ok_or_else(|| {
+        format!(
+            "{} has no Odoo source: pick the folder with odoo-bin, or the one holding the odoo folder.",
+            path.display()
+        )
+    })?;
+    state
+        .odoo
+        .use_folder(&found.version, Edition::Community, &found.community)
+        .and_then(|()| match &found.enterprise {
+            Some(ee) => state
+                .odoo
+                .use_folder(&found.version, Edition::Enterprise, ee),
+            None => Ok(()),
+        })
+        .map_err(|e| format!("{e:#}"))?;
+    Ok(found.version)
+}
+
+/// Whether the app's key reads Odoo's repositories (for downloading, in Settings).
+#[tauri::command]
+pub async fn github_status_cmd(state: State<'_, AppState>) -> Result<GithubStatus, String> {
+    let (setup, odoo) = (state.setup.clone(), state.odoo.clone());
+    tauri::async_runtime::spawn_blocking(move || (setup.hooks.github)(&odoo))
+        .await
+        .map_err(|e| e.to_string())
 }
 
 /// Install and start whatever the computer is missing, with one password prompt.
@@ -290,7 +351,7 @@ pub fn github_connect(state: State<'_, AppState>) -> Result<(), String> {
     let script = r#"if gh auth status --hostname github.com >/dev/null 2>&1; then
   gh auth refresh --hostname github.com --scopes admin:public_key
 else
-  gh auth login --hostname github.com --git-protocol https --web --scopes admin:public_key
+  gh auth login --hostname github.com --web --scopes admin:public_key
 fi
 gh ssh-key add "$1" --title "Odoo Dev Specs ($(hostname))" 2>&1 | grep -v "already in use" || true"#;
     (state.launch)(&[

@@ -31,8 +31,8 @@ mod sources;
 mod ssh;
 pub use databases::{session_database, set_session_database, DatabaseInfo, NewDatabase};
 pub use sources::{
-    release_version, version_from_latest, Edition, GithubAccess, NoAccess, SourceState,
-    VersionInfo, ENTERPRISE_GIT_URL,
+    release_version, version_from_latest, Edition, FoundSource, GithubAccess, NoAccess,
+    SourceState, VersionInfo, ENTERPRISE_GIT_URL,
 };
 
 /// Odoo's community repository, over SSH with the app's own key (Odoo's repositories

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useOdooVersions } from "../app/useOdooVersions";
 import { api } from "../lib/api";
 import { confirmAction } from "../lib/confirm";
@@ -60,6 +60,15 @@ export default function VersionsPage() {
       if (enterprise) await api.useOdooFolder(version, "enterprise", enterprise);
     });
   }
+
+  // Downloading needs GitHub; using your own folders does not.
+  const [github, setGithub] = useState<{ installed: boolean; connected: boolean } | null>(null);
+  useEffect(() => {
+    const check = () => api.githubStatus().then(setGithub, () => {});
+    check();
+    window.addEventListener("focus", check);
+    return () => window.removeEventListener("focus", check);
+  }, []);
 
   const here = new Set(versions.downloaded.map((v) => v.version));
   const addable = versions.available.filter((v) => !here.has(v));
@@ -123,6 +132,28 @@ export default function VersionsPage() {
         {versions.downloaded.length === 0 && (
           <div className="settings-row settings-muted">No version yet.</div>
         )}
+      </div>
+      <h3>Download from GitHub</h3>
+      <div className="settings-card">
+        <div className="settings-row" role="group" aria-label="GitHub">
+          <div className="settings-row-text">
+            <span>GitHub</span>
+            <small>
+              {github?.connected
+                ? "Connected: versions can be downloaded and are updated every week."
+                : "Optional: only needed to download versions. A window shows a code for github.com/login/device."}
+            </small>
+          </div>
+          {github && !github.connected && (
+            <button
+              className="btn btn-small"
+              disabled={!github.installed}
+              onClick={() => api.githubConnect()}
+            >
+              Connect GitHub
+            </button>
+          )}
+        </div>
       </div>
       {addable.length > 0 && (
         <>

@@ -1214,3 +1214,95 @@ fn the_ai_reads_only_the_sessions_version() {
     );
     assert!(env.rt.source_dirs_for("18.0").is_empty(), "not downloaded");
 }
+
+// --- Finding Odoo source already on the computer ---
+
+/// A fake Odoo checkout of `version` at `dir` (and Enterprise next to it when asked).
+fn fake_checkout(dir: &Path, version: &str, enterprise: bool) {
+    let (major, minor) = version.trim_start_matches("saas-").split_once('.').unwrap();
+    let major = if version.starts_with("saas-") {
+        format!("'saas~{major}'")
+    } else {
+        major.to_string()
+    };
+    fs::create_dir_all(dir.join("odoo/odoo")).unwrap();
+    fs::write(dir.join("odoo/odoo-bin"), "").unwrap();
+    fs::write(
+        dir.join("odoo/odoo/release.py"),
+        format!("version_info = ({major}, {minor}, 0, 'final', 0, '')\n"),
+    )
+    .unwrap();
+    if enterprise {
+        fs::create_dir_all(dir.join("enterprise/web_enterprise")).unwrap();
+    }
+}
+
+#[test]
+fn odoo_already_on_the_computer_is_found_by_version() {
+    let env = Env::new(&[], false);
+    let home = env.dir.path().join("home");
+    fake_checkout(&home.join("odev/worktrees/19.0"), "19.0", true);
+    fake_checkout(&home.join("odev/worktrees/saas-19.2"), "saas-19.2", false);
+    fake_checkout(&home.join("src/my-odoo-18"), "18.0", false);
+    // Not Odoo, or too old: ignored.
+    fs::create_dir_all(home.join("src/some-project")).unwrap();
+    fake_checkout(&home.join("odev/worktrees/16.0"), "16.0", true);
+
+    let found = env.rt.find_sources(&home);
+    let versions: Vec<_> = found.iter().map(|f| f.version.as_str()).collect();
+    assert_eq!(
+        versions,
+        ["saas-19.2", "19.0", "18.0"],
+        "newest first, 17.0 and newer"
+    );
+    let v19 = found.iter().find(|f| f.version == "19.0").unwrap();
+    assert_eq!(v19.community, home.join("odev/worktrees/19.0/odoo"));
+    assert_eq!(
+        v19.enterprise.as_deref(),
+        Some(home.join("odev/worktrees/19.0/enterprise").as_path())
+    );
+    assert!(found
+        .iter()
+        .find(|f| f.version == "18.0")
+        .unwrap()
+        .enterprise
+        .is_none());
+}
+
+#[test]
+fn found_source_is_used_where_it_is_without_downloading() {
+    let env = Env::new(&[], false);
+    let home = env.dir.path().join("home");
+    fake_checkout(&home.join("odev/worktrees/19.0"), "19.0", true);
+    let used = env.rt.use_found_sources(&home).unwrap();
+    assert_eq!(used, ["19.0"]);
+    assert_eq!(
+        env.rt.source_state("19.0", Edition::Community),
+        SourceState::Ready { linked: true }
+    );
+    assert!(env.rt.enterprise_available("19.0"));
+    assert_eq!(env.count("git"), 0, "nothing downloaded");
+    // Again: nothing new to do, and the person's folder is untouched.
+    assert!(env.rt.use_found_sources(&home).unwrap().is_empty());
+    assert!(home.join("odev/worktrees/19.0/odoo/odoo-bin").exists());
+}
+
+#[test]
+fn a_chosen_folder_is_understood_whichever_level_is_picked() {
+    let env = Env::new(&[], false);
+    let worktree = env.dir.path().join("home/odev/worktrees/saas-19.2");
+    fake_checkout(&worktree, "saas-19.2", true);
+    // The worktree folder itself (odoo + enterprise inside).
+    let found = env.rt.source_at(&worktree).unwrap();
+    assert_eq!(found.version, "saas-19.2");
+    assert_eq!(
+        found.enterprise.as_deref(),
+        Some(worktree.join("enterprise").as_path())
+    );
+    // Or its odoo folder: Enterprise is still found next to it.
+    let found = env.rt.source_at(&worktree.join("odoo")).unwrap();
+    assert_eq!(found.community, worktree.join("odoo"));
+    assert!(found.enterprise.is_some());
+    // Not Odoo at all.
+    assert!(env.rt.source_at(env.dir.path()).is_none());
+}

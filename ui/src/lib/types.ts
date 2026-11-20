@@ -157,14 +157,20 @@ export interface SetupTask {
   message: string;
 }
 
+/** Odoo source found on the computer (mirrors odoo_runtime FoundSource). */
+export interface FoundSource {
+  version: string;
+  community: string;
+  enterprise: string | null;
+}
+
 /** Everything the setup screen shows (mirrors src-tauri setup::SetupStatus). */
 export interface SetupStatus {
-  version: string;
   system: { requirements: Requirement[]; ready: boolean };
-  community: SourceState;
-  enterprise: SourceState;
-  /** GitHub's tool is installed; the app's key reads Odoo Community / Enterprise. */
-  github: { installed: boolean; connected: boolean; enterprise: boolean };
+  /** Odoo versions ready to use, newest first. */
+  versions: string[];
+  /** Odoo source found on the computer, not used yet. */
+  found: FoundSource[];
   aiReady: boolean;
   tasks: Record<string, SetupTask>;
 }

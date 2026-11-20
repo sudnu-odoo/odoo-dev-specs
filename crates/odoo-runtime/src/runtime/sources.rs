@@ -33,6 +33,26 @@ pub struct GithubAccess {
     pub enterprise: bool,
 }
 
+/// Odoo source found on the computer (e.g. an odev worktree), by version.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FoundSource {
+    pub version: String,
+    pub community: PathBuf,
+    pub enterprise: Option<PathBuf>,
+}
+
+/// Where people keep Odoo checkouts, relative to their home: each child folder is
+/// looked at (odev's worktrees first, so they win over other copies).
+const SOURCE_PLACES: [&str; 6] = [
+    "odev/worktrees",
+    "odoo",
+    "src",
+    "work",
+    "projects",
+    "Documents",
+];
+
 /// A version on this computer, for the versions list.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -262,7 +282,7 @@ impl Runtime {
             return Err(match edition {
                 Edition::Enterprise => anyhow::Error::new(NoAccess),
                 Edition::Community => anyhow!(
-                    "GitHub refused the download: connect your GitHub account in the setup."
+                    "GitHub refused the download: connect your GitHub account in Settings > Odoo versions."
                 ),
             });
         }
@@ -431,6 +451,83 @@ impl Runtime {
             updated = true;
         }
         Ok(updated)
+    }
+
+    /// The Odoo source in a folder someone picked: an odev-style folder holding `odoo`
+    /// (and `enterprise`), or the `odoo` checkout itself (Enterprise next to it).
+    pub fn source_at(&self, dir: &Path) -> Option<FoundSource> {
+        let (community, enterprise) = if dir.join("odoo/odoo-bin").is_file() {
+            (dir.join("odoo"), dir.join("enterprise"))
+        } else if dir.join("odoo-bin").is_file() {
+            (dir.to_path_buf(), dir.parent()?.join("enterprise"))
+        } else {
+            return None;
+        };
+        let version =
+            release_version(&fs::read_to_string(community.join("odoo/release.py")).ok()?)?;
+        Some(FoundSource {
+            version,
+            community,
+            enterprise: enterprise
+                .join("web_enterprise")
+                .is_dir()
+                .then_some(enterprise),
+        })
+    }
+
+    /// Odoo source already on the computer, newest version first: folders holding an
+    /// `odoo` checkout (with `odoo-bin`) and, when there, an `enterprise` one next to it.
+    pub fn find_sources(&self, home: &Path) -> Vec<FoundSource> {
+        let mut found: Vec<FoundSource> = Vec::new();
+        for place in SOURCE_PLACES {
+            let Ok(entries) = fs::read_dir(home.join(place)) else {
+                continue;
+            };
+            let mut dirs: Vec<PathBuf> = entries.flatten().map(|e| e.path()).collect();
+            dirs.sort();
+            for dir in dirs {
+                // Only odev-style folders (holding an `odoo` checkout) count here.
+                let Some(source) = dir
+                    .join("odoo/odoo-bin")
+                    .is_file()
+                    .then(|| self.source_at(&dir))
+                    .flatten()
+                else {
+                    continue;
+                };
+                if version_key(&source.version).is_none_or(|k| k.0 < OLDEST_MAJOR)
+                    || found.iter().any(|f| f.version == source.version)
+                {
+                    continue;
+                }
+                found.push(source);
+            }
+        }
+        found.sort_by_key(|f| std::cmp::Reverse(version_key(&f.version)));
+        found
+    }
+
+    /// Use the Odoo source found on the computer where it is (nothing downloaded,
+    /// the folders never changed); returns the versions newly made available.
+    pub fn use_found_sources(&self, home: &Path) -> Result<Vec<String>> {
+        let mut used = Vec::new();
+        for f in self.find_sources(home) {
+            let mut linked = false;
+            if self.source_state(&f.version, Edition::Community) == SourceState::Missing {
+                self.use_folder(&f.version, Edition::Community, &f.community)?;
+                linked = true;
+            }
+            if let Some(ee) = &f.enterprise {
+                if self.source_state(&f.version, Edition::Enterprise) == SourceState::Missing {
+                    self.use_folder(&f.version, Edition::Enterprise, ee)?;
+                    linked = true;
+                }
+            }
+            if linked {
+                used.push(f.version);
+            }
+        }
+        Ok(used)
     }
 
     /// The versions on this computer.

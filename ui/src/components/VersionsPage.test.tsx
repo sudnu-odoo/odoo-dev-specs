@@ -11,6 +11,8 @@ vi.mock("../lib/api", () => ({
     removeOdooVersion: vi.fn(),
     downloadOdoo: vi.fn(),
     useOdooFolder: vi.fn(),
+    githubStatus: vi.fn(async () => ({ installed: true, connected: false, enterprise: false })),
+    githubConnect: vi.fn(),
   },
 }));
 vi.mock("../lib/confirm", () => ({ confirmAction: vi.fn(async () => true) }));
@@ -99,5 +101,13 @@ describe("VersionsPage", () => {
     const add = screen.getByRole("button", { name: "Download" }).parentElement!;
     await userEvent.click(within(add).getByRole("button", { name: "Use a folder…" }));
     expect(mocked.useOdooFolder).toHaveBeenCalledWith("18.0", "community", "/home/me/odoo-18");
+  });
+
+  it("offers to connect GitHub, only for downloading", async () => {
+    render(<VersionsPage />);
+    const github = await screen.findByRole("group", { name: "GitHub" });
+    expect(github).toHaveTextContent("only needed to download versions");
+    await userEvent.click(await within(github).findByRole("button", { name: "Connect GitHub" }));
+    expect(mocked.githubConnect).toHaveBeenCalled();
   });
 });

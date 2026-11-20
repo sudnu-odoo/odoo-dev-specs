@@ -72,7 +72,14 @@ export const api = {
   checkUpdate: () => invoke<AppRelease | null>("check_update"),
   /** Install it with the password window; the app restarts when done. */
   installUpdate: (release: AppRelease) => invoke<void>("install_update", { release }),
-  setupStatus: (version: string) => invoke<SetupStatus>("setup_status", { version }),
+  setupStatus: () => invoke<SetupStatus>("setup_status"),
+  /** Use the Odoo source found on the computer where it is; returns the versions. */
+  useFoundSources: () => invoke<string[]>("use_found_sources"),
+  /** Use a folder the person picked; returns the Odoo version found in it. */
+  useSourceFolder: (path: string) => invoke<string>("use_source_folder", { path }),
+  /** Whether the app can read Odoo's repositories (needed only to download versions). */
+  githubStatus: () =>
+    invoke<{ installed: boolean; connected: boolean; enterprise: boolean }>("github_status_cmd"),
   /** Install and start what the computer is missing (one password prompt). */
   installTools: () => invoke<void>("install_tools"),
   /** Start a background download; progress arrives through onSetupProgress. */

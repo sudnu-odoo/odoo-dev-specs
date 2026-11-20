@@ -47,11 +47,11 @@ databases on your own computer, filled with Odoo's demo data.
 - **Edit by hand**: the diagram is a normal Excalidraw canvas. Change
   anything, open it in its own window, export a PNG or the `.excalidraw`
   file.
-- **One-click setup**: the app installs what it needs, connects to GitHub
-  for you, and downloads Odoo by itself.
-- **Odoo versions handled for you**: each version is downloaded when a spec
-  needs it and kept up to date every week. Already have Odoo (e.g. with
-  odev)? Use your own folders instead.
+- **One-click setup**: the app installs what it needs and finds the Odoo
+  source already on your computer (e.g. odev's worktrees), every version,
+  and uses it where it is.
+- **Odoo versions**: each spec uses its client's version. Versions can also be
+  downloaded from GitHub in Settings, and are then kept up to date every week.
 - **Updates from inside the app**: a new version is one click away.
 - **Usage at a glance**: for Claude, your 5-hour and weekly limits under the
   message box.
@@ -66,8 +66,9 @@ databases on your own computer, filled with Odoo's demo data.
 
 - Ubuntu 22.04 or 24.04, 64-bit, with admin rights (you type your password
   once during the setup).
-- A GitHub account (Odoo's code comes from GitHub). For Odoo Enterprise, the
-  account needs access to it.
+- Odoo's source code on your computer, e.g. the worktrees odev makes. (Or
+  download versions from GitHub in Settings; Enterprise needs a GitHub
+  account with access.)
 - An AI assistant installed on your computer: [Claude
   Code](https://code.claude.com/docs) or Antigravity.
 - About 2 GB of free space for each Odoo version.
@@ -92,22 +93,15 @@ Then:
 Click **Set up everything**:
 
 1. **Tools**: Ubuntu asks for your password once. The app installs and
-   starts what is missing (PostgreSQL, Python, Git, GitHub's tool, Chrome)
-   and creates your database user.
-2. **GitHub**: a window shows a short code to enter in your browser. That's
-   all: the app makes its own SSH key and adds it to your GitHub account
-   (your own SSH keys and settings are never touched).
-3. **Odoo 19 Community** then downloads in the background (about 1.5 GB, a
-   few minutes), and the app prepares it.
-4. **Odoo 19 Enterprise** is optional and downloads with it. If your GitHub
-   account has no access to Odoo Enterprise yet, it says so; Community works
-   without it, and you can click **Try again** once you have access.
-5. **AI assistant**: click **Log in** if you are not logged in yet. A window
+   starts what is missing (PostgreSQL, Python, Git, Chrome) and creates your
+   database user.
+2. **Odoo source**: the app shows the versions it found on your computer
+   (odev's worktrees and the usual folders) and uses them where they are:
+   nothing is downloaded and your folders are never changed. Nothing found?
+   Click **Choose a folder…** and pick your Odoo folder.
+3. **AI assistant**: click **Log in** if you are not logged in yet. A window
    opens for it.
 
-You can start working while Odoo still downloads; a small ring in the
-sidebar shows how far it is. Already have Odoo on your computer? Use
-**Use folders I already have** instead of downloading it again.
 
 Open the setup again any time from **Settings → General → Open setup**.
 
@@ -147,7 +141,7 @@ Reset to fresh and Delete.
 | Page | What you can change |
 |---|---|
 | **General** | The Odoo version and demo data for new databases, the diagram's theme (Light, Dark or System), and **Open setup**. |
-| **Odoo versions** | The versions on your computer with their size and last update: **Update now**, **Remove**, **Use a folder…** (e.g. your odev worktree), and add another version. |
+| **Odoo versions** | The versions the app uses, with their size and last update: **Use a folder…** (e.g. your odev worktree), **Update now**, **Remove**, and download another version from GitHub (**Connect GitHub** first: one code to enter on github.com/login/device). |
 | **AI services** | Which AI services are connected, and **Log in** for the others. |
 
 ## Updates
@@ -168,9 +162,10 @@ page first if you want them gone).
 - **What the AI sees**: your messages, the Odoo source code, and the
   screenshots of your local Odoo. It goes through your own Claude Code or
   Antigravity, as if you used them yourself.
-- **What goes online besides the AI**: the Odoo source (GitHub, over SSH
-  with the app's own key; downloads and a weekly update), Chrome's download
-  (Google), and the app's update check (GitHub, at each start).
+- **What goes online besides the AI**: Chrome's download (Google), the app's
+  update check (GitHub, at each start), and only if you download Odoo
+  versions in Settings, the Odoo source (GitHub, over SSH with the app's own
+  key, plus a weekly update of those versions).
 - Your specs are plain files in `~/OdooSpecs/<Project>/<session>/`:
   `spec.excalidraw`, the screenshots, and the chat.
 
