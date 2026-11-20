@@ -542,6 +542,65 @@ impl Scene {
         Ok(doomed.len())
     }
 
+    /// A tinted background (x, y, width, height) behind everything, e.g. to set one
+    /// part of the spec apart. Never counts as covering text. Returns its id.
+    pub fn add_panel(&mut self, (x, y, w, h): (f64, f64, f64, f64), color: Color) -> String {
+        let mut e = base("rectangle", x, y, w, h);
+        e["strokeColor"] = json!(color.stroke());
+        e["backgroundColor"] = json!(color.fill());
+        e["strokeWidth"] = json!(1);
+        e["opacity"] = json!(30);
+        e["roundness"] = json!({ "type": 3 });
+        let id = str_of(&e, "id").to_string();
+        self.elements_mut().insert(0, e);
+        id
+    }
+
+    /// Colour an arrow or outline, solid or dashed.
+    pub fn style_line(&mut self, id: &str, color: Color, dashed: bool) -> Result<()> {
+        let e = self
+            .find_mut(id)
+            .filter(|e| e["isDeleted"] != true)
+            .with_context(|| format!("There is no element with id {id}."))?;
+        e["strokeColor"] = json!(color.stroke());
+        e["strokeStyle"] = json!(if dashed { "dashed" } else { "solid" });
+        bump(e);
+        Ok(())
+    }
+
+    /// Mark an element as made by `tag` (e.g. the spec builder), to find it again.
+    pub fn tag(&mut self, id: &str, tag: &str) -> Result<()> {
+        let e = self
+            .find_mut(id)
+            .filter(|e| e["isDeleted"] != true)
+            .with_context(|| format!("There is no element with id {id}."))?;
+        e["customData"]["made_by"] = json!(tag);
+        bump(e);
+        Ok(())
+    }
+
+    /// Live elements marked with `tag`.
+    pub fn tagged(&self, tag: &str) -> Vec<String> {
+        self.live()
+            .filter(|e| e["customData"]["made_by"] == tag)
+            .map(|e| str_of(e, "id").to_string())
+            .collect()
+    }
+
+    /// The box (x, y, width, height) around the given live elements.
+    pub fn bounds(&self, ids: &[String]) -> Option<(f64, f64, f64, f64)> {
+        let rects: Vec<Rect> = ids
+            .iter()
+            .filter_map(|id| self.find_live(id))
+            .map(Rect::of)
+            .collect();
+        let x = rects.iter().map(|r| r.x).reduce(f64::min)?;
+        let y = rects.iter().map(|r| r.y).reduce(f64::min)?;
+        let right = rects.iter().map(|r| r.x + r.w).reduce(f64::max)?;
+        let bottom = rects.iter().map(|r| r.y + r.h).reduce(f64::max)?;
+        Some((x, y, right - x, bottom - y))
+    }
+
     // ---- internals ----
 
     fn elements(&self) -> &Vec<Value> {

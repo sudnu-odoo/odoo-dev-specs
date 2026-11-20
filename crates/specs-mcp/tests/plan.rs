@@ -1,0 +1,282 @@
+//! The spec builder: a plan in, a laid-out diagram out, with nothing overlapping.
+
+use std::collections::HashMap;
+
+use excalidraw::Scene;
+use serde_json::{json, Value};
+use specs_mcp::browser::Element;
+use specs_mcp::plan::{build, validate, ShotData, SpecPlan, TAG};
+
+const EMPTY: &str = r##"{"type":"excalidraw","version":2,"source":"x","elements":[],"appState":{"viewBackgroundColor":"#ffffff"},"files":{}}"##;
+
+fn png(width: u32, height: u32) -> Vec<u8> {
+    let mut bytes = vec![0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A, 0, 0, 0, 13];
+    bytes.extend(b"IHDR");
+    bytes.extend(width.to_be_bytes());
+    bytes.extend(height.to_be_bytes());
+    bytes.extend([8, 6, 0, 0, 0]);
+    bytes
+}
+
+fn el(kind: &str, name: &str, text: &str, x: f64, y: f64, w: f64, h: f64) -> Element {
+    serde_json::from_value(
+        json!({"kind": kind, "name": name, "text": text, "x": x, "y": y, "w": w, "h": h}),
+    )
+    .unwrap()
+}
+
+/// A quotation form 1440x900: Expiration label and field, and a Confirm button.
+fn quotation() -> ShotData {
+    ShotData {
+        path: "screenshots/quotation.png".into(),
+        png: png(1440, 900),
+        map: vec![
+            el(
+                "label",
+                "validity_date",
+                "Expiration",
+                100.0,
+                300.0,
+                120.0,
+                24.0,
+            ),
+            el(
+                "field",
+                "validity_date",
+                "12/31/2026",
+                300.0,
+                300.0,
+                200.0,
+                24.0,
+            ),
+            el(
+                "button",
+                "action_confirm",
+                "Confirm",
+                40.0,
+                120.0,
+                90.0,
+                30.0,
+            ),
+        ],
+    }
+}
+
+fn shots(names: &[&str]) -> HashMap<String, ShotData> {
+    names.iter().map(|n| (n.to_string(), quotation())).collect()
+}
+
+fn plan(v: Value) -> SpecPlan {
+    serde_json::from_value(v).unwrap()
+}
+
+fn sample() -> SpecPlan {
+    plan(json!({
+        "title": "Delivery deadline on quotations",
+        "need": "Sales want to promise a delivery date on each quotation.",
+        "context": ["Odoo Online 19.0", "Customers ask for a date before they sign."],
+        "version": "19.0",
+        "modules": ["sale_management"],
+        "sections": [
+            {"title": "Sales > Orders > Quotation", "kind": "as_is",
+             "text": ["1. The salesperson fills the quotation", "2. Confirms it"],
+             "screens": [{"name": "today", "page": "/odoo/sales/3", "model": "sale.order", "caption": "CURRENT",
+                          "notes": [{"lines": ["Confirm is allowed", "without a date"], "anchor": "button:action_confirm"}]}]},
+            {"title": "Quotation form", "kind": "to_be",
+             "screens": [{"name": "expected", "page": "/odoo/sales/3", "model": "sale.order",
+                          "new_fields": [{"near": "validity_date", "label": "Delivery Deadline", "value": "12/20/2026",
+                                          "technical": "x_delivery_deadline", "type": "date"}],
+                          "notes": [{"lines": ["Blocked if the", "deadline is empty"], "anchor": "button:action_confirm"},
+                                    {"lines": ["Copied to the delivery"]}]}]}
+        ],
+        "links": [{"from": "today", "to": "expected", "label": "becomes"}],
+        "tests": ["Salesperson: confirms without a deadline -> blocked", "Manager: sets a deadline -> confirmed"]
+    }))
+}
+
+fn live(scene: &Scene) -> Vec<Value> {
+    let doc: Value = serde_json::from_str(&scene.to_json()).unwrap();
+    doc["elements"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|e| e["isDeleted"] != true)
+        .cloned()
+        .collect()
+}
+
+fn texts(scene: &Scene) -> Vec<String> {
+    live(scene)
+        .iter()
+        .filter(|e| e["type"] == "text")
+        .map(|e| e["text"].as_str().unwrap().to_string())
+        .collect()
+}
+
+fn find_text<'a>(all: &'a [Value], starts: &str) -> &'a Value {
+    all.iter()
+        .find(|e| e["type"] == "text" && e["text"].as_str().unwrap().starts_with(starts))
+        .unwrap_or_else(|| panic!("no text starting with {starts}"))
+}
+
+#[test]
+fn builds_the_whole_spec_in_one_go_without_overlaps() {
+    let mut scene = Scene::parse(EMPTY).unwrap();
+    let report = build(&mut scene, &sample(), &shots(&["today", "expected"])).unwrap();
+    assert!(report.warnings.is_empty(), "{:?}", report.warnings);
+    let t = texts(&scene);
+    for want in [
+        "Delivery deadline on quotations",
+        "1. Sales > Orders > Quotation",
+        "2. Quotation form",
+        "Model: sale.order",
+        "CURRENT",
+        "Test cases",
+        "Delivery Deadline",
+        "12/20/2026",
+    ] {
+        assert!(t.iter().any(|x| x == want), "missing {want} in {t:?}");
+    }
+    assert!(t
+        .iter()
+        .any(|x| x.contains("[ ] 1. Salesperson") && x.contains("[ ] 2. Manager")));
+    assert!(t
+        .iter()
+        .any(|x| x == "New field: x_delivery_deadline\ntype: date\nvalue: \"12/20/2026\""));
+    // Every readable text stands alone.
+    for e in live(&scene)
+        .iter()
+        .filter(|e| e["type"] == "text" && e["containerId"].is_null())
+    {
+        let id = e["id"].as_str().unwrap();
+        assert!(
+            scene.overlapping(id).is_empty(),
+            "{} overlaps {:?}",
+            e["text"],
+            scene.overlapping(id)
+        );
+    }
+}
+
+#[test]
+fn sections_are_stacked_and_tinted() {
+    let mut scene = Scene::parse(EMPTY).unwrap();
+    build(&mut scene, &sample(), &shots(&["today", "expected"])).unwrap();
+    let all = live(&scene);
+    let first = find_text(&all, "1. ")["y"].as_f64().unwrap();
+    let second = find_text(&all, "2. ")["y"].as_f64().unwrap();
+    let tests = find_text(&all, "Test cases")["y"].as_f64().unwrap();
+    assert!(first < second && second < tests);
+    let panels: Vec<&Value> = all
+        .iter()
+        .filter(|e| e["type"] == "rectangle" && e["opacity"] == 30)
+        .collect();
+    assert_eq!(panels.len(), 2);
+    // The first section's panel ends above the second heading.
+    let p = panels
+        .iter()
+        .find(|p| p["y"].as_f64().unwrap() < first)
+        .unwrap();
+    assert!(p["y"].as_f64().unwrap() + p["height"].as_f64().unwrap() < second);
+}
+
+#[test]
+fn notes_sit_right_of_the_screenshot_level_with_what_they_point_at() {
+    let mut scene = Scene::parse(EMPTY).unwrap();
+    build(&mut scene, &sample(), &shots(&["today", "expected"])).unwrap();
+    let all = live(&scene);
+    let image = all.iter().find(|e| e["type"] == "image").unwrap();
+    let (ix, iy, iw) = (
+        image["x"].as_f64().unwrap(),
+        image["y"].as_f64().unwrap(),
+        image["width"].as_f64().unwrap(),
+    );
+    let note = find_text(&all, "Confirm is allowed");
+    assert!(
+        note["x"].as_f64().unwrap() >= ix + iw,
+        "note right of the screenshot"
+    );
+    // Confirm is at y 120..150 of 900 px, shown 900 wide: scale 0.625.
+    let button_mid = iy + 135.0 * 900.0 / 1440.0;
+    assert!((note["y"].as_f64().unwrap() - button_mid).abs() < 40.0);
+    assert_eq!(image["customData"]["source"], "screenshots/quotation.png");
+    // Outline + pointer for an anchored note.
+    assert!(all
+        .iter()
+        .any(|e| e["type"] == "rectangle" && e["strokeColor"] == "#e03131" && e["opacity"] == 100));
+}
+
+#[test]
+fn links_are_red_dashed_arrows_between_screens() {
+    let mut scene = Scene::parse(EMPTY).unwrap();
+    build(&mut scene, &sample(), &shots(&["today", "expected"])).unwrap();
+    let all = live(&scene);
+    let dashed: Vec<&Value> = all
+        .iter()
+        .filter(|e| e["type"] == "arrow" && e["strokeStyle"] == "dashed")
+        .collect();
+    assert_eq!(dashed.len(), 1);
+    assert_eq!(dashed[0]["strokeColor"], "#e03131");
+}
+
+#[test]
+fn side_by_side_screens_share_a_row() {
+    let p = plan(json!({
+        "title": "T", "need": "N", "version": "19.0",
+        "sections": [{"title": "Current vs expected", "side_by_side": true,
+            "screens": [{"name": "a", "page": "/odoo", "caption": "CURRENT"},
+                        {"name": "b", "page": "/odoo", "caption": "EXPECTED"}]}]
+    }));
+    let mut scene = Scene::parse(EMPTY).unwrap();
+    build(&mut scene, &p, &shots(&["a", "b"])).unwrap();
+    let images: Vec<Value> = live(&scene)
+        .into_iter()
+        .filter(|e| e["type"] == "image")
+        .collect();
+    assert_eq!(images[0]["y"], images[1]["y"]);
+    assert!(images[1]["x"].as_f64().unwrap() > images[0]["x"].as_f64().unwrap() + 700.0);
+}
+
+#[test]
+fn a_new_plan_replaces_the_last_build_but_keeps_hand_made_elements() {
+    let mut scene = Scene::parse(EMPTY).unwrap();
+    build(&mut scene, &sample(), &shots(&["today", "expected"])).unwrap();
+    let mine = scene.add_text("my own note", Default::default(), None, None);
+    let before = scene.tagged(TAG).len();
+    build(&mut scene, &sample(), &shots(&["today", "expected"])).unwrap();
+    assert_eq!(scene.tagged(TAG).len(), before, "no duplicates");
+    assert!(texts(&scene).contains(&"my own note".to_string()));
+    assert!(!scene.tagged(TAG).contains(&mine));
+}
+
+#[test]
+fn an_unknown_anchor_is_a_warning_and_the_note_is_still_written() {
+    let p = plan(json!({
+        "title": "T", "need": "N", "version": "19.0",
+        "sections": [{"title": "S", "screens": [{"name": "a", "page": "/odoo",
+            "notes": [{"lines": ["about nothing"], "anchor": "button:does_not_exist"}]}]}]
+    }));
+    let mut scene = Scene::parse(EMPTY).unwrap();
+    let report = build(&mut scene, &p, &shots(&["a"])).unwrap();
+    assert_eq!(report.warnings.len(), 1);
+    assert!(
+        report.warnings[0].contains("does_not_exist"),
+        "{:?}",
+        report.warnings
+    );
+    assert!(texts(&scene).contains(&"about nothing".to_string()));
+}
+
+#[test]
+fn plan_mistakes_are_explained() {
+    let dup = plan(json!({"title": "T", "need": "N", "version": "19.0",
+        "sections": [{"title": "S", "screens": [{"name": "a", "page": "/x"}, {"name": "a", "page": "/y"}]}]}));
+    assert!(validate(&dup).unwrap_err().to_string().contains("unique"));
+    let link = plan(json!({"title": "T", "need": "N", "version": "19.0",
+        "sections": [{"title": "S", "screens": [{"name": "a", "page": "/x"}]}],
+        "links": [{"from": "a", "to": "zz"}]}));
+    assert!(validate(&link).unwrap_err().to_string().contains("zz"));
+    let kind = plan(json!({"title": "T", "need": "N", "version": "19.0",
+        "sections": [{"title": "S", "kind": "flowchart"}]}));
+    assert!(validate(&kind).is_err());
+}

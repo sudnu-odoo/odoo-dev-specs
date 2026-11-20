@@ -4,6 +4,7 @@
 pub mod anchors;
 pub mod browser;
 mod options;
+pub mod plan;
 
 pub use options::{parse_args, Options};
 
@@ -417,6 +418,19 @@ diagram_add_image."
         reply(self.take_screenshots(p).await)
     }
 
+    #[tool(
+        description = "Build the whole spec diagram from one plan: title, need, business context, \
+numbered sections (as_is / to_be / config) with real Odoo screens, red notes pointing at what they \
+are about, new fields drawn where they will appear, dashed links between screens, and test cases. \
+Every screenshot is taken in one go and everything is laid out for you, so nothing overlaps. \
+Calling it again replaces what it built before (hand-made elements stay): to change the spec, \
+send the corrected plan. Anchors are names on the screen such as \"validity_date\", \
+\"button:action_confirm\", \"row:validity_date\", \"column:product_id\" or a visible text."
+    )]
+    async fn spec_build(&self, Parameters(p): Parameters<plan::SpecPlan>) -> CallToolResult {
+        reply(self.build_spec(p).await)
+    }
+
     #[tool(description = "Delete elements, with their labels and attached arrows.")]
     async fn diagram_delete(&self, Parameters(p): Parameters<DeleteElements>) -> CallToolResult {
         self.edit(|scene| {
@@ -429,9 +443,30 @@ diagram_add_image."
 
 impl DiagramServer {
     async fn take_screenshots(&self, p: Screenshots) -> Result<String> {
-        ensure!(!p.pages.is_empty(), "Give at least one page.");
-        let files: Vec<String> = p
-            .pages
+        let (mut answer, taken) = self.shoot(&p.version, &p.modules, &p.pages).await?;
+        for (stem, shot, map) in &taken {
+            answer.push_str(&format!(
+                "\nscreenshots/{stem}.png ({}x{}) of {}:\n{}\n",
+                shot.viewport.width,
+                shot.viewport.height,
+                shot.page,
+                describe(map)
+            ));
+        }
+        Ok(answer)
+    }
+
+    /// Take the pages on the session's database (started if needed) and save each
+    /// PNG with the map of what is on it. Returns a header naming the database, and
+    /// per page its file stem, shot and map.
+    async fn shoot(
+        &self,
+        version: &str,
+        modules: &[String],
+        pages: &[PageShot],
+    ) -> Result<(String, Vec<(String, Shot, Vec<Element>)>)> {
+        ensure!(!pages.is_empty(), "Give at least one page.");
+        let files: Vec<String> = pages
             .iter()
             .map(|page| file_stem(&page.name))
             .collect::<Result<_>>()?;
@@ -440,8 +475,8 @@ impl DiagramServer {
             .clone()
             .context("Odoo screenshots are not available: the local Odoo runtime is not set up.")?;
         // The version the user chose for the session wins over the one the AI asked for.
-        let asked = session_version(&self.session_dir).unwrap_or_else(|| p.version.clone());
-        let (modules, demo_data) = (p.modules.clone(), self.demo_data);
+        let asked = session_version(&self.session_dir).unwrap_or_else(|| version.to_string());
+        let (modules, demo_data) = (modules.to_vec(), self.demo_data);
         let session_dir = self.session_dir.clone();
         let (running, version, chosen) = tokio::task::spawn_blocking(move || {
             // The session's database, when it has one that still exists; otherwise
@@ -473,8 +508,7 @@ impl DiagramServer {
         .context("starting Odoo")??;
 
         fs::create_dir_all(self.session_dir.join("screenshots"))?;
-        let shots: Vec<Shot> = p
-            .pages
+        let shots: Vec<Shot> = pages
             .iter()
             .zip(&files)
             .map(|(page, stem)| Shot {
@@ -493,22 +527,84 @@ impl DiagramServer {
         } else {
             "a database of that version, picked automatically"
         };
-        let mut answer = format!(
+        let header = format!(
             "Odoo {version} ({whose}: {}). Place each with diagram_add_image; point at what is on it with `anchor`.\n",
             running.database
         );
-        for ((shot, stem), map) in shots.iter().zip(&files).zip(&maps) {
+        let mut taken = Vec::new();
+        for ((shot, stem), map) in shots.into_iter().zip(files).zip(maps) {
             write_atomic(
                 &self.session_dir.join(format!("screenshots/{stem}.json")),
-                serde_json::to_string(map)?.as_bytes(),
+                serde_json::to_string(&map)?.as_bytes(),
             )?;
-            answer.push_str(&format!(
-                "\nscreenshots/{stem}.png ({}x{}) of {}:\n{}\n",
-                shot.viewport.width,
-                shot.viewport.height,
-                shot.page,
-                describe(map)
-            ));
+            taken.push((stem, shot, map));
+        }
+        Ok((header, taken))
+    }
+
+    /// Take every screen of the plan in one go, then lay the whole spec out.
+    async fn build_spec(&self, p: plan::SpecPlan) -> Result<String> {
+        plan::validate(&p)?;
+        let screens = plan::screens(&p);
+        let mut stems = Vec::new();
+        for s in &screens {
+            let stem = file_stem(&s.name)?;
+            ensure!(
+                !stems.contains(&stem),
+                "Screen names \"{}\" and another one give the same file name: rename one.",
+                s.name
+            );
+            stems.push(stem);
+        }
+        let pages: Vec<PageShot> = screens
+            .iter()
+            .map(|s| PageShot {
+                page: s.page.clone(),
+                name: s.name.clone(),
+                width: s.width,
+                height: s.height,
+            })
+            .collect();
+        let mut shots = std::collections::HashMap::new();
+        let mut database = String::new();
+        if !pages.is_empty() {
+            let (header, taken) = self.shoot(&p.version, &p.modules, &pages).await?;
+            database = header
+                .split(". Place")
+                .next()
+                .unwrap_or_default()
+                .to_string();
+            for ((stem, shot, map), screen) in taken.into_iter().zip(&screens) {
+                let png = fs::read(&shot.out).context("The screenshot was not saved.")?;
+                shots.insert(
+                    screen.name.clone(),
+                    plan::ShotData {
+                        path: format!("screenshots/{stem}.png"),
+                        png,
+                        map,
+                    },
+                );
+            }
+        }
+        let _guard = self.lock.lock().await;
+        let mut scene = self.load()?;
+        let report = plan::build(&mut scene, &p, &shots)?;
+        write_atomic(&self.scene_path(), scene.to_json().as_bytes())?;
+        let mut answer = format!("Built the spec: {} elements.", report.elements);
+        if !database.is_empty() {
+            answer.push_str(&format!(" Screens from {database}."));
+        }
+        if report.warnings.is_empty() {
+            answer.push_str(" Nothing overlaps and every note found its target.");
+        } else {
+            answer.push_str("\nFix these, then call spec_build again with the corrected plan:\n");
+            for w in &report.warnings {
+                answer.push_str(&format!("- {w}\n"));
+            }
+            // Help with the anchor names: what each screen has.
+            for (name, shot) in &shots {
+                answer.push_str(&format!("\n{name}:\n{}\n", describe(&shot.map)));
+            }
         }
         Ok(answer)
     }

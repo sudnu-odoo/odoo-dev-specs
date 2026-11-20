@@ -102,6 +102,7 @@ async fn offers_the_diagram_tools() {
             "diagram_set_text",
             "diagram_summary",
             "odoo_screenshots",
+            "spec_build",
         ]
     );
 }
@@ -599,4 +600,49 @@ async fn an_unknown_anchor_says_what_can_be_targeted() {
     .await;
     assert!(is_error(&r));
     assert!(text(&r).contains("image_id"), "{}", text(&r));
+}
+
+#[tokio::test]
+async fn spec_build_lays_out_a_plan_in_one_call() {
+    let dir = session();
+    let client = connect(dir.path()).await;
+    let plan = json!({
+        "title": "Approval matrix", "need": "Expenses go through department and finance approval.",
+        "context": ["Odoo.sh 19.0"], "version": "19.0",
+        "sections": [{"title": "Expense flow", "kind": "to_be", "text": ["1. Draft", "2. Dept review"]}],
+        "tests": ["Employee: submits -> Dept review"]
+    });
+    let result = call(&client, "spec_build", plan.clone()).await;
+    assert!(!is_error(&result), "{}", text(&result));
+    assert!(text(&result).contains("Built the spec"));
+    let count = |d: &Value| {
+        d["elements"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|e| e["isDeleted"] != true)
+            .count()
+    };
+    let first = count(&scene(&dir));
+    assert!(first >= 5);
+    // Sent again: replaced, not added twice.
+    call(&client, "spec_build", plan).await;
+    assert_eq!(count(&scene(&dir)), first);
+}
+
+#[tokio::test]
+async fn spec_build_with_screens_needs_the_local_odoo() {
+    let dir = session();
+    let client = connect(dir.path()).await;
+    let result = call(
+        &client,
+        "spec_build",
+        json!({
+            "title": "T", "need": "N", "version": "19.0",
+            "sections": [{"title": "S", "screens": [{"name": "form", "page": "/odoo/sales"}]}]
+        }),
+    )
+    .await;
+    assert!(is_error(&result));
+    assert!(text(&result).contains("not available"), "{}", text(&result));
 }

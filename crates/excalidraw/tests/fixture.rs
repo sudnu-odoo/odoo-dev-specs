@@ -57,7 +57,10 @@ fn write_sample_for_the_ui_compatibility_test() {
             Some(&frame),
         )
         .unwrap();
-    s.add_arrow(&order, &delivery, Some("adds")).unwrap();
+    let adds = s.add_arrow(&order, &delivery, Some("adds")).unwrap();
+    s.style_line(&adds, Color::Red, true).unwrap();
+    s.tag(&adds, "spec_build").unwrap();
+    s.add_panel((-30.0, -30.0, 960.0, 560.0), Color::Green);
     s.add_text(
         "Spec: delivery window",
         Placement::default(),

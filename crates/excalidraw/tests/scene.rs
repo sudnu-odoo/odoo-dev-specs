@@ -610,3 +610,59 @@ fn an_image_remembers_the_screenshot_it_came_from() {
     );
     assert!(s.set_source("nope", "x.png").is_err());
 }
+
+// ---- building blocks for laying out a whole spec ----
+
+#[test]
+fn a_panel_is_a_tinted_background_drawn_behind_everything() {
+    let mut s = empty();
+    let text = s.add_text("Hello", at(10.0, 10.0), None, None);
+    let panel = s.add_panel((0.0, 0.0, 400.0, 200.0), Color::Blue);
+    let d = doc(&s);
+    let elements = d["elements"].as_array().unwrap();
+    assert_eq!(
+        elements[0]["id"],
+        panel.as_str(),
+        "first = drawn at the back"
+    );
+    assert_eq!(elements[1]["id"], text.as_str());
+    let p = element(&s, &panel);
+    assert_eq!(p["type"], "rectangle");
+    assert_ne!(p["backgroundColor"], "transparent");
+    assert!(p["opacity"].as_f64().unwrap() < 100.0);
+    assert!(
+        s.overlapping(&text).is_empty(),
+        "a panel never counts as an overlap"
+    );
+}
+
+#[test]
+fn an_arrow_can_be_made_red_and_dashed() {
+    let mut s = empty();
+    let a = s.add_box("A", at(0.0, 0.0), None, None, None).unwrap();
+    let b = s.add_box("B", at(600.0, 0.0), None, None, None).unwrap();
+    let arrow = s.add_arrow(&a, &b, Some("rule")).unwrap();
+    s.style_line(&arrow, Color::Red, true).unwrap();
+    let e = element(&s, &arrow);
+    assert_eq!(e["strokeStyle"], "dashed");
+    assert_eq!(e["strokeColor"], "#e03131");
+}
+
+#[test]
+fn tagged_elements_are_found_again_and_measured_together() {
+    let mut s = empty();
+    let one = s.add_text("One", at(0.0, 0.0), None, None);
+    let two = s.add_text("Two", at(100.0, 300.0), None, None);
+    let mine = s.add_text("Mine", at(0.0, 900.0), None, None);
+    s.tag(&one, "spec").unwrap();
+    s.tag(&two, "spec").unwrap();
+    let mut found = s.tagged("spec");
+    found.sort();
+    let mut want = vec![one.clone(), two.clone()];
+    want.sort();
+    assert_eq!(found, want);
+    assert!(!s.tagged("spec").contains(&mine));
+    let (x, y, w, h) = s.bounds(&[one, two]).unwrap();
+    assert_eq!((x, y), (0.0, 0.0));
+    assert!(w > 100.0 && h > 300.0);
+}
