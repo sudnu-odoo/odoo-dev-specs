@@ -64,8 +64,8 @@ pub fn models(provider: Provider) -> Vec<Model> {
             ("haiku", "Haiku (fastest)"),
         ],
         Provider::Antigravity => &[
-            ("gemini-3.8-flash-high", "Gemini 3.8 Flash (High)"),
             ("gemini-3.8-flash-medium", "Gemini 3.8 Flash (Medium)"),
+            ("gemini-3.8-flash-high", "Gemini 3.8 Flash (High)"),
             ("gemini-3.8-flash-low", "Gemini 3.8 Flash (Low)"),
             ("claude-sonnet-4-6", "Claude Sonnet 4.6 (Thinking)"),
             ("claude-opus-4-6-thinking", "Claude Opus 4.6 (Thinking)"),
@@ -152,6 +152,10 @@ mod tests {
         let claude = models(Provider::Claude);
         assert_eq!(claude.first().unwrap().id, "sonnet");
         assert_eq!(default_model(Provider::Claude), "sonnet");
+        assert_eq!(
+            default_model(Provider::Antigravity),
+            "gemini-3.8-flash-medium"
+        );
     }
 
     #[test]

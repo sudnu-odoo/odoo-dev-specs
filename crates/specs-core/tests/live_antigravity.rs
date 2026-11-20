@@ -145,7 +145,10 @@ async fn real_agy_starts_a_screen_change_from_a_screenshot() {
     let agy = ClaudeConfig {
         diagram_tools: Some(mcp),
         runtime_dir: Some(odoo_runtime::runtime::Runtime::default_root()),
-        model: None,
+        // The Odoo source of the session's version, as the app passes it.
+        read_dirs: runtime.source_dirs_for("19.0"),
+        // AGY_MODEL picks another model, e.g. when the Gemini quota is used up.
+        model: std::env::var("AGY_MODEL").ok(),
         ..real_agy()
     };
 
