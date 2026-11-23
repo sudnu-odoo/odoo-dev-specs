@@ -1435,3 +1435,103 @@ fn opening_a_database_starts_it_and_gives_its_login_page() {
     );
     assert!(env.rt.open_database("no_such_db").is_err());
 }
+
+// --- Setup rules, used by the app's setup screen ---
+
+#[test]
+fn ready_versions_and_folders_not_used_yet_are_told_apart() {
+    let env = Env::new(&[], false);
+    let home = env.dir.path().join("home");
+    fake_checkout(&home.join("odev/worktrees/19.0"), "19.0", true);
+    fake_checkout(&home.join("odev/worktrees/18.0"), "18.0", false);
+    assert!(env.rt.ready_versions().is_empty());
+    assert_eq!(env.rt.unused_sources(&home).len(), 2);
+
+    // 19.0 Community used: 19.0 still listed, for its Enterprise.
+    env.rt
+        .use_folder(
+            "19.0",
+            Edition::Community,
+            &home.join("odev/worktrees/19.0/odoo"),
+        )
+        .unwrap();
+    assert_eq!(env.rt.ready_versions(), ["19.0"]);
+    let unused: Vec<String> = env
+        .rt
+        .unused_sources(&home)
+        .into_iter()
+        .map(|f| f.version)
+        .collect();
+    assert_eq!(unused.len(), 2, "{unused:?}");
+    env.rt
+        .use_folder(
+            "19.0",
+            Edition::Enterprise,
+            &home.join("odev/worktrees/19.0/enterprise"),
+        )
+        .unwrap();
+    let unused: Vec<String> = env
+        .rt
+        .unused_sources(&home)
+        .into_iter()
+        .map(|f| f.version)
+        .collect();
+    assert_eq!(unused, ["18.0"]);
+}
+
+#[test]
+fn a_picked_folder_gives_its_version_with_both_editions() {
+    let env = Env::new(&[], false);
+    let picked = env.dir.path().join("work/odoo-19");
+    fake_checkout(&picked, "19.0", true);
+    assert_eq!(env.rt.use_source_at(&picked).unwrap(), "19.0");
+    assert!(env.rt.enterprise_available("19.0"));
+    let err = env.rt.use_source_at(env.dir.path()).unwrap_err();
+    assert!(format!("{err:#}").contains("has no Odoo source"), "{err:#}");
+}
+
+#[test]
+fn community_is_downloaded_then_prepared_enterprise_only_downloaded() {
+    let env = Env::new(&[], false);
+    let mut steps = Vec::new();
+    env.rt
+        .download_and_prepare("19.0", Edition::Community, &mut |p| {
+            steps.push(format!("{p:?}"))
+        })
+        .unwrap();
+    assert_eq!(
+        steps.last().map(String::as_str),
+        Some("None"),
+        "preparing, no %: {steps:?}"
+    );
+    assert!(env.calls().iter().any(|c| c.contains("python -m venv")));
+    let venvs = env.count("python -m venv");
+    env.rt
+        .download_and_prepare("19.0", Edition::Enterprise, &mut |_| {})
+        .unwrap();
+    assert_eq!(
+        env.count("python -m venv"),
+        venvs,
+        "Enterprise needs no Python"
+    );
+}
+
+#[test]
+fn stale_versions_are_updated_together() {
+    let env = Env::new(&[], false);
+    for v in ["19.0", "saas-19.2"] {
+        env.rt
+            .download_source(v, Edition::Community, &mut |_| {})
+            .unwrap();
+    }
+    let resets = || {
+        env.calls()
+            .iter()
+            .filter(|c| c.contains("reset --hard"))
+            .count()
+    };
+    let before = resets();
+    let failed = env.rt.update_stale_versions(Duration::ZERO);
+    assert!(failed.is_empty(), "{failed:?}");
+    assert_eq!(resets() - before, 2);
+}

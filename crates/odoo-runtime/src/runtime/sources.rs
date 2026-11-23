@@ -631,6 +631,82 @@ impl Runtime {
         Ok(used)
     }
 
+    /// Versions Odoo can run from right now (their Community source is here), newest
+    /// first.
+    pub fn ready_versions(&self) -> Vec<String> {
+        self.downloaded_versions()
+            .into_iter()
+            .filter(|v| v.community != SourceState::Missing)
+            .map(|v| v.version)
+            .collect()
+    }
+
+    /// Odoo source found in the person's folders that the app does not use yet: a
+    /// version not here, or its Enterprise when only Community is used.
+    pub fn unused_sources(&self, home: &Path) -> Vec<FoundSource> {
+        let ready = self.ready_versions();
+        self.find_sources(home)
+            .into_iter()
+            .filter(|f| {
+                !ready.contains(&f.version)
+                    || (f.enterprise.is_some()
+                        && self.source_state(&f.version, Edition::Enterprise)
+                            == SourceState::Missing)
+            })
+            .collect()
+    }
+
+    /// Use the Odoo source in a folder the person picked (Community, and Enterprise
+    /// when next to it). Returns its version.
+    ///
+    /// # Errors
+    /// The folder holds no Odoo source, or it cannot be used.
+    pub fn use_source_at(&self, dir: &Path) -> Result<String> {
+        let found = self.source_at(dir).with_context(|| {
+            format!(
+                "{} has no Odoo source: pick the folder with odoo-bin, or the one holding the odoo folder.",
+                dir.display()
+            )
+        })?;
+        self.use_folder(&found.version, Edition::Community, &found.community)?;
+        if let Some(enterprise) = &found.enterprise {
+            self.use_folder(&found.version, Edition::Enterprise, enterprise)?;
+        }
+        Ok(found.version)
+    }
+
+    /// Download an edition; after Community, prepare Odoo's Python packages too, so
+    /// the first spec is fast. `progress` gets 0..=100, then `None` while preparing.
+    ///
+    /// # Errors
+    /// The download or the Python packages failed (`NoAccess` without GitHub access).
+    pub fn download_and_prepare(
+        &self,
+        version: &str,
+        edition: Edition,
+        progress: &mut dyn FnMut(Option<u8>),
+    ) -> Result<()> {
+        self.download_source(version, edition, &mut |p| progress(Some(p)))?;
+        if edition == Edition::Community {
+            progress(None);
+            self.ensure_venv(version)?;
+        }
+        Ok(())
+    }
+
+    /// Bring every version older than `max_age` up to date. Returns the versions that
+    /// could not be updated, with why.
+    pub fn update_stale_versions(&self, max_age: Duration) -> Vec<(String, anyhow::Error)> {
+        self.downloaded_versions()
+            .into_iter()
+            .filter_map(|v| {
+                self.update_if_stale(&v.version, max_age)
+                    .err()
+                    .map(|e| (v.version, e))
+            })
+            .collect()
+    }
+
     /// The versions on this computer.
     pub fn downloaded_versions(&self) -> Vec<VersionInfo> {
         let mut list: Vec<VersionInfo> = fs::read_dir(self.root.join("sources"))

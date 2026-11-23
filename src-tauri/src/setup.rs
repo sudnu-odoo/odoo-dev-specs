@@ -11,9 +11,7 @@ use std::time::Duration;
 /// Odoo fixes its branches every week: a version is brought up to date after that.
 const WEEK: Duration = Duration::from_secs(7 * 24 * 3600);
 
-use odoo_runtime::runtime::{
-    Edition, FoundSource, NoAccess, Runtime as OdooRuntime, SourceState, VersionInfo,
-};
+use odoo_runtime::runtime::{Edition, FoundSource, NoAccess, Runtime as OdooRuntime, VersionInfo};
 use odoo_runtime::system::{self, SystemProbe, SystemReport};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Runtime, State};
@@ -60,12 +58,22 @@ impl Default for SetupHooks {
     }
 }
 
+/// Where a long setup step is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum TaskState {
+    Running,
+    Done,
+    Failed,
+    /// GitHub refused: the person's account cannot read that repository.
+    NoAccess,
+}
+
 /// A long setup step, as the UI shows it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Task {
-    /// "running", "done", "failed" or "noAccess".
-    pub state: &'static str,
+    pub state: TaskState,
     /// 0..=100 while downloading; none while waiting on something without progress.
     pub progress: Option<u8>,
     /// What is happening, or what went wrong, in plain words.
@@ -98,7 +106,7 @@ impl SetupState {
             .lock()
             .unwrap()
             .get(key)
-            .is_some_and(|t| t.state == "running")
+            .is_some_and(|t| t.state == TaskState::Running)
     }
 }
 
@@ -142,13 +150,13 @@ fn update<R: Runtime>(app: &AppHandle<R>, setup: &SetupState, key: &str, task: T
 
 fn running(progress: Option<u8>, message: &str) -> Task {
     Task {
-        state: "running",
+        state: TaskState::Running,
         progress,
         message: message.into(),
     }
 }
 
-fn finished(state: &'static str, message: impl Into<String>) -> Task {
+fn finished(state: TaskState, message: impl Into<String>) -> Task {
     Task {
         state,
         progress: None,
@@ -164,22 +172,8 @@ pub async fn setup_status(state: State<'_, AppState>) -> Result<SetupStatus, Str
         state.providers.clone(),
     );
     tauri::async_runtime::spawn_blocking(move || {
-        let versions: Vec<String> = odoo
-            .downloaded_versions()
-            .into_iter()
-            .filter(|v| v.community != SourceState::Missing)
-            .map(|v| v.version)
-            .collect();
-        let found = odoo
-            .find_sources(&setup.hooks.home)
-            .into_iter()
-            .filter(|f| {
-                !versions.contains(&f.version)
-                    || (f.enterprise.is_some()
-                        && odoo.source_state(&f.version, Edition::Enterprise)
-                            == SourceState::Missing)
-            })
-            .collect();
+        let versions = odoo.ready_versions();
+        let found = odoo.unused_sources(&setup.hooks.home);
         SetupStatus {
             system: system::report(&(setup.hooks.probe)()),
             versions,
@@ -207,23 +201,10 @@ pub async fn use_found_sources(state: State<'_, AppState>) -> Result<Vec<String>
 /// its version is read from the code. Returns that version.
 #[tauri::command]
 pub fn use_source_folder(state: State<'_, AppState>, path: PathBuf) -> Result<String, String> {
-    let found = state.odoo.source_at(&path).ok_or_else(|| {
-        format!(
-            "{} has no Odoo source: pick the folder with odoo-bin, or the one holding the odoo folder.",
-            path.display()
-        )
-    })?;
     state
         .odoo
-        .use_folder(&found.version, Edition::Community, &found.community)
-        .and_then(|()| match &found.enterprise {
-            Some(ee) => state
-                .odoo
-                .use_folder(&found.version, Edition::Enterprise, ee),
-            None => Ok(()),
-        })
-        .map_err(|e| format!("{e:#}"))?;
-    Ok(found.version)
+        .use_source_at(&path)
+        .map_err(|e| format!("{e:#}"))
 }
 
 /// Whether the app's key reads Odoo's repositories (for downloading, in Settings).
@@ -256,7 +237,7 @@ pub async fn install_tools<R: Runtime>(
             &app,
             &setup,
             "tools",
-            finished("done", "Everything is installed."),
+            finished(TaskState::Done, "Everything is installed."),
         );
         return Ok(());
     }
@@ -286,12 +267,12 @@ pub async fn install_tools<R: Runtime>(
                 &app,
                 setup,
                 "tools",
-                finished("done", "Everything is installed."),
+                finished(TaskState::Done, "Everything is installed."),
             );
             Ok(())
         }
         Err(e) => {
-            update(&app, setup, "tools", finished("failed", e.clone()));
+            update(&app, setup, "tools", finished(TaskState::Failed, e.clone()));
             Err(e)
         }
     }
@@ -314,26 +295,17 @@ pub fn download_odoo<R: Runtime>(
     let odoo = state.odoo.clone();
     update(&app, &setup, &key, running(Some(0), "Downloading…"));
     std::thread::spawn(move || {
-        let mut report = |p: u8| update(&app, &setup, &key, running(Some(p), "Downloading…"));
-        let outcome = odoo
-            .download_source(&version, edition, &mut report)
-            .and_then(|()| {
-                if edition == Edition::Community {
-                    update(
-                        &app,
-                        &setup,
-                        &key,
-                        running(None, "Preparing Odoo… (a few minutes)"),
-                    );
-                    odoo.ensure_venv(&version).map(|_| ())
-                } else {
-                    Ok(())
-                }
-            });
+        let outcome = odoo.download_and_prepare(&version, edition, &mut |progress| {
+            let message = match progress {
+                Some(_) => "Downloading…",
+                None => "Preparing Odoo… (a few minutes)",
+            };
+            update(&app, &setup, &key, running(progress, message));
+        });
         let task = match outcome {
-            Ok(()) => finished("done", "Ready."),
-            Err(e) if e.is::<NoAccess>() => finished("noAccess", e.to_string()),
-            Err(e) => finished("failed", format!("{e:#}")),
+            Ok(()) => finished(TaskState::Done, "Ready."),
+            Err(e) if e.is::<NoAccess>() => finished(TaskState::NoAccess, e.to_string()),
+            Err(e) => finished(TaskState::Failed, format!("{e:#}")),
         };
         update(&app, &setup, &key, task);
     });
@@ -441,10 +413,8 @@ pub async fn update_odoo_version(
 /// At start, quietly bring each version older than a week up to date.
 pub fn start_weekly_updates(odoo: Arc<OdooRuntime>) {
     std::thread::spawn(move || {
-        for v in odoo.downloaded_versions() {
-            if let Err(e) = odoo.update_if_stale(&v.version, WEEK) {
-                eprintln!("could not update Odoo {}: {e:#}", v.version);
-            }
+        for (version, e) in odoo.update_stale_versions(WEEK) {
+            eprintln!("could not update Odoo {version}: {e:#}");
         }
     });
 }
