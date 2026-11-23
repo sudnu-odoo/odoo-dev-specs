@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from "react";
 import type { PlanUsage, PlanWindow, TokenUsage } from "../chat/chatState";
+import { usePopover } from "../app/usePopover";
 
 interface UsageMeterProps {
   plan?: PlanUsage;
@@ -52,24 +52,7 @@ export function UsageBar({ label, window }: { label: string; window: PlanWindow 
  * a card with every limit window. Before the CLI reports limits, raw tokens are shown.
  */
 export default function UsageMeter({ plan, usage }: UsageMeterProps) {
-  const [open, setOpen] = useState(false);
-  const root = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    const onDown = (e: MouseEvent) => {
-      if (!root.current?.contains(e.target as Node)) setOpen(false);
-    };
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setOpen(false);
-    };
-    document.addEventListener("mousedown", onDown);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("mousedown", onDown);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [open]);
+  const { open, setOpen, root } = usePopover();
 
   const session = plan?.five_hour;
   if (!session) {

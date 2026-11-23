@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import type { Model } from "../lib/types";
+import { usePopover } from "../app/usePopover";
 
 /** Effort levels both CLIs accept; "" leaves the CLI's default. */
 export const EFFORTS = ["", "low", "medium", "high", "xhigh", "max"] as const;
@@ -101,29 +102,9 @@ export default function ModelMenu({
 }: ModelMenuProps) {
   const groups = groupByProvider(models);
   const current = models.find((m) => m.id === selected);
-  const [open, setOpen] = useState(false);
+  const { open, setOpen, root } = usePopover();
   // The service whose models are listed: the chosen model's, until another is picked.
   const [viewed, setViewed] = useState(current?.provider ?? groups[0]?.[0] ?? "");
-  const root = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    setViewed(current?.provider ?? groups[0]?.[0] ?? "");
-    const onDown = (e: MouseEvent) => {
-      if (!root.current?.contains(e.target as Node)) setOpen(false);
-    };
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setOpen(false);
-    };
-    document.addEventListener("mousedown", onDown);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("mousedown", onDown);
-      document.removeEventListener("keydown", onKey);
-    };
-    // Only on opening: the user then moves between services freely.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open]);
 
   const [name, level] = current ? chipName(current) : ["Default model", ""];
   const takesEffort = !!onEffortChange && !!current && !hasBuiltInLevel(current.id);
@@ -140,7 +121,11 @@ export default function ModelMenu({
         aria-haspopup="menu"
         aria-expanded={open}
         disabled={disabled}
-        onClick={() => setOpen((o) => !o)}
+        onClick={() => {
+          // Opening shows the chosen model's service; the person can then browse others.
+          if (!open) setViewed(current?.provider ?? groups[0]?.[0] ?? "");
+          setOpen((o) => !o);
+        }}
       >
         {name}
         {chipLevel && <span className="model-chip-effort">{chipLevel}</span>}

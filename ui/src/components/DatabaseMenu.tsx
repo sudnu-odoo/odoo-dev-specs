@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState } from "react";
 import { appsText } from "../lib/odooApps";
 import type { DatabaseInfo } from "../lib/types";
+import { usePopover } from "../app/usePopover";
 
 export interface DatabaseMenuProps {
   databases: DatabaseInfo[];
@@ -46,19 +46,7 @@ export default function DatabaseMenu({
   onOpen,
   opening = false,
 }: DatabaseMenuProps) {
-  const [open, setOpen] = useState(false);
-  const root = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (!open) return;
-    const close = (e: MouseEvent) => !root.current?.contains(e.target as Node) && setOpen(false);
-    const esc = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);
-    document.addEventListener("mousedown", close);
-    document.addEventListener("keydown", esc);
-    return () => {
-      document.removeEventListener("mousedown", close);
-      document.removeEventListener("keydown", esc);
-    };
-  }, [open]);
+  const { open, setOpen, root } = usePopover();
 
   const current = databases.find((d) => d.name === selected);
   const label = creating

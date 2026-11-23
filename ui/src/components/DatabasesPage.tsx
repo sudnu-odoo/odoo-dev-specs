@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import type { Databases, DatabaseBusy } from "../app/useDatabases";
 import { appsText, sizeText, usedText } from "../lib/odooApps";
 import type { DatabaseInfo } from "../lib/types";
 import NewDatabaseDialog, { Dialog } from "./NewDatabaseDialog";
+import { usePopover } from "../app/usePopover";
 
 export interface DatabasesPageProps {
   dbs: Databases;
@@ -205,19 +206,7 @@ function RowMenu({
   disabled: boolean;
   items: [string, () => void][];
 }) {
-  const [open, setOpen] = useState(false);
-  const root = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (!open) return;
-    const close = (e: MouseEvent) => !root.current?.contains(e.target as Node) && setOpen(false);
-    const esc = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);
-    document.addEventListener("mousedown", close);
-    document.addEventListener("keydown", esc);
-    return () => {
-      document.removeEventListener("mousedown", close);
-      document.removeEventListener("keydown", esc);
-    };
-  }, [open]);
+  const { open, setOpen, root } = usePopover();
   return (
     <div className="row-menu" ref={root}>
       <button

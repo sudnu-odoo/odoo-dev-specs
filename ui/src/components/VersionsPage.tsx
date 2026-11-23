@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { type Download, type DownloadStep, useOdooDownloads } from "../app/useOdooDownloads";
 import { useOdooVersions } from "../app/useOdooVersions";
 import { api } from "../lib/api";
@@ -7,6 +7,7 @@ import { pickFolder } from "../lib/pickFolder";
 import { sizeText } from "../lib/odooApps";
 import type { Edition, VersionInfo } from "../lib/types";
 import { versionLabel } from "./HostingMenu";
+import { usePopover } from "../app/usePopover";
 
 const edition = (v: VersionInfo) =>
   [
@@ -297,20 +298,8 @@ function VersionPicker({
   value: string;
   onChange: (version: string) => void;
 }) {
-  const [open, setOpen] = useState(false);
+  const { open, setOpen, root } = usePopover();
   const [up, setUp] = useState(false);
-  const root = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (!open) return;
-    const close = (e: MouseEvent) => !root.current?.contains(e.target as Node) && setOpen(false);
-    const esc = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);
-    document.addEventListener("mousedown", close);
-    document.addEventListener("keydown", esc);
-    return () => {
-      document.removeEventListener("mousedown", close);
-      document.removeEventListener("keydown", esc);
-    };
-  }, [open]);
 
   function toggle() {
     const box = root.current?.getBoundingClientRect();

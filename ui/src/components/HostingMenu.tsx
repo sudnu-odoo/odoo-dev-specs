@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from "react";
 import type { Hosting } from "../lib/types";
+import { usePopover } from "../app/usePopover";
 
 /** "saas-19.2" -> "19.2"; stable versions stay as they are. */
 export const versionLabel = (v: string) => v.replace(/^saas-/, "");
@@ -40,19 +40,7 @@ export default function HostingMenu({
   loading,
   onChange,
 }: HostingMenuProps) {
-  const [open, setOpen] = useState(false);
-  const root = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (!open) return;
-    const close = (e: MouseEvent) => !root.current?.contains(e.target as Node) && setOpen(false);
-    const esc = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);
-    document.addEventListener("mousedown", close);
-    document.addEventListener("keydown", esc);
-    return () => {
-      document.removeEventListener("mousedown", close);
-      document.removeEventListener("keydown", esc);
-    };
-  }, [open]);
+  const { open, setOpen, root } = usePopover();
 
   const saas = available.filter((v) => v.startsWith("saas-"));
   const stable = available.filter((v) => !v.startsWith("saas-"));
