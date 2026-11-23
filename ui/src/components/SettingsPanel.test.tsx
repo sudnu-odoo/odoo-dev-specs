@@ -107,7 +107,7 @@ describe("SettingsPanel", () => {
   it("chooses the diagram theme, light by default", async () => {
     localStorage.clear();
     render(<SettingsPanel onClose={vi.fn()} />);
-    const theme = await screen.findByRole("radiogroup", { name: "Diagram theme" });
+    const theme = await screen.findByRole("radiogroup", { name: "Theme" });
     expect(theme.querySelector('[aria-checked="true"]')).toHaveTextContent("Light");
     await userEvent.click(screen.getByRole("radio", { name: "Dark" }));
     expect(localStorage.getItem("canvasTheme")).toBe("dark");

@@ -1,10 +1,12 @@
 import { useEffect, useState } from "react";
+import { useAppTheme } from "./lib/canvasTheme";
 import SessionDiagram from "./components/SessionDiagram";
 import { api } from "./lib/api";
 import type { DiagramTarget } from "./lib/types";
 
 /** Page of the separate diagram window; follows the session open in the main window. */
 export default function DiagramWindow({ initial }: { initial: DiagramTarget }) {
+  useAppTheme();
   const [target, setTarget] = useState(initial);
 
   useEffect(() => {

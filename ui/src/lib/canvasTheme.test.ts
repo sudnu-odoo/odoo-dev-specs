@@ -1,6 +1,12 @@
 import { act, renderHook } from "@testing-library/react";
 import { beforeEach, describe, expect, it } from "vitest";
-import { getCanvasTheme, setCanvasTheme, useCanvasTheme, useResolvedCanvasTheme } from "./canvasTheme";
+import {
+  getCanvasTheme,
+  setCanvasTheme,
+  useAppTheme,
+  useCanvasTheme,
+  useResolvedCanvasTheme,
+} from "./canvasTheme";
 
 beforeEach(() => localStorage.clear());
 
@@ -23,5 +29,14 @@ describe("canvas theme", () => {
     const { result } = renderHook(() => useResolvedCanvasTheme());
     // jsdom has no matchMedia: it counts as a light system.
     expect(result.current).toBe("light");
+  });
+
+  it("applies to the whole app, not only the diagram", () => {
+    renderHook(() => useAppTheme());
+    expect(document.documentElement.dataset.theme).toBe("light");
+    act(() => setCanvasTheme("dark"));
+    expect(document.documentElement.dataset.theme).toBe("dark");
+    act(() => setCanvasTheme("system"));
+    expect(document.documentElement.dataset.theme).toBe("light");
   });
 });

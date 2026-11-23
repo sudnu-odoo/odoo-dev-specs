@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useAppTheme } from "./lib/canvasTheme";
 import { Panel, PanelGroup, PanelResizeHandle } from "react-resizable-panels";
 import { useDatabases } from "./app/useDatabases";
 import { useOdooVersions } from "./app/useOdooVersions";
@@ -22,6 +23,7 @@ import Sidebar from "./components/Sidebar";
 import { api } from "./lib/api";
 
 export default function App() {
+  useAppTheme();
   const app = useSpecsApp();
   const dbs = useDatabases();
   const versions = useOdooVersions();

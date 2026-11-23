@@ -141,10 +141,10 @@ export default function SettingsPanel({ onClose, onOpenSetup }: SettingsPanelPro
                   </Row>
                 </div>
               )}
-              <h3>Diagram</h3>
+              <h3>Appearance</h3>
               <div className="settings-card">
-                <Row label="Theme" hint="Screenshots always keep their real colours">
-                  <div className="segmented" role="radiogroup" aria-label="Diagram theme">
+                <Row label="Theme" hint="The app and the diagram. Screenshots always keep their real colours">
+                  <div className="segmented" role="radiogroup" aria-label="Theme">
                     {(["light", "dark", "system"] as CanvasTheme[]).map((t) => (
                       <button
                         key={t}

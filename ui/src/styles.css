@@ -10,19 +10,18 @@
   --danger: #b42318;
   color-scheme: light;
 }
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #16161a;
-    --surface: #1e1e23;
-    --border: #2e2e36;
-    --text: #ececf1;
-    --muted: #9a9aa6;
-    --accent: #a07a98;
-    --accent-text: #ffffff;
-    --active: #2c2530;
-    --danger: #f97066;
-    color-scheme: dark;
-  }
+/* Dark, as chosen in Settings → Appearance (System follows the computer). */
+:root[data-theme="dark"] {
+  --bg: #16161a;
+  --surface: #1e1e23;
+  --border: #2e2e36;
+  --text: #ececf1;
+  --muted: #9a9aa6;
+  --accent: #a07a98;
+  --accent-text: #ffffff;
+  --active: #2c2530;
+  --danger: #f97066;
+  color-scheme: dark;
 }
 
 * {

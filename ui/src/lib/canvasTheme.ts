@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 
-/** The diagram canvas theme, chosen in Settings. A per-computer display preference. */
+/** The app's theme (the diagram canvas included), chosen in Settings. A per-computer display preference. */
 export type CanvasTheme = "light" | "dark" | "system";
 
 const KEY = "canvasTheme";
@@ -54,4 +54,12 @@ export function useResolvedCanvasTheme(): "light" | "dark" {
     return () => query.removeEventListener("change", update);
   }, []);
   return theme === "system" ? (dark ? "dark" : "light") : theme;
+}
+
+/** Apply the theme to the whole window (its colours follow `data-theme`). */
+export function useAppTheme() {
+  const theme = useResolvedCanvasTheme();
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+  }, [theme]);
 }
