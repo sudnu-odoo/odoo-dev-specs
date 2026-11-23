@@ -506,8 +506,7 @@ describe("App", () => {
     expect(mocked.setSessionVersion).toHaveBeenCalledWith({ project: "Acme", sessionId: "s1" }, "saas-19.2");
   });
 
-  it("attaches a report after the reminder, and sends it with the message", async () => {
-    const { confirmAction } = await import("./lib/confirm");
+  it("attaches a report straight away, and sends it with the message", async () => {
     const quote = {
       name: "quotation.pdf",
       textFile: "attachments/quotation.md",
@@ -519,7 +518,6 @@ describe("App", () => {
     mocked.attachFile.mockResolvedValue(quote);
     await openSession("Delivery window");
     await userEvent.click(screen.getByRole("button", { name: "Attach a report (PDF)" }));
-    expect(vi.mocked(confirmAction).mock.calls.at(-1)?.[0]).toMatch(/blank or sample/);
     await waitFor(() =>
       expect(mocked.attachFile).toHaveBeenCalledWith(
         { project: "Acme", sessionId: "s1" },
@@ -535,14 +533,5 @@ describe("App", () => {
       null,
       [quote],
     );
-  });
-
-  it("attaches nothing when the reminder is declined", async () => {
-    const { confirmAction } = await import("./lib/confirm");
-    vi.mocked(confirmAction).mockResolvedValueOnce(false);
-    await openSession("Delivery window");
-    await userEvent.click(screen.getByRole("button", { name: "Attach a report (PDF)" }));
-    await waitFor(() => expect(vi.mocked(confirmAction)).toHaveBeenCalled());
-    expect(mocked.attachFile).not.toHaveBeenCalled();
   });
 });

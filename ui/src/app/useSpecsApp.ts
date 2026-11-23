@@ -220,16 +220,9 @@ export function useSpecsApp() {
     [chat.items, effort, models, refresh, selected, selectedModel, session],
   );
 
-  /** Attach a PDF report: remind first that it must hold no real client data. */
+  /** Attach a PDF report; the app removes the personal data it recognises. */
   const attach = useCallback(async (): Promise<Attachment | null> => {
     if (!selected) return null;
-    const ok = await confirmAction(
-      "Attach only a blank or sample report, never one with real client data.\n\n" +
-        "The app removes emails, phone numbers, amounts, tax and bank numbers it recognises, " +
-        "but not names: remove those yourself first.",
-      "Attach a report",
-    );
-    if (!ok) return null;
     const path = await pickFile("Attach a report", [{ name: "PDF", extensions: ["pdf"] }]);
     return path ? api.attachFile(selected, path) : null;
   }, [selected]);

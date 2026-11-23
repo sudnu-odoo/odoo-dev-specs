@@ -179,7 +179,7 @@ export default function ChatPanel({
                 type="button"
                 className="icon-btn attach-btn"
                 aria-label="Attach a report (PDF)"
-                title="Attach a report (PDF): a blank or sample one, never real client data"
+                title="Attach a report (PDF)"
                 disabled={running || attaching}
                 aria-busy={attaching || undefined}
                 onClick={attach}
