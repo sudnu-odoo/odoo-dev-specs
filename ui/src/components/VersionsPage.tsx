@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { type Download, type DownloadStep, useOdooDownloads } from "../app/useOdooDownloads";
 import { useOdooVersions } from "../app/useOdooVersions";
 import { api } from "../lib/api";
 import { confirmAction } from "../lib/confirm";
 import { pickFolder } from "../lib/pickFolder";
 import { sizeText } from "../lib/odooApps";
-import type { Edition, SetupTask, VersionInfo } from "../lib/types";
+import type { Edition, VersionInfo } from "../lib/types";
 import { versionLabel } from "./HostingMenu";
 
 const edition = (v: VersionInfo) =>
@@ -31,16 +32,7 @@ function updatedText(ms: number): string {
   return days <= 0 ? "updated today" : days === 1 ? "updated yesterday" : `updated ${days} days ago`;
 }
 
-/** One edition's download, as its row shows it. */
-type Step = { state: "starting" | SetupTask["state"]; progress: number | null; message: string };
-/** A download started here: each edition's step; `listed` once the list was reloaded. */
-type Download = { community?: Step; enterprise?: Step; listed?: boolean };
-
-const STARTING: Step = { state: "starting", progress: null, message: "" };
-const failed = (e: unknown): Step => ({ state: "failed", progress: null, message: String(e) });
-const isOver = (s?: Step) => !!s && s.state !== "starting" && s.state !== "running";
-
-function stepText(which: Edition, step: Step): string {
+function stepText(which: Edition, step: DownloadStep): string {
   const name = which === "community" ? "Community" : "Enterprise";
   switch (step.state) {
     case "starting":
@@ -66,9 +58,6 @@ function downloadText(d: Download): string {
     .join(" · ");
 }
 
-/** Still something to wait for (shows a spinner). */
-const inProgress = (d?: Download) => !!d && [d.community, d.enterprise].some((s) => s && !isOver(s));
-
 /**
  * The Odoo versions on this computer, in Settings: each with where its files are, its
  * size and last update, Update now and Remove. Another version can be downloaded
@@ -79,43 +68,7 @@ export default function VersionsPage() {
   const [busy, setBusy] = useState<Record<string, string>>({});
   const [adding, setAdding] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const [downloads, setDownloads] = useState<Record<string, Download>>({});
-
-  const update = useCallback((version: string, change: Partial<Download>) => {
-    setDownloads((d) => ({ ...d, [version]: { ...d[version], ...change } }));
-  }, []);
-
-  // Progress of the downloads, sent by the app as they go ("community:18.0").
-  useEffect(() => {
-    const stop = api.onSetupProgress(({ key, task }) => {
-      const [which, version] = key.split(":");
-      if ((which === "community" || which === "enterprise") && version) update(version, { [which]: task });
-    });
-    return () => {
-      stop.then((unlisten) => unlisten());
-    };
-  }, [update]);
-
-  // Community first (Odoo runs from it), then Enterprise; then the list shows the version.
-  const { reload } = versions;
-  useEffect(() => {
-    for (const [version, d] of Object.entries(downloads)) {
-      if (d.community?.state === "done" && !d.enterprise) {
-        update(version, { enterprise: STARTING });
-        api.downloadOdoo(version, "enterprise").catch((e) => update(version, { enterprise: failed(e) }));
-      }
-      const over = isOver(d.community) && (d.community?.state !== "done" || isOver(d.enterprise));
-      if (over && !d.listed) {
-        update(version, { listed: true });
-        reload();
-      }
-    }
-  }, [downloads, update, reload]);
-
-  function download(version: string) {
-    update(version, { community: STARTING, enterprise: undefined, listed: false });
-    api.downloadOdoo(version, "community").catch((e) => update(version, { community: failed(e) }));
-  }
+  const { downloads, download, inProgress } = useOdooDownloads(versions.reload);
 
   async function act(version: string, what: string, action: () => Promise<void>) {
     setBusy((b) => ({ ...b, [version]: what }));
@@ -189,7 +142,7 @@ export default function VersionsPage() {
               className="settings-row"
               role="group"
               aria-label={`Odoo ${versionLabel(v.version)}`}
-              aria-busy={inProgress(d) || !!busy[v.version] || undefined}
+              aria-busy={inProgress(v.version) || !!busy[v.version] || undefined}
             >
               <div className="settings-row-text">
                 <span>Odoo {versionLabel(v.version)}</span>
@@ -199,10 +152,10 @@ export default function VersionsPage() {
                 <small className="settings-path">{whereText(v)}</small>
                 {d && <small>{downloadText(d)}</small>}
               </div>
-              {(inProgress(d) || busy[v.version]) && <span className="spinner" aria-hidden="true" />}
+              {(inProgress(v.version) || busy[v.version]) && <span className="spinner" aria-hidden="true" />}
               <button
                 className="btn btn-small"
-                disabled={!!busy[v.version] || inProgress(d) || own}
+                disabled={!!busy[v.version] || inProgress(v.version) || own}
                 onClick={() => act(v.version, "Updating…", () => api.updateOdooVersion(v.version))}
               >
                 Update now
@@ -210,7 +163,7 @@ export default function VersionsPage() {
               {!own && (
                 <button
                   className="btn btn-small"
-                  disabled={!!busy[v.version] || inProgress(d)}
+                  disabled={!!busy[v.version] || inProgress(v.version)}
                   onClick={() => chooseFolders(v.version)}
                 >
                   Use a folder…
@@ -218,7 +171,7 @@ export default function VersionsPage() {
               )}
               <button
                 className="btn btn-small"
-                disabled={!!busy[v.version] || inProgress(d)}
+                disabled={!!busy[v.version] || inProgress(v.version)}
                 onClick={async () => {
                   const ok = await confirmAction(
                     `Remove Odoo ${versionLabel(v.version)} from this computer? Its databases stay, and it downloads again when a session needs it.`,
@@ -238,14 +191,14 @@ export default function VersionsPage() {
             className="settings-row"
             role="group"
             aria-label={`Odoo ${versionLabel(version)}`}
-            aria-busy={inProgress(downloads[version]) || undefined}
+            aria-busy={inProgress(version) || undefined}
           >
             <div className="settings-row-text">
               <span>Odoo {versionLabel(version)}</span>
               <small>{downloadText(downloads[version])}</small>
               {folder && <small className="settings-path">{`${folder}/${version}`}</small>}
             </div>
-            {inProgress(downloads[version]) && <span className="spinner" aria-hidden="true" />}
+            {inProgress(version) && <span className="spinner" aria-hidden="true" />}
           </div>
         ))}
         {versions.loading && (
