@@ -12,4 +12,5 @@ pub mod providers;
 pub mod runner;
 pub mod settings;
 pub mod transcript;
+pub mod turn;
 pub mod workspace;

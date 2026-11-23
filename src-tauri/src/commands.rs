@@ -231,65 +231,32 @@ pub fn send_message<R: Runtime>(
     model: Option<String>,
     effort: Option<String>,
 ) -> CmdResult<()> {
-    let Some(mut claude) = state.claude.clone() else {
+    let Some(base) = &state.claude else {
         return Err("The assistant is not set up.".into());
     };
-    // Apply the latest settings, so changing demo data takes effect without a restart.
-    let current = state.settings.load();
-    claude.demo_data = current.demo_data;
-    // A session belongs to the provider of its first message; the chosen model
-    // decides only for a new session.
     let meta = state
         .workspace
         .session(&project, &session_id)
         .map_err(user_error)?;
-    claude.provider = models::session_provider(
-        &meta.provider,
-        meta.started,
-        model.as_deref().and_then(models::provider_of),
-        current.provider,
-    )?;
-    let status = (state.providers)()
-        .into_iter()
-        .find(|s| s.provider == claude.provider)
-        .ok_or("Unknown assistant.")?;
-    let name = status.name.clone();
-    claude.program = match status.program {
-        Some(program) if status.logged_in => program,
-        Some(_) => {
-            return Err(format!(
-                "{name} is not logged in. Log in from the model menu or in Settings."
-            ))
-        }
-        None => return Err(format!("{name} is not installed on this computer.")),
-    };
-    if !meta.started && meta.provider != claude.provider.id() {
+    let turn = specs_core::turn::prepare_turn(
+        base,
+        &state.settings.load(),
+        &(state.providers)(),
+        specs_core::turn::TurnRequest {
+            session: &meta,
+            text: &text,
+            model,
+            effort,
+        },
+    )
+    .map_err(user_error)?;
+    if let Some(provider) = turn.new_provider {
         state
             .workspace
-            .set_provider(&project, &session_id, claude.provider.id())
+            .set_provider(&project, &session_id, provider.id())
             .map_err(user_error)?;
     }
-    claude.effort = models::valid_effort(effort);
-    // The assistant reads the Odoo source downloaded so far (it grows with use).
-    if let Some(root) = &claude.runtime_dir {
-        let odoo = OdooRuntime::new(root, Tools::default());
-        // Only the client's version, so the AI never mixes up two versions' code.
-        let own = meta
-            .version
-            .as_deref()
-            .map(|v| odoo.source_dirs_for(v))
-            .unwrap_or_default();
-        claude.read_dirs = if own.is_empty() {
-            odoo.source_dirs()
-        } else {
-            own
-        };
-    }
-    // Use the model chosen for this message, if it belongs to the active provider.
-    claude.model = model.filter(|m| models::is_valid(claude.provider, m));
-    if text.trim().is_empty() {
-        return Err("The message is empty.".into());
-    }
+    let claude = turn.config;
     let (cancel_tx, cancel_rx) = oneshot::channel();
     {
         let mut running = state.running.lock().unwrap();
@@ -497,15 +464,7 @@ pub async fn delete_database(state: State<'_, AppState>, name: String) -> CmdRes
 /// Start the database's Odoo (if needed) and return the address to open.
 #[tauri::command]
 pub async fn start_database(state: State<'_, AppState>, name: String) -> CmdResult<String> {
-    with_odoo(&state, move |o| {
-        let info = o.database_info(&name)?;
-        o.touch_database(&name)?;
-        Ok(format!(
-            "{}/web/login",
-            o.ensure_running(&info.version, &name)?.url()
-        ))
-    })
-    .await
+    with_odoo(&state, move |o| o.open_database(&name)).await
 }
 
 #[tauri::command]

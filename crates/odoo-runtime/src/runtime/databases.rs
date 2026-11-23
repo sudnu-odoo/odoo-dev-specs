@@ -355,6 +355,20 @@ impl Runtime {
         Ok(made.name)
     }
 
+    /// Open a database for the person: start its Odoo, note it was used, and give
+    /// the address of its login page.
+    ///
+    /// # Errors
+    /// The database is unknown, or its Odoo could not start.
+    pub fn open_database(&self, name: &str) -> Result<String> {
+        let info = self.database_info(name)?;
+        self.touch_database(name)?;
+        Ok(format!(
+            "{}/web/login",
+            self.ensure_running(&info.version, name)?.url()
+        ))
+    }
+
     /// Note that the database was just used (for the list's order).
     pub fn touch_database(&self, name: &str) -> Result<()> {
         let fallback = self.unknown(name);

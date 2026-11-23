@@ -1417,3 +1417,21 @@ fn a_runtime_keeps_downloads_in_its_own_folder_unless_told() {
     assert_eq!(app.downloads_dir(), Runtime::default_downloads_dir());
     assert!(Runtime::default_downloads_dir().ends_with("odoo-versions"));
 }
+
+#[test]
+fn opening_a_database_starts_it_and_gives_its_login_page() {
+    let env = Env::new(&[], false);
+    let db = env.rt.create_database(&new_db("Open me", &[])).unwrap();
+    let before = env.rt.database_info(&db.name).unwrap().last_used;
+    std::thread::sleep(Duration::from_millis(5));
+    let url = env.rt.open_database(&db.name).unwrap();
+    assert!(
+        url.starts_with("http://127.0.0.1:") && url.ends_with("/web/login"),
+        "{url}"
+    );
+    assert!(
+        env.rt.database_info(&db.name).unwrap().last_used > before,
+        "marked as used"
+    );
+    assert!(env.rt.open_database("no_such_db").is_err());
+}
