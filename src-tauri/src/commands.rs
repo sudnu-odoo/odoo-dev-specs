@@ -46,7 +46,13 @@ pub struct AppState {
     pub odoo: Arc<OdooRuntime>,
     /// The first-run setup: checks, installs and downloads.
     pub setup: Arc<crate::setup::SetupState>,
+    /// The last check of the assistants and when: checking runs their CLIs (over a
+    /// second with agy), too slow to repeat for every message.
+    assistants_seen: Mutex<Option<(std::time::Instant, Vec<ProviderStatus>)>>,
 }
+
+/// How long a check of the assistants is reused for a message.
+const ASSISTANTS_FRESH: std::time::Duration = std::time::Duration::from_secs(60);
 
 impl AppState {
     pub fn new(
@@ -67,7 +73,24 @@ impl AppState {
                 Tools::default(),
             )),
             setup: Arc::default(),
+            assistants_seen: Mutex::default(),
         }
+    }
+
+    /// Check the assistants now, and remember the answer.
+    pub fn check_assistants(&self) -> Vec<ProviderStatus> {
+        let statuses = (self.providers)();
+        *self.assistants_seen.lock().unwrap() = Some((std::time::Instant::now(), statuses.clone()));
+        statuses
+    }
+
+    /// The assistants as last seen, when that was recent; else checked now.
+    fn recent_assistants(&self) -> Vec<ProviderStatus> {
+        match &*self.assistants_seen.lock().unwrap() {
+            Some((at, statuses)) if at.elapsed() < ASSISTANTS_FRESH => return statuses.clone(),
+            _ => {}
+        }
+        self.check_assistants()
     }
 
     /// Use another runtime folder and tools (tests).
@@ -224,8 +247,10 @@ pub fn save_scene(
 
 /// Start a turn in the background. Progress arrives as [`CHAT_EVENT`] events,
 /// always ending with a `finished` event.
+/// Async so the window never waits: on Linux a plain command runs on the thread
+/// that draws the window.
 #[tauri::command]
-pub fn send_message<R: Runtime>(
+pub async fn send_message<R: Runtime>(
     app: AppHandle<R>,
     state: State<'_, AppState>,
     project: String,
@@ -241,18 +266,26 @@ pub fn send_message<R: Runtime>(
         .workspace
         .session(&project, &session_id)
         .map_err(user_error)?;
-    let turn = specs_core::turn::prepare_turn(
-        base,
-        &state.settings.load(),
-        &(state.providers)(),
-        specs_core::turn::TurnRequest {
-            session: &meta,
-            text: &text,
-            model,
-            effort,
-        },
-    )
-    .map_err(user_error)?;
+    let settings = state.settings.load();
+    let prepare = |assistants: &[ProviderStatus]| {
+        specs_core::turn::prepare_turn(
+            base,
+            &settings,
+            assistants,
+            specs_core::turn::TurnRequest {
+                session: &meta,
+                text: &text,
+                model: model.clone(),
+                effort: effort.clone(),
+            },
+        )
+    };
+    // A recent check is enough when the assistant was ready; if not, check again:
+    // the person may have just logged in.
+    let turn = match prepare(&state.recent_assistants()) {
+        Ok(turn) => turn,
+        Err(_) => prepare(&state.check_assistants()).map_err(user_error)?,
+    };
     if let Some(provider) = turn.new_provider {
         state
             .workspace
@@ -356,9 +389,11 @@ pub async fn provider_status(state: State<'_, AppState>) -> CmdResult<Vec<Provid
 /// Checking runs the CLIs (up to a second or two), so keep it off the UI thread.
 async fn provider_statuses(state: &AppState) -> CmdResult<Vec<ProviderStatus>> {
     let check = state.providers.clone();
-    tauri::async_runtime::spawn_blocking(move || check())
+    let statuses = tauri::async_runtime::spawn_blocking(move || check())
         .await
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+    *state.assistants_seen.lock().unwrap() = Some((std::time::Instant::now(), statuses.clone()));
+    Ok(statuses)
 }
 
 /// Open the provider's login in a terminal window. The UI re-checks the status

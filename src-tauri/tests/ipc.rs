@@ -88,6 +88,9 @@ struct Harness {
     machine: Arc<Mutex<SystemProbe>>,
     /// Scripts the setup ran as root (instead of asking for a password).
     scripts: Arc<Mutex<Vec<String>>>,
+    /// What the assistants' check answers, and how many times it ran.
+    assistants: Arc<Mutex<Vec<ProviderStatus>>>,
+    assistant_checks: Arc<std::sync::atomic::AtomicUsize>,
     app: App<MockRuntime>,
     window: WebviewWindow<MockRuntime>,
     root: PathBuf,
@@ -111,13 +114,15 @@ fn status(provider: Provider, program: Option<PathBuf>, logged_in: bool) -> Prov
 /// `antigravity`: the `agy` the app should find, when it is installed and logged in.
 /// Without it, agy counts as installed at `/bin/agy` but not logged in.
 fn harness_with(with_claude: bool, antigravity: Option<PathBuf>) -> Harness {
-    let statuses = vec![
+    let statuses = Arc::new(Mutex::new(vec![
         status(Provider::Claude, with_claude.then(fake_claude), with_claude),
         match antigravity {
             Some(p) => status(Provider::Antigravity, Some(p), true),
             None => status(Provider::Antigravity, Some("/bin/agy".into()), false),
         },
-    ];
+    ]));
+    let assistant_checks: Arc<std::sync::atomic::AtomicUsize> = Arc::default();
+    let (answers, counter) = (statuses.clone(), assistant_checks.clone());
     let launched: Arc<Mutex<Vec<Vec<String>>>> = Arc::default();
     let record = launched.clone();
     // The shared assistant setup always exists; which CLI is installed is in `statuses`.
@@ -213,7 +218,10 @@ exit 0
         .with_odoo(odoo)
         .with_setup(hooks)
         .with_probe(test_probe)
-        .with_providers(move || statuses.clone())
+        .with_providers(move || {
+            counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            answers.lock().unwrap().clone()
+        })
         .with_launcher(move |cmd| {
             record.lock().unwrap().push(cmd.to_vec());
             Ok(())
@@ -228,6 +236,8 @@ exit 0
         launched,
         machine,
         scripts,
+        assistants: statuses,
+        assistant_checks,
         app,
         window,
         root,
@@ -955,4 +965,53 @@ fn the_setup_finds_odoo_on_the_computer_and_uses_it_without_downloading() {
     let status = h.call("setup_status", json!({})).unwrap();
     assert_eq!(status["versions"], json!(["19.0", "18.0"]));
     assert_eq!(status["found"], json!([]), "nothing left to use");
+}
+
+// --- Sending is quick: the assistants are not checked again for every message ---
+
+#[test]
+fn messages_reuse_a_recent_check_of_the_assistants() {
+    let h = harness(true);
+    let id = h.new_session();
+    let send = |text: &str| {
+        h.events_until_finished(|| {
+            h.call(
+                "send_message",
+                json!({"project": "Acme", "sessionId": id, "text": text}),
+            )
+            .unwrap();
+        });
+    };
+    send("first");
+    let after_first = h.assistant_checks.load(std::sync::atomic::Ordering::SeqCst);
+    send("second");
+    send("third");
+    assert_eq!(
+        h.assistant_checks.load(std::sync::atomic::Ordering::SeqCst),
+        after_first,
+        "checking means running both CLIs (over a second with agy)"
+    );
+}
+
+#[test]
+fn logging_in_meanwhile_is_seen_at_once() {
+    let h = harness(false);
+    let id = h.new_session();
+    let refused = h
+        .call(
+            "send_message",
+            json!({"project": "Acme", "sessionId": id, "text": "hi"}),
+        )
+        .unwrap_err();
+    assert!(refused.contains("not"), "{refused}");
+    // The person logs in, in the terminal the app opened.
+    h.assistants.lock().unwrap()[0] = status(Provider::Claude, Some(fake_claude()), true);
+    let events = h.events_until_finished(|| {
+        h.call(
+            "send_message",
+            json!({"project": "Acme", "sessionId": id, "text": "hi"}),
+        )
+        .unwrap();
+    });
+    assert_eq!(events.last().unwrap()["event"]["kind"], "finished");
 }
