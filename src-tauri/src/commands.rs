@@ -250,6 +250,9 @@ pub fn save_scene(
 /// Async so the window never waits: on Linux a plain command runs on the thread
 /// that draws the window.
 #[tauri::command]
+// Each argument is one named field of the UI's call; grouping them would only move
+// the same list into a struct.
+#[allow(clippy::too_many_arguments)]
 pub async fn send_message<R: Runtime>(
     app: AppHandle<R>,
     state: State<'_, AppState>,
@@ -258,7 +261,15 @@ pub async fn send_message<R: Runtime>(
     text: String,
     model: Option<String>,
     effort: Option<String>,
+    attachments: Option<Vec<specs_core::attachments::Attachment>>,
 ) -> CmdResult<()> {
+    // The AI is told where the attached reports' text and layout are.
+    let text = match attachments.as_deref() {
+        Some(list) if !list.is_empty() => {
+            format!("{text}\n\n{}", specs_core::attachments::mention(list))
+        }
+        _ => text,
+    };
     let Some(base) = &state.claude else {
         return Err("The assistant is not set up.".into());
     };
@@ -334,6 +345,27 @@ pub async fn send_message<R: Runtime>(
         emit(last);
     });
     Ok(())
+}
+
+/// Attach a file (a PDF report) to the session: its text, with personal data
+/// removed, and a small layout picture are kept for the AI; the file itself is not.
+#[tauri::command]
+pub async fn attach_file(
+    state: State<'_, AppState>,
+    project: String,
+    session_id: String,
+    path: std::path::PathBuf,
+) -> CmdResult<specs_core::attachments::Attachment> {
+    let dir = state
+        .workspace
+        .session_dir(&project, &session_id)
+        .map_err(user_error)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        specs_core::attachments::attach_pdf(&dir, &path, &Default::default())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(user_error)
 }
 
 /// Sessions whose assistant is answering right now, so the UI can offer Stop when
@@ -573,6 +605,7 @@ pub fn register<R: Runtime>(builder: tauri::Builder<R>, state: AppState) -> taur
             load_scene,
             save_scene,
             send_message,
+            attach_file,
             cancel_turn,
             running_sessions,
             write_file,

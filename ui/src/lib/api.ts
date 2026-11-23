@@ -1,5 +1,6 @@
 // Typed wrappers around the Tauri commands in src-tauri/src/commands.rs.
 // Components never call `invoke` directly.
+import type { Attachment } from "./bindings/Attachment";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type {
@@ -35,8 +36,15 @@ export const api = {
   loadSession: (ref: SessionRef) => invoke<SessionData>("load_session", { ...ref }),
   loadScene: (ref: SessionRef) => invoke<string>("load_scene", { ...ref }),
   saveScene: (ref: SessionRef, scene: string) => invoke<void>("save_scene", { ...ref, scene }),
-  sendMessage: (ref: SessionRef, text: string, model: string | null, effort: string | null) =>
-    invoke<void>("send_message", { ...ref, text, model, effort }),
+  sendMessage: (
+    ref: SessionRef,
+    text: string,
+    model: string | null,
+    effort: string | null,
+    attachments?: Attachment[],
+  ) => invoke<void>("send_message", { ...ref, text, model, effort, attachments: attachments ?? null }),
+  /** Prepare a PDF for the AI: its text (personal data removed) and a layout picture. */
+  attachFile: (ref: SessionRef, path: string) => invoke<Attachment>("attach_file", { ...ref, path }),
   cancelTurn: (sessionId: string) => invoke<void>("cancel_turn", { sessionId }),
   /** Ids of the sessions whose assistant is answering right now. */
   runningSessions: () => invoke<string[]>("running_sessions"),

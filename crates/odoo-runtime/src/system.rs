@@ -33,6 +33,8 @@ pub struct SystemProbe {
     pub python_venv: bool,
     pub git: bool,
     pub chrome: bool,
+    /// The PDF tools (poppler-utils), to read reports attached in the chat.
+    pub pdf_tools: bool,
 }
 
 /// One thing the app needs, as the setup screen shows it.
@@ -110,6 +112,12 @@ pub fn report(p: &SystemProbe) -> SystemReport {
             (!p.git).then(|| "Git is not installed.".into()),
         ),
         requirement(
+            "pdf",
+            "PDF tools",
+            (!p.pdf_tools)
+                .then(|| "The PDF tools are not installed (to read attached reports).".into()),
+        ),
+        requirement(
             "chrome",
             "Chrome",
             (!p.chrome).then(|| "Chrome is not installed.".into()),
@@ -136,6 +144,9 @@ pub fn plan(p: &SystemProbe) -> Vec<Fix> {
     }
     if !p.git {
         packages.push("git");
+    }
+    if !p.pdf_tools {
+        packages.push("poppler-utils");
     }
     let mut fixes = Vec::new();
     if !packages.is_empty() {
@@ -329,6 +340,7 @@ pub fn probe() -> SystemProbe {
         ]
         .iter()
         .any(|c| on_path(c)),
+        pdf_tools: on_path("pdftotext") && on_path("pdftoppm"),
     }
 }
 
@@ -345,6 +357,7 @@ mod tests {
             python_venv: true,
             git: true,
             chrome: true,
+            pdf_tools: true,
         }
     }
 
@@ -364,7 +377,7 @@ mod tests {
         assert_eq!(
             fixes,
             [
-                Fix::Packages(vec!["postgresql", "python3-venv", "git"]),
+                Fix::Packages(vec!["postgresql", "python3-venv", "git", "poppler-utils"]),
                 Fix::Chrome,
                 Fix::StartPostgres,
                 Fix::CreateUser
@@ -372,7 +385,9 @@ mod tests {
         );
         let s = script(&fixes, "ana");
         assert!(
-            s.contains("apt-get install -y postgresql python3-venv git wget ca-certificates"),
+            s.contains(
+                "apt-get install -y postgresql python3-venv git poppler-utils wget ca-certificates"
+            ),
             "{s}"
         );
         assert!(s.contains("google-chrome-stable_current_amd64.deb"));
@@ -385,7 +400,7 @@ mod tests {
             .filter(|r| !r.ok)
             .map(|r| r.key)
             .collect();
-        assert_eq!(problems, ["postgresql", "python", "git", "chrome"]);
+        assert_eq!(problems, ["postgresql", "python", "git", "pdf", "chrome"]);
     }
 
     #[test]

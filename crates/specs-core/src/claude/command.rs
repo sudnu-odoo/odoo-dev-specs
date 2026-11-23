@@ -194,6 +194,8 @@ mod tests {
             "No flow charts",
             "stacked top to bottom",
             "Plain business words everywhere",
+            "## Attached reports",
+            "Never copy the client's data into the spec",
             "report (PDF): screenshot of today's report",
             "One numbered section per requirement or business flow",
             "Never ask for, read or reproduce customer data",

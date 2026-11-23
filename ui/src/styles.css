@@ -1753,3 +1753,37 @@ button.usage-line:hover {
 .version-list [aria-selected="true"] {
   font-weight: 600;
 }
+
+/* Files attached to the next message. */
+.attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 8px 10px 0;
+}
+.attachment-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 3px 4px 3px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  font-size: 12px;
+}
+.attachment-name {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.attachment-chip small {
+  color: var(--muted);
+  white-space: nowrap;
+}
+.attachment-error {
+  margin: 8px 10px 0;
+  color: var(--danger);
+  font-size: 12px;
+}

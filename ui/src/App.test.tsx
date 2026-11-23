@@ -15,6 +15,7 @@ vi.mock("./lib/api", () => ({
     loadSession: vi.fn(),
     saveScene: vi.fn(),
     sendMessage: vi.fn(),
+    attachFile: vi.fn(),
     cancelTurn: vi.fn(),
     onChatEvent: vi.fn(),
     loadScene: vi.fn(),
@@ -52,6 +53,7 @@ vi.mock("./components/SettingsPanel", () => ({
   ),
 }));
 vi.mock("./lib/confirm", () => ({ confirmAction: vi.fn().mockResolvedValue(true) }));
+vi.mock("./lib/pickFile", () => ({ pickFile: vi.fn().mockResolvedValue("/home/me/quotation.pdf") }));
 // jsdom has no layout: every element measures 0x0, so the panel library thinks each
 // click lands on its resize handle and swallows it. Plain containers instead.
 vi.mock("react-resizable-panels", () => ({
@@ -502,5 +504,45 @@ describe("App", () => {
     await userEvent.click(screen.getByRole("menuitemradio", { name: "Odoo Online" }));
     expect(mocked.setSessionHosting).toHaveBeenCalledWith({ project: "Acme", sessionId: "s1" }, "online");
     expect(mocked.setSessionVersion).toHaveBeenCalledWith({ project: "Acme", sessionId: "s1" }, "saas-19.2");
+  });
+
+  it("attaches a report after the reminder, and sends it with the message", async () => {
+    const { confirmAction } = await import("./lib/confirm");
+    const quote = {
+      name: "quotation.pdf",
+      textFile: "attachments/quotation.md",
+      layoutImage: null,
+      pages: 1,
+      removed: 2,
+      scanned: false,
+    };
+    mocked.attachFile.mockResolvedValue(quote);
+    await openSession("Delivery window");
+    await userEvent.click(screen.getByRole("button", { name: "Attach a report (PDF)" }));
+    expect(vi.mocked(confirmAction).mock.calls.at(-1)?.[0]).toMatch(/blank or sample/);
+    await waitFor(() =>
+      expect(mocked.attachFile).toHaveBeenCalledWith(
+        { project: "Acme", sessionId: "s1" },
+        "/home/me/quotation.pdf",
+      ),
+    );
+    await screen.findByText("quotation.pdf");
+    await userEvent.type(message(), "Map it{Enter}");
+    expect(mocked.sendMessage).toHaveBeenLastCalledWith(
+      { project: "Acme", sessionId: "s1" },
+      "Map it",
+      expect.anything(),
+      null,
+      [quote],
+    );
+  });
+
+  it("attaches nothing when the reminder is declined", async () => {
+    const { confirmAction } = await import("./lib/confirm");
+    vi.mocked(confirmAction).mockResolvedValueOnce(false);
+    await openSession("Delivery window");
+    await userEvent.click(screen.getByRole("button", { name: "Attach a report (PDF)" }));
+    await waitFor(() => expect(vi.mocked(confirmAction)).toHaveBeenCalled());
+    expect(mocked.attachFile).not.toHaveBeenCalled();
   });
 });

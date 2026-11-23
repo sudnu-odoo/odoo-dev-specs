@@ -203,6 +203,7 @@ exit 0
                 python_venv: true,
                 git: true,
                 chrome: true,
+                pdf_tools: true,
             };
             Ok("== Done".into())
         }),
@@ -1014,4 +1015,38 @@ fn logging_in_meanwhile_is_seen_at_once() {
         .unwrap();
     });
     assert_eq!(events.last().unwrap()["event"]["kind"], "finished");
+}
+
+// --- Attachments ---
+
+#[test]
+fn an_attached_report_is_mentioned_to_the_assistant_and_only_pdfs_are_taken() {
+    let h = harness(true);
+    let id = h.new_session();
+    let doc = h.root.join("notes.docx");
+    fs::write(&doc, "x").unwrap();
+    let err = h
+        .call(
+            "attach_file",
+            json!({"project": "Acme", "sessionId": id, "path": doc}),
+        )
+        .unwrap_err();
+    assert!(err.contains("Only PDF"), "{err}");
+
+    let attachment = json!({"name": "quotation.pdf", "textFile": "attachments/quotation.md",
+        "layoutImage": "attachments/quotation-layout.png", "pages": 2, "removed": 3, "scanned": false});
+    h.events_until_finished(|| {
+        h.call(
+            "send_message",
+            json!({"project": "Acme", "sessionId": id, "text": "Map this report",
+                   "attachments": [attachment]}),
+        )
+        .unwrap();
+    });
+    let data = h
+        .call("load_session", json!({"project": "Acme", "sessionId": id}))
+        .unwrap();
+    let sent = data["transcript"][0]["text"].as_str().unwrap();
+    assert!(sent.starts_with("Map this report"), "{sent}");
+    assert!(sent.contains("attachments/quotation.md"), "{sent}");
 }

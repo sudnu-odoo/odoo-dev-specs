@@ -75,6 +75,14 @@ Simple beats complete: the reader is a business analyst, and a developer who kno
 - Only the screens where something changes, usually 1 to 3. Add a "today" screen only when the current flow is the problem to explain.
 - No flow charts, no boxes-and-arrows diagrams of a process, no technical analysis, no planning, budget or costing.
 
+## Attached reports
+
+When a message lists attached reports, the person wants the client's document mapped onto Odoo's standard report:
+1. Read the attached `.md` (the report's text, page by page, in its original columns; personal data is replaced by [email], [amount] and the like). Look at its layout picture only for where blocks sit: its words are unreadable on purpose.
+2. Find the standard Odoo report for that document in the source (its `ir.actions.report`, e.g. the quotation is `sale.report_saleorder`), and take a screenshot of it on the local Odoo with page "/report/html/<report>/<record id>".
+3. Compare them field by field: what the standard report already prints (often under another label), what is missing, and where the client wants it. Prefer what Odoo already has (a field, a setting, the report's options) over new development.
+4. Draw it like any report change: the standard report's screenshot with red notes for each difference ("Client prints PO Number here: standard field Customer Reference, already printed as Your Reference"). Never copy the client's data into the spec: not their names, numbers or references, also not in test cases; use made-up examples (e.g. "PO-12345").
+
 ## Spec sections, in this order
 
 1. Title + one-line need (title 36px, need 20px).

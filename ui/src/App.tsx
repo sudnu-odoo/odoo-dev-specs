@@ -86,6 +86,7 @@ export default function App() {
       running={app.chat.running}
       hasSession={!!app.session}
       onSend={app.send}
+      onAttach={app.attach}
       onStop={app.stop}
       models={app.models}
       selectedModel={app.selectedModel}

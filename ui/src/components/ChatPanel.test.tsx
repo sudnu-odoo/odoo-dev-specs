@@ -27,7 +27,44 @@ function setup(overrides: Partial<ChatPanelProps> = {}) {
 
 const input = () => screen.getByRole("textbox", { name: "Message" });
 
+const QUOTE = {
+  name: "quotation.pdf",
+  textFile: "attachments/quotation.md",
+  layoutImage: "attachments/quotation-layout.png",
+  pages: 2,
+  removed: 5,
+  scanned: false,
+};
+
 describe("ChatPanel", () => {
+  it("attaches a report, shows it, and sends it with the next message", async () => {
+    const onAttach = vi.fn(async () => QUOTE);
+    const props = setup({ onAttach });
+    await userEvent.click(screen.getByRole("button", { name: "Attach a report (PDF)" }));
+    expect(onAttach).toHaveBeenCalled();
+    expect(await screen.findByText("quotation.pdf")).toBeInTheDocument();
+    expect(screen.getByRole("group", { name: "Attached" })).toHaveTextContent("2 pages · 5 items removed");
+    await userEvent.type(input(), "Map this report{Enter}");
+    expect(props.onSend).toHaveBeenCalledWith("Map this report", [QUOTE]);
+    expect(screen.queryByText("quotation.pdf")).not.toBeInTheDocument();
+  });
+
+  it("can take an attachment back, and says when a PDF is a scan", async () => {
+    const onAttach = vi.fn(async () => ({ ...QUOTE, scanned: true, removed: 0 }));
+    const props = setup({ onAttach });
+    await userEvent.click(screen.getByRole("button", { name: "Attach a report (PDF)" }));
+    expect(await screen.findByRole("group", { name: "Attached" })).toHaveTextContent("scan: layout only");
+    await userEvent.click(screen.getByRole("button", { name: "Remove quotation.pdf" }));
+    await userEvent.type(input(), "hi{Enter}");
+    expect(props.onSend).toHaveBeenCalledWith("hi");
+  });
+
+  it("shows why a file could not be attached", async () => {
+    setup({ onAttach: vi.fn(async () => Promise.reject("Only PDF files can be attached for now.")) });
+    await userEvent.click(screen.getByRole("button", { name: "Attach a report (PDF)" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Only PDF files");
+  });
+
   it("sends the trimmed message on Enter and clears the box", async () => {
     const props = setup();
     await userEvent.type(input(), "  Add a field  {Enter}");

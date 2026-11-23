@@ -5,6 +5,8 @@ import { DEFAULT_TITLE, titleFromMessage } from "../chat/title";
 import { api } from "../lib/api";
 import { confirmAction } from "../lib/confirm";
 import type { Model, ProjectInfo, SessionData, SessionRef, Hosting } from "../lib/types";
+import type { Attachment } from "../lib/bindings/Attachment";
+import { pickFile } from "../lib/pickFile";
 
 const sameRef = (a: SessionRef | null, b: SessionRef | null) =>
   !!a && !!b && a.project === b.project && a.sessionId === b.sessionId;
@@ -189,7 +191,7 @@ export function useSpecsApp() {
   );
 
   const send = useCallback(
-    async (text: string) => {
+    async (text: string, attachments?: Attachment[]) => {
       if (!selected || !session) return;
       const sessionId = selected.sessionId;
       dispatch({ type: "chat", sessionId, action: { type: "sent", text } });
@@ -208,13 +210,29 @@ export function useSpecsApp() {
         api.renameSession(selected, title).then(refresh, () => {});
       }
       try {
-        await api.sendMessage(selected, text, selectedModel || null, effort || null);
+        if (attachments?.length)
+          await api.sendMessage(selected, text, selectedModel || null, effort || null, attachments);
+        else await api.sendMessage(selected, text, selectedModel || null, effort || null);
       } catch (e) {
         dispatch({ type: "chat", sessionId, action: { type: "sendFailed", message: String(e) } });
       }
     },
     [chat.items, effort, models, refresh, selected, selectedModel, session],
   );
+
+  /** Attach a PDF report: remind first that it must hold no real client data. */
+  const attach = useCallback(async (): Promise<Attachment | null> => {
+    if (!selected) return null;
+    const ok = await confirmAction(
+      "Attach only a blank or sample report, never one with real client data.\n\n" +
+        "The app removes emails, phone numbers, amounts, tax and bank numbers it recognises, " +
+        "but not names: remove those yourself first.",
+      "Attach a report",
+    );
+    if (!ok) return null;
+    const path = await pickFile("Attach a report", [{ name: "PDF", extensions: ["pdf"] }]);
+    return path ? api.attachFile(selected, path) : null;
+  }, [selected]);
 
   const setSessionDatabase = useCallback(
     /** `ref`: the session to change, when it may no longer be the open one. */
@@ -272,6 +290,7 @@ export function useSpecsApp() {
     deleteSession,
     renameSession,
     send,
+    attach,
     stop,
     diagramDetached,
     detachDiagram,

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent, type ReactNode } from "react";
 import type { ChatItem, PlanUsage, TokenUsage } from "../chat/chatState";
+import type { Attachment } from "../lib/bindings/Attachment";
 import type { Model } from "../lib/types";
 import Markdown from "./Markdown";
 import ModelMenu from "./ModelMenu";
@@ -10,7 +11,8 @@ export interface ChatPanelProps {
   items: ChatItem[];
   running: boolean;
   hasSession: boolean;
-  onSend: (text: string) => void;
+  /** `attachments` only when some are attached to this message. */
+  onSend: (text: string, attachments?: Attachment[]) => void;
   onStop: () => void;
   models?: Model[];
   selectedModel?: string;
@@ -29,6 +31,8 @@ export interface ChatPanelProps {
   showUsage?: boolean;
   /** More chips for the composer bar, after the model (e.g. the session's database). */
   composerExtras?: ReactNode;
+  /** Pick and prepare a file to attach; null when the person cancels. */
+  onAttach?: () => Promise<Attachment | null>;
 }
 
 const NO_USAGE: TokenUsage = { inputTokens: 0, outputTokens: 0 };
@@ -52,8 +56,12 @@ export default function ChatPanel({
   plan,
   composerExtras,
   showUsage = true,
+  onAttach,
 }: ChatPanelProps) {
   const [draft, setDraft] = useState("");
+  const [attached, setAttached] = useState<Attachment[]>([]);
+  const [attaching, setAttaching] = useState(false);
+  const [attachError, setAttachError] = useState<string | null>(null);
   const bottom = useRef<HTMLDivElement>(null);
   // Until the first words of the answer arrive, show that the assistant is working.
   // (A running step already shows that it is working.)
@@ -71,8 +79,24 @@ export default function ChatPanel({
     e?.preventDefault();
     const text = draft.trim();
     if (!text || running || !hasSession) return;
-    onSend(text);
+    if (attached.length) onSend(text, attached);
+    else onSend(text);
     setDraft("");
+    setAttached([]);
+  }
+
+  async function attach() {
+    if (!onAttach) return;
+    setAttaching(true);
+    setAttachError(null);
+    try {
+      const file = await onAttach();
+      if (file) setAttached((list) => [...list.filter((a) => a.textFile !== file.textFile), file]);
+    } catch (e) {
+      setAttachError(String(e));
+    } finally {
+      setAttaching(false);
+    }
   }
 
   function onKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
@@ -111,6 +135,29 @@ export default function ChatPanel({
         <div ref={bottom} />
       </div>
       <form className="composer" onSubmit={send}>
+        {attached.length > 0 && (
+          <div className="attachments" role="group" aria-label="Attached">
+            {attached.map((a) => (
+              <span key={a.textFile} className="attachment-chip">
+                <span className="attachment-name">{a.name}</span>
+                <small>{attachmentText(a)}</small>
+                <button
+                  type="button"
+                  className="icon-btn"
+                  aria-label={`Remove ${a.name}`}
+                  onClick={() => setAttached((list) => list.filter((x) => x !== a))}
+                >
+                  ×
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
+        {attachError && (
+          <div role="alert" className="attachment-error">
+            {attachError}
+          </div>
+        )}
         <textarea
           aria-label="Message"
           title="Enter to send · Shift+Enter for a new line"
@@ -127,6 +174,31 @@ export default function ChatPanel({
         />
         <div className="composer-bar">
           <div className="composer-chips">
+            {onAttach && hasSession && (
+              <button
+                type="button"
+                className="icon-btn attach-btn"
+                aria-label="Attach a report (PDF)"
+                title="Attach a report (PDF): a blank or sample one, never real client data"
+                disabled={running || attaching}
+                aria-busy={attaching || undefined}
+                onClick={attach}
+              >
+                {attaching ? (
+                  <span className="spinner spinner-small" aria-hidden="true" />
+                ) : (
+                  <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true">
+                    <path
+                      d="M10.5 4.5 5.4 9.6a1.4 1.4 0 0 0 2 2l5.3-5.3a2.8 2.8 0 0 0-4-4L3.4 7.6a4.2 4.2 0 0 0 6 6l4.1-4.1"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.3"
+                      strokeLinecap="round"
+                    />
+                  </svg>
+                )}
+              </button>
+            )}
             {models.length > 0 && (
               <ModelMenu
                 models={models}
@@ -216,4 +288,11 @@ function Message({ item }: { item: ChatItem }) {
         </div>
       );
   }
+}
+
+/** "2 pages · 5 items removed", or that a scan only gives its layout. */
+function attachmentText(a: Attachment): string {
+  const pages = `${a.pages} page${a.pages === 1 ? "" : "s"}`;
+  if (a.scanned) return `${pages} · scan: layout only`;
+  return a.removed ? `${pages} · ${a.removed} items removed` : pages;
 }

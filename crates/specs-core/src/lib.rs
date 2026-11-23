@@ -2,6 +2,7 @@
 //! chat events, AI provider adapters and the on-disk session workspace.
 
 pub mod antigravity;
+pub mod attachments;
 pub mod chat;
 pub mod claude;
 pub mod events;
