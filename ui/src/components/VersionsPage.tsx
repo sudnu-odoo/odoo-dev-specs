@@ -1,9 +1,7 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { type Download, type DownloadStep, useOdooDownloads } from "../app/useOdooDownloads";
 import { useOdooVersions } from "../app/useOdooVersions";
-import { api } from "../lib/api";
-import { confirmAction } from "../lib/confirm";
-import { pickFolder } from "../lib/pickFolder";
+import { useGithub, useVersionActions } from "../app/useVersionActions";
 import { sizeText } from "../lib/odooApps";
 import type { Edition, VersionInfo } from "../lib/types";
 import { versionLabel } from "./HostingMenu";
@@ -66,48 +64,10 @@ function downloadText(d: Download): string {
  */
 export default function VersionsPage() {
   const versions = useOdooVersions();
-  const [busy, setBusy] = useState<Record<string, string>>({});
   const [adding, setAdding] = useState("");
-  const [error, setError] = useState<string | null>(null);
   const { downloads, download, inProgress } = useOdooDownloads(versions.reload);
-
-  async function act(version: string, what: string, action: () => Promise<void>) {
-    setBusy((b) => ({ ...b, [version]: what }));
-    try {
-      await action();
-      setError(null);
-    } catch (e) {
-      setError(String(e));
-    } finally {
-      setBusy((b) => {
-        const next = { ...b };
-        delete next[version];
-        return next;
-      });
-      await versions.reload();
-    }
-  }
-
-  /** Use folders the person already has (e.g. odev worktrees) for a version. */
-  async function chooseFolders(version: string) {
-    const label = versionLabel(version);
-    const community = await pickFolder(`Choose your Odoo ${label} folder (Community)`);
-    if (!community) return;
-    await act(version, "Checking the folder…", async () => {
-      await api.useOdooFolder(version, "community", community);
-      const enterprise = await pickFolder(`Choose your Odoo ${label} Enterprise folder (or Cancel)`);
-      if (enterprise) await api.useOdooFolder(version, "enterprise", enterprise);
-    });
-  }
-
-  // Downloading needs GitHub; using your own folders does not.
-  const [github, setGithub] = useState<{ installed: boolean; connected: boolean } | null>(null);
-  useEffect(() => {
-    const check = () => api.githubStatus().then(setGithub, () => {});
-    check();
-    window.addEventListener("focus", check);
-    return () => window.removeEventListener("focus", check);
-  }, []);
+  const { busy, error, update, remove, chooseFolders } = useVersionActions(versions.reload);
+  const { github, connect } = useGithub();
 
   const here = new Set(versions.downloaded.map((v) => v.version));
   // Versions being downloaded show in the list right away, before they are here.
@@ -157,7 +117,7 @@ export default function VersionsPage() {
               <button
                 className="btn btn-small"
                 disabled={!!busy[v.version] || inProgress(v.version) || own}
-                onClick={() => act(v.version, "Updating…", () => api.updateOdooVersion(v.version))}
+                onClick={() => update(v.version)}
               >
                 Update now
               </button>
@@ -173,13 +133,7 @@ export default function VersionsPage() {
               <button
                 className="btn btn-small"
                 disabled={!!busy[v.version] || inProgress(v.version)}
-                onClick={async () => {
-                  const ok = await confirmAction(
-                    `Remove Odoo ${versionLabel(v.version)} from this computer? Its databases stay, and it downloads again when a session needs it.`,
-                    "Remove version",
-                  );
-                  if (ok) await act(v.version, "Removing…", () => api.removeOdooVersion(v.version));
-                }}
+                onClick={() => remove(v.version)}
               >
                 Remove
               </button>
@@ -223,11 +177,7 @@ export default function VersionsPage() {
             </small>
           </div>
           {github && !github.connected && (
-            <button
-              className="btn btn-small"
-              disabled={!github.installed}
-              onClick={() => api.githubConnect()}
-            >
+            <button className="btn btn-small" disabled={!github.installed} onClick={connect}>
               Connect GitHub
             </button>
           )}

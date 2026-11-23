@@ -9,7 +9,7 @@ import { useSpecsApp } from "./app/useSpecsApp";
 import NewDatabaseDialog from "./components/NewDatabaseDialog";
 import SetupScreen from "./components/SetupScreen";
 import UpdateBanner from "./components/UpdateBanner";
-import type { ProviderStatus, SessionRef } from "./lib/types";
+import type { SessionRef } from "./lib/types";
 
 const sameSession = (a: SessionRef | null, b: SessionRef | null) =>
   !!a && !!b && a.project === b.project && a.sessionId === b.sessionId;
@@ -20,7 +20,7 @@ import ChatPanel from "./components/ChatPanel";
 import SessionDiagram from "./components/SessionDiagram";
 import SettingsPanel from "./components/SettingsPanel";
 import Sidebar from "./components/Sidebar";
-import { api } from "./lib/api";
+import { useAssistants } from "./app/useAssistants";
 
 export default function App() {
   useAppTheme();
@@ -52,27 +52,17 @@ export default function App() {
   );
   const sessionHosting = openSession?.hosting ?? null;
   const sessionVersion = openSession?.version ?? null;
-  const sessionDatabase =
-    sessions.find((s) => s.project === app.selected?.project && s.id === app.selected?.sessionId)?.database ??
-    null;
+  const sessionDatabase = openSession?.database ?? null;
   const reloadDatabases = dbs.reload;
   useEffect(() => {
     reloadDatabases();
   }, [app.projects, reloadDatabases]);
   // First run: the setup shows by itself until the computer is ready.
   const setup = useSetup();
-  const [setupOpen, setSetupOpen] = useState<boolean | null>(null);
-  const [providers, setProviders] = useState<ProviderStatus[]>([]);
-  useEffect(() => {
-    if (setupOpen === null && setup.status) setSetupOpen(!setup.complete);
-  }, [setup.status, setup.complete, setupOpen]);
-  useEffect(() => {
-    if (!setupOpen) return;
-    const load = () => api.providerStatus().then(setProviders, () => {});
-    load();
-    window.addEventListener("focus", load);
-    return () => window.removeEventListener("focus", load);
-  }, [setupOpen]);
+  // Shown by itself while the computer is not ready, until the person opens or closes it.
+  const [setupChoice, setSetupOpen] = useState<boolean | null>(null);
+  const setupOpen = setupChoice ?? (setup.status ? !setup.complete : null);
+  const providers = useAssistants(!!setupOpen).assistants ?? [];
   const download = setup.downloading
     ? {
         label: "Downloading Odoo",

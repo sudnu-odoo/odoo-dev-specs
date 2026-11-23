@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useState } from "react";
-import { api } from "../lib/api";
+import { useEffect, useState } from "react";
+import { useAssistants } from "../app/useAssistants";
+import { useSettings } from "../app/useSettings";
 import VersionsPage from "./VersionsPage";
 import { useOdooVersions } from "../app/useOdooVersions";
 import { newestFirst } from "../lib/versions";
 import { setCanvasTheme, useCanvasTheme, type CanvasTheme } from "../lib/canvasTheme";
-import type { EnvCheck, EnvReport, ProviderStatus, Settings } from "../lib/types";
+import type { EnvCheck, ProviderStatus } from "../lib/types";
 
 export interface SettingsPanelProps {
   onClose: () => void;
@@ -24,25 +25,9 @@ export default function SettingsPanel({ onClose, onOpenSetup }: SettingsPanelPro
   const [page, setPage] = useState<Page>("general");
   const canvasTheme = useCanvasTheme();
   const odoo = useOdooVersions();
-  const [report, setReport] = useState<EnvReport | null>(null);
-  const [assistants, setAssistants] = useState<ProviderStatus[] | null>(null);
-  const [settings, setSettings] = useState<Settings | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    api.checkEnvironment().then(setReport, (e) => setError(String(e)));
-    api.getSettings().then(setSettings, (e) => setError(String(e)));
-  }, []);
-
-  const checkAssistants = useCallback(() => {
-    api.providerStatus().then(setAssistants, (e) => setError(String(e)));
-  }, []);
-  useEffect(() => {
-    checkAssistants();
-    // Logging in happens in a terminal window: re-check when the user comes back.
-    window.addEventListener("focus", checkAssistants);
-    return () => window.removeEventListener("focus", checkAssistants);
-  }, [checkAssistants]);
+  const { settings, problems, error: settingsError, edit } = useSettings();
+  const { assistants, error: assistantsError, login } = useAssistants();
+  const error = settingsError ?? assistantsError;
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
@@ -50,28 +35,6 @@ export default function SettingsPanel({ onClose, onOpenSetup }: SettingsPanelPro
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
 
-  async function login(provider: string) {
-    try {
-      await api.loginProvider(provider);
-    } catch (e) {
-      setError(String(e));
-    }
-  }
-
-  async function edit(change: Partial<Settings>) {
-    if (!settings) return;
-    const next = { ...settings, ...change };
-    setSettings(next);
-    try {
-      await api.saveSettings(next);
-      setError(null);
-    } catch (e) {
-      setError(String(e));
-    }
-  }
-
-  // Only what needs fixing is shown; a healthy setup stays out of the way.
-  const problems = report?.checks.filter((c) => c.status !== "ok" && c.key !== "ai") ?? [];
   // The versions on this computer (the usual ones until it has any).
   const local = newestFirst(odoo.downloaded.map((v) => v.version));
   const offered = local.length ? local : VERSIONS;

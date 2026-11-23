@@ -1,20 +1,12 @@
-import { useEffect, useState } from "react";
 import { useAppTheme } from "./lib/canvasTheme";
 import SessionDiagram from "./components/SessionDiagram";
-import { api } from "./lib/api";
+import { useDiagramWindow } from "./app/useDiagramWindow";
 import type { DiagramTarget } from "./lib/types";
 
 /** Page of the separate diagram window; follows the session open in the main window. */
 export default function DiagramWindow({ initial }: { initial: DiagramTarget }) {
   useAppTheme();
-  const [target, setTarget] = useState(initial);
-
-  useEffect(() => {
-    const unlisten = api.onDiagramSession(setTarget);
-    return () => {
-      unlisten.then((stop) => stop());
-    };
-  }, []);
+  const { target, dock } = useDiagramWindow(initial);
 
   return (
     <div className="diagram-window">
@@ -22,11 +14,7 @@ export default function DiagramWindow({ initial }: { initial: DiagramTarget }) {
         sessionRef={{ project: target.project, sessionId: target.sessionId }}
         title={target.title}
         actions={
-          <button
-            className="btn"
-            title="Show the diagram beside the chat again"
-            onClick={() => api.dockDiagramWindow()}
-          >
+          <button className="btn" title="Show the diagram beside the chat again" onClick={dock}>
             Back to main window
           </button>
         }
