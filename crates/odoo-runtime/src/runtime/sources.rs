@@ -36,6 +36,8 @@ pub struct GithubAccess {
 /// Odoo source found on the computer (e.g. an odev worktree), by version.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
+#[derive(ts_rs::TS)]
+#[ts(export)]
 pub struct FoundSource {
     pub version: String,
     pub community: PathBuf,
@@ -56,6 +58,8 @@ const SOURCE_PLACES: [&str; 6] = [
 /// A version on this computer, for the versions list.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
+#[derive(ts_rs::TS)]
+#[ts(export)]
 pub struct VersionInfo {
     pub version: String,
     pub community: SourceState,
@@ -136,6 +140,8 @@ fn refused(log: &str) -> bool {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[derive(ts_rs::TS)]
+#[ts(export)]
 pub enum Edition {
     Community,
     Enterprise,
@@ -144,6 +150,8 @@ pub enum Edition {
 /// Whether a version's source is there.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase", tag = "state")]
+#[derive(ts_rs::TS)]
+#[ts(export)]
 pub enum SourceState {
     Missing,
     /// `linked`: a folder the person already had, used where it is.

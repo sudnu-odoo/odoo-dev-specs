@@ -24,7 +24,8 @@ const SCENE: &str = "spec.excalidraw";
 const TRANSCRIPT: &str = "transcript.jsonl";
 const SCREENSHOTS: &str = "screenshots";
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ts_rs::TS)]
+#[ts(export)]
 pub struct SessionMeta {
     pub id: String,
     pub title: String,
@@ -44,6 +45,7 @@ pub struct SessionMeta {
     /// Where the client's Odoo runs: "online" (Odoo Online) or "sh" (Odoo.sh);
     /// `None` until chosen. The AI is told it with every message.
     #[serde(default)]
+    #[ts(type = "\"online\" | \"sh\" | null")]
     pub hosting: Option<String>,
     /// The client's Odoo version: an Odoo branch, e.g. "19.0" or "saas-19.2".
     #[serde(default)]
@@ -53,7 +55,8 @@ pub struct SessionMeta {
 /// The hostings a session can be for.
 pub const HOSTINGS: [&str; 2] = ["online", "sh"];
 
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, ts_rs::TS)]
+#[ts(export)]
 pub struct ProjectInfo {
     pub name: String,
     /// Most recently updated first.

@@ -3,7 +3,8 @@
 use serde::{Deserialize, Serialize};
 
 /// One rate-limit window: fraction used (0..=1) and when it resets (unix seconds).
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, ts_rs::TS)]
+#[ts(export)]
 pub struct PlanWindow {
     pub utilization: f64,
     pub resets_at: u64,
@@ -11,6 +12,8 @@ pub struct PlanWindow {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
+#[derive(ts_rs::TS)]
+#[ts(export)]
 pub enum ChatEvent {
     /// A piece of assistant text, to append to the current reply.
     TextDelta { text: String },

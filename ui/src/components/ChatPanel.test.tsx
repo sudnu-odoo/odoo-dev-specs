@@ -4,8 +4,8 @@ import { describe, expect, it, vi } from "vitest";
 import ChatPanel, { type ChatPanelProps } from "./ChatPanel";
 
 const MODELS = [
-  { id: "sonnet", label: "Sonnet (balanced)" },
-  { id: "opus", label: "Opus (most capable)" },
+  { id: "sonnet", label: "Sonnet (balanced)", provider: "Claude", locked: false },
+  { id: "opus", label: "Opus (most capable)", provider: "Claude", locked: false },
 ];
 
 function setup(overrides: Partial<ChatPanelProps> = {}) {
@@ -199,9 +199,9 @@ describe("ChatPanel model picker and usage", () => {
   });
 
   const TWO_SERVICES = [
-    { id: "sonnet", label: "Sonnet (balanced)", provider: "Claude" },
-    { id: "opus", label: "Opus (most capable)", provider: "Claude" },
-    { id: "gemini-3.8-flash-low", label: "Gemini 3.8 Flash (Low)", provider: "Antigravity" },
+    { id: "sonnet", label: "Sonnet (balanced)", provider: "Claude", locked: false },
+    { id: "opus", label: "Opus (most capable)", provider: "Claude", locked: false },
+    { id: "gemini-3.8-flash-low", label: "Gemini 3.8 Flash (Low)", provider: "Antigravity", locked: false },
   ];
 
   it("first picks the AI service, then lists only that service's models", async () => {
@@ -252,7 +252,7 @@ describe("ChatPanel model picker and usage", () => {
   it("locks a service that is not logged in and offers to log in", async () => {
     const props = setup({
       models: [
-        { id: "sonnet", label: "Sonnet", provider: "Claude" },
+        { id: "sonnet", label: "Sonnet", provider: "Claude", locked: false },
         { id: "gem", label: "Gemini Pro", provider: "Antigravity", locked: true },
       ],
       onLogin: vi.fn(),
@@ -270,7 +270,7 @@ describe("ChatPanel model picker and usage", () => {
   it("in a session tied to one service, the other service is unavailable", async () => {
     setup({
       models: [
-        { id: "sonnet", label: "Sonnet", provider: "Claude" },
+        { id: "sonnet", label: "Sonnet", provider: "Claude", locked: false },
         { id: "gem", label: "Gemini Pro", provider: "Antigravity", locked: true },
       ],
       sessionProvider: "Claude",

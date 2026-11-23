@@ -10,6 +10,8 @@ use serde::Serialize;
 /// How a single requirement turned out.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
+#[derive(ts_rs::TS)]
+#[ts(export)]
 pub enum Status {
     /// Present and usable.
     Ok,
@@ -22,6 +24,8 @@ pub enum Status {
 /// One checked requirement, ready to show in Settings.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
+#[derive(ts_rs::TS)]
+#[ts(export)]
 pub struct Check {
     /// Stable identifier, e.g. "git" or "postgresql".
     pub key: String,
@@ -39,6 +43,8 @@ pub struct Check {
 /// The whole environment report.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
+#[derive(ts_rs::TS)]
+#[ts(export)]
 pub struct Report {
     pub checks: Vec<Check>,
 }

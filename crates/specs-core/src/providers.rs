@@ -9,6 +9,8 @@ use crate::settings::Provider;
 /// Readiness of one provider, shown in Settings and used to lock its models.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
+#[derive(ts_rs::TS)]
+#[ts(export)]
 pub struct ProviderStatus {
     pub provider: Provider,
     /// Display name, e.g. "Antigravity".

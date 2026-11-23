@@ -8,6 +8,8 @@ use crate::events::ChatEvent;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "role", rename_all = "snake_case")]
+#[derive(ts_rs::TS)]
+#[ts(export)]
 pub enum TranscriptEntry {
     User { text: String },
     Assistant { text: String },

@@ -9,6 +9,10 @@ const session = (id: string, title: string) => ({
   title,
   provider: "claude",
   created_at: 0,
+  conversation_id: null,
+  database: null,
+  hosting: null,
+  version: null,
   updated_at: 0,
   started: false,
 });

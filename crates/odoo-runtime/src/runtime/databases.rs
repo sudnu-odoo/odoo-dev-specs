@@ -19,6 +19,8 @@ const STOP_TIMEOUT: Duration = Duration::from_secs(10);
 /// One database, as the app shows it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[derive(ts_rs::TS)]
+#[ts(export)]
 pub struct DatabaseInfo {
     /// PostgreSQL name, always `specs_*`.
     pub name: String,
@@ -43,6 +45,8 @@ pub struct DatabaseInfo {
 /// What the "New database" form asks for.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[derive(ts_rs::TS)]
+#[ts(export)]
 pub struct NewDatabase {
     pub label: String,
     pub version: String,

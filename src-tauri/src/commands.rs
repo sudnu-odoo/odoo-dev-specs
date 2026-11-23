@@ -109,12 +109,15 @@ impl AppState {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+#[derive(ts_rs::TS)]
+#[ts(export)]
 pub struct ChatEventPayload {
     pub session_id: String,
     pub event: ChatEvent,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ts_rs::TS)]
+#[ts(export)]
 pub struct SessionData {
     pub meta: SessionMeta,
     /// The `.excalidraw` JSON, as stored.
@@ -415,6 +418,8 @@ pub async fn create_database(
 /// What the "New database" form starts with for a version.
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
+#[derive(ts_rs::TS)]
+#[ts(export)]
 pub struct DatabaseForm {
     /// The next free name, e.g. "db-19-3".
     pub suggested_label: String,

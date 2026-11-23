@@ -82,6 +82,10 @@ const meta = (id: string, title: string) => ({
   title,
   provider: "claude",
   created_at: 0,
+  conversation_id: null,
+  database: null,
+  hosting: null,
+  version: null,
   updated_at: 0,
   started: false,
 });
@@ -120,8 +124,8 @@ beforeEach(() => {
   mocked.loadScene.mockResolvedValue('{"type":"excalidraw","elements":[]}');
   mocked.checkEnvironment.mockResolvedValue({ checks: [] });
   mocked.listModels.mockResolvedValue([
-    { id: "sonnet", label: "Sonnet (balanced)" },
-    { id: "opus", label: "Opus (most capable)" },
+    { id: "sonnet", label: "Sonnet (balanced)", provider: "Claude", locked: false },
+    { id: "opus", label: "Opus (most capable)", provider: "Claude", locked: false },
   ]);
   mocked.getSettings.mockResolvedValue({ provider: "claude", defaultVersion: "19.0", demoData: true });
   mocked.openDiagramWindow.mockResolvedValue(undefined);
@@ -177,8 +181,8 @@ describe("App", () => {
 
   it("opening a session tied to Antigravity switches to one of its models", async () => {
     mocked.listModels.mockResolvedValue([
-      { id: "sonnet", label: "Sonnet", provider: "Claude" },
-      { id: "gemini-3.8-flash-high", label: "Gemini Flash (High)", provider: "Antigravity" },
+      { id: "sonnet", label: "Sonnet", provider: "Claude", locked: false },
+      { id: "gemini-3.8-flash-high", label: "Gemini Flash (High)", provider: "Antigravity", locked: false },
     ]);
     projects = [
       {
@@ -201,8 +205,8 @@ describe("App", () => {
 
   it("after the first message, the session keeps that provider", async () => {
     mocked.listModels.mockResolvedValue([
-      { id: "sonnet", label: "Sonnet", provider: "Claude" },
-      { id: "gemini-3.8-flash-high", label: "Gemini Flash (High)", provider: "Antigravity" },
+      { id: "sonnet", label: "Sonnet", provider: "Claude", locked: false },
+      { id: "gemini-3.8-flash-high", label: "Gemini Flash (High)", provider: "Antigravity", locked: false },
     ]);
     await openSession("New spec");
     await userEvent.type(message(), "x{Enter}");
@@ -217,7 +221,7 @@ describe("App", () => {
   it("never defaults to a locked model", async () => {
     mocked.listModels.mockResolvedValue([
       { id: "gem", label: "Gemini", provider: "Antigravity", locked: true },
-      { id: "sonnet", label: "Sonnet", provider: "Claude" },
+      { id: "sonnet", label: "Sonnet", provider: "Claude", locked: false },
     ]);
     await openSession("Delivery window");
     await screen.findByText("Earlier question");

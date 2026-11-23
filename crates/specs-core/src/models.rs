@@ -9,6 +9,8 @@ use crate::settings::Provider;
 /// One selectable model.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
+#[derive(ts_rs::TS)]
+#[ts(export)]
 pub struct Model {
     /// Value passed to the CLI's `--model`/`-m` flag.
     pub id: String,

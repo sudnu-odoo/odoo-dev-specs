@@ -1,58 +1,34 @@
-// Mirrors of the Rust types sent over IPC (crates/specs-core, src-tauri/src/commands.rs).
+// The types sent between the app and this UI. Those that come from Rust are
+// generated into ./bindings by `cargo test` (ts-rs): edit the Rust type, never the
+// generated file. Only the UI's own types are written here.
 
-export interface SessionMeta {
-  id: string;
-  title: string;
-  provider: string;
-  created_at: number;
-  updated_at: number;
-  started: boolean;
-  /** The local Odoo database its screenshots use; null = Auto (not chosen yet). */
-  database?: string | null;
-  /** Where the client's Odoo runs: "online" (Odoo Online) or "sh" (Odoo.sh); null = not chosen. */
-  hosting?: Hosting | null;
-  /** The client's Odoo version, e.g. "19.0" or "saas-19.2"; null = not chosen. */
-  version?: string | null;
-}
+export type { ChatEvent } from "./bindings/ChatEvent";
+export type { ChatEventPayload } from "./bindings/ChatEventPayload";
+export type { Check as EnvCheck } from "./bindings/Check";
+export type { DatabaseForm } from "./bindings/DatabaseForm";
+export type { DatabaseInfo } from "./bindings/DatabaseInfo";
+export type { Edition } from "./bindings/Edition";
+export type { FoundSource } from "./bindings/FoundSource";
+export type { Model } from "./bindings/Model";
+export type { NewDatabase } from "./bindings/NewDatabase";
+export type { OdooVersions } from "./bindings/OdooVersions";
+export type { ProjectInfo } from "./bindings/ProjectInfo";
+export type { ProviderStatus } from "./bindings/ProviderStatus";
+export type { PublishedVersions } from "./bindings/PublishedVersions";
+export type { Release as AppRelease } from "./bindings/Release";
+export type { Report as EnvReport } from "./bindings/Report";
+export type { Requirement } from "./bindings/Requirement";
+export type { SessionData } from "./bindings/SessionData";
+export type { SessionMeta } from "./bindings/SessionMeta";
+export type { Settings } from "./bindings/Settings";
+export type { SetupStatus } from "./bindings/SetupStatus";
+export type { SourceState } from "./bindings/SourceState";
+export type { Task as SetupTask } from "./bindings/Task";
+export type { TranscriptEntry } from "./bindings/TranscriptEntry";
+export type { VersionInfo } from "./bindings/VersionInfo";
 
+/** Where the client's Odoo runs: Odoo Online or Odoo.sh. */
 export type Hosting = "online" | "sh";
-
-export interface ProjectInfo {
-  name: string;
-  sessions: SessionMeta[];
-}
-
-export type TranscriptEntry =
-  | { role: "user"; text: string }
-  | { role: "assistant"; text: string }
-  | { role: "tool"; name: string; is_error: boolean }
-  | { role: "error"; message: string };
-
-export interface SessionData {
-  meta: SessionMeta;
-  /** The .excalidraw JSON as stored on disk. */
-  scene: string;
-  transcript: TranscriptEntry[];
-}
-
-export type ChatEvent =
-  | { kind: "text_delta"; text: string }
-  | { kind: "tool_started"; id: string; name: string; input: unknown }
-  | { kind: "tool_finished"; id: string; is_error: boolean }
-  | { kind: "usage"; input_tokens: number; output_tokens: number }
-  /** The provider's own conversation id (Antigravity); the backend stores it. */
-  | { kind: "conversation"; id: string }
-  | {
-      kind: "plan_usage";
-      five_hour: { utilization: number; resets_at: number } | null;
-      seven_day: { utilization: number; resets_at: number } | null;
-    }
-  | { kind: "finished"; is_error: boolean; message: string | null };
-
-export interface ChatEventPayload {
-  sessionId: string;
-  event: ChatEvent;
-}
 
 /** A session is addressed by its project folder and id. */
 export interface SessionRef {
@@ -63,150 +39,4 @@ export interface SessionRef {
 /** What the separate diagram window shows. */
 export interface DiagramTarget extends SessionRef {
   title: string;
-}
-
-/** Mirrors specs_core::settings::Settings. */
-export interface Settings {
-  provider: "claude";
-  defaultVersion: string;
-  demoData: boolean;
-}
-
-/** One environment requirement (mirrors odoo_runtime::doctor::Check). */
-export interface EnvCheck {
-  key: string;
-  label: string;
-  status: "ok" | "warning" | "missing";
-  detail: string;
-  hint: string | null;
-  required: boolean;
-}
-
-/** Mirrors odoo_runtime::doctor::Report. */
-export interface EnvReport {
-  checks: EnvCheck[];
-}
-
-/** A selectable AI model (mirrors specs_core::models::Model). */
-export interface Model {
-  id: string;
-  label: string;
-  /** Provider the model belongs to; models are grouped by it in the picker. */
-  provider?: string;
-  /** The provider isn't logged in: shown with a padlock and not selectable. */
-  locked?: boolean;
-}
-
-/** Whether an AI provider is installed and logged in (mirrors specs_core::providers). */
-export interface ProviderStatus {
-  provider: "claude" | "antigravity";
-  name: string;
-  installed: boolean;
-  loggedIn: boolean;
-}
-
-/** A local Odoo database (mirrors odoo_runtime::runtime::DatabaseInfo). */
-export interface DatabaseInfo {
-  name: string;
-  label: string;
-  version: string;
-  modules: string[];
-  demoData: boolean;
-  enterprise: boolean;
-  /** Made by the assistant for screenshots rather than by a person. */
-  auto: boolean;
-  createdAt: number;
-  lastUsed: number;
-  sizeBytes: number;
-  running: boolean;
-}
-
-/** The "New database" form (mirrors odoo_runtime::runtime::NewDatabase). */
-export interface NewDatabase {
-  label: string;
-  version: string;
-  modules: string[];
-  demoData: boolean;
-  /** Run with the enterprise source; only where the computer has it. */
-  enterprise: boolean;
-}
-
-/** What the "New database" form starts with for a version. */
-export interface DatabaseForm {
-  /** The next free name, e.g. "db-19-3". */
-  suggestedLabel: string;
-  enterpriseAvailable: boolean;
-}
-
-/** One thing the computer must provide (mirrors odoo_runtime::system::Requirement). */
-export interface Requirement {
-  key: string;
-  label: string;
-  ok: boolean;
-  /** What is wrong, in plain words. */
-  problem: string;
-}
-
-export type SourceState = { state: "missing" } | { state: "ready"; linked: boolean };
-
-/** A long setup step (mirrors src-tauri setup::Task). */
-export interface SetupTask {
-  state: "running" | "done" | "failed" | "noAccess";
-  /** 0..100 while downloading; null while waiting without progress. */
-  progress: number | null;
-  message: string;
-}
-
-/** Odoo source found on the computer (mirrors odoo_runtime FoundSource). */
-export interface FoundSource {
-  version: string;
-  community: string;
-  enterprise: string | null;
-}
-
-/** Everything the setup screen shows (mirrors src-tauri setup::SetupStatus). */
-export interface SetupStatus {
-  system: { requirements: Requirement[]; ready: boolean };
-  /** Odoo versions ready to use, newest first. */
-  versions: string[];
-  /** Odoo source found on the computer, not used yet. */
-  found: FoundSource[];
-  aiReady: boolean;
-  tasks: Record<string, SetupTask>;
-}
-
-export type Edition = "community" | "enterprise";
-
-/** A newer version of the app (mirrors src-tauri update::Release). */
-export interface AppRelease {
-  version: string;
-  /** What changed: one "- title" line per change. */
-  notes: string;
-  debUrl: string;
-}
-
-/** A version on this computer (mirrors odoo_runtime VersionInfo). */
-export interface VersionInfo {
-  version: string;
-  community: SourceState;
-  enterprise: SourceState;
-  /** Unix time in ms of the last update; 0 when unknown. */
-  updated: number;
-  sizeBytes: number;
-  /** Where each edition's files really are (a download or the person's own folder). */
-  communityPath: string | null;
-  enterprisePath: string | null;
-}
-
-/** The versions on this computer (answers at once). */
-export interface OdooVersions {
-  downloaded: VersionInfo[];
-  /** Where downloads go, one folder per version, e.g. ~/odoo-versions. */
-  downloadsFolder: string;
-}
-
-/** The versions Odoo publishes on GitHub, newest first (may take a few seconds). */
-export interface PublishedVersions {
-  available: string[];
-  latestSaas: string | null;
 }

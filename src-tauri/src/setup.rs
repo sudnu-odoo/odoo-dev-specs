@@ -61,6 +61,8 @@ impl Default for SetupHooks {
 /// Where a long setup step is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
+#[derive(ts_rs::TS)]
+#[ts(export)]
 pub enum TaskState {
     Running,
     Done,
@@ -72,6 +74,8 @@ pub enum TaskState {
 /// A long setup step, as the UI shows it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
+#[derive(ts_rs::TS)]
+#[ts(export)]
 pub struct Task {
     pub state: TaskState,
     /// 0..=100 while downloading; none while waiting on something without progress.
@@ -113,6 +117,8 @@ impl SetupState {
 /// Everything the setup screen shows.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+#[derive(ts_rs::TS)]
+#[ts(export)]
 pub struct SetupStatus {
     pub system: SystemReport,
     /// Odoo versions ready to use (their source is on this computer), newest first.
@@ -343,6 +349,8 @@ gh ssh-key add "$1" --title "Odoo Dev Specs ($(hostname))" 2>&1 | grep -v "alrea
 /// answers at once; the versions Odoo publishes come from `odoo_published_versions`.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+#[derive(ts_rs::TS)]
+#[ts(export)]
 pub struct OdooVersions {
     pub downloaded: Vec<VersionInfo>,
     /// The folder downloads go to, e.g. ~/odoo-versions (one folder per version).
@@ -363,6 +371,8 @@ pub async fn odoo_versions(state: State<'_, AppState>) -> Result<OdooVersions, S
 /// The versions Odoo publishes on GitHub (may take a few seconds, or fail offline).
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+#[derive(ts_rs::TS)]
+#[ts(export)]
 pub struct PublishedVersions {
     pub available: Vec<String>,
     pub latest_saas: Option<String>,

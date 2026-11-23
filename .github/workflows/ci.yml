@@ -48,6 +48,13 @@ jobs:
       # Format, lint, Rust and UI tests; the browser tests use the runner's Chrome.
       - run: make check
 
+      # The UI's types are generated from Rust: the committed ones must be current.
+      - name: Generated TypeScript types are up to date
+        run: |
+          git add -N ui/src/lib/bindings
+          git diff --exit-code -- ui/src/lib/bindings || {
+            echo "Run 'make bindings' and commit ui/src/lib/bindings."; exit 1; }
+
   release:
     needs: test
     if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')

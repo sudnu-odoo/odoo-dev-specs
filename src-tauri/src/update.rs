@@ -20,6 +20,8 @@ const TIMEOUT: Duration = Duration::from_secs(20);
 /// A newer version, as the update banner shows it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[derive(ts_rs::TS)]
+#[ts(export)]
 pub struct Release {
     /// "0.2.3", without the "v".
     pub version: String,

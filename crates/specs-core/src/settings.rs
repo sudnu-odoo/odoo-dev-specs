@@ -11,6 +11,8 @@ use crate::fsutil::write_atomic;
 /// Which AI assistant answers by default.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[derive(ts_rs::TS)]
+#[ts(export)]
 pub enum Provider {
     #[default]
     Claude,
@@ -22,6 +24,8 @@ pub enum Provider {
 /// so a missing field falls back to its default instead of failing to load.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
+#[derive(ts_rs::TS)]
+#[ts(export)]
 pub struct Settings {
     /// AI assistant used for new sessions.
     pub provider: Provider,

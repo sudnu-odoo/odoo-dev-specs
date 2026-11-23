@@ -1,5 +1,5 @@
 # One entry point for everything. `make check` must pass before a milestone is done.
-.PHONY: install dev build test test-live lint fmt check
+.PHONY: install dev build test test-live lint fmt check bindings
 
 install:            ## Install UI dependencies
 	npm --prefix ui ci
@@ -21,6 +21,9 @@ test-live:          ## End-to-end with the real, logged-in Claude Code (costs to
 	cargo test -p odoo-dev-specs --test live_providers -- --ignored --nocapture
 	cargo test -p odoo-runtime --test live_runtime -- --ignored
 
+bindings:           ## TypeScript types for the UI, generated from the Rust ones (ts-rs)
+	cargo test -q --workspace export_bindings
+
 lint:               ## Static checks (no changes)
 	cargo clippy --workspace --all-targets -- -D warnings
 	npm --prefix ui run -s lint
@@ -31,6 +34,7 @@ fmt:                ## Auto-format Rust and UI code
 	npm --prefix ui run -s format
 
 check:              ## Everything CI would run
+	$(MAKE) bindings
 	cargo fmt --all --check
 	npm --prefix ui run -s format:check
 	$(MAKE) lint

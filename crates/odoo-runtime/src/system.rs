@@ -38,6 +38,8 @@ pub struct SystemProbe {
 /// One thing the app needs, as the setup screen shows it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
+#[derive(ts_rs::TS)]
+#[ts(export)]
 pub struct Requirement {
     pub key: &'static str,
     pub label: &'static str,
@@ -49,6 +51,8 @@ pub struct Requirement {
 /// Everything the app needs from the system, with what is missing.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
+#[derive(ts_rs::TS)]
+#[ts(export)]
 pub struct SystemReport {
     pub requirements: Vec<Requirement>,
     /// Nothing to install or start.

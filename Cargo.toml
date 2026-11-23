@@ -16,3 +16,5 @@ dirs = "5"
 tempfile = "3"
 tokio = { version = "1", features = ["process", "io-util", "rt-multi-thread", "macros", "sync", "time"] }
 uuid = { version = "1", features = ["v4"] }
+# TypeScript types for the UI, generated from the Rust ones (see .cargo/config.toml).
+ts-rs = { version = "12", features = ["no-serde-warnings", "serde-json-impl"] }
