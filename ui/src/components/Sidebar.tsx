@@ -1,4 +1,4 @@
-import { useRef, useState, type FormEvent } from "react";
+import { useRef, useState } from "react";
 import { useClosedProjects } from "../app/useClosedProjects";
 import type { ProjectInfo, SessionMeta, SessionRef } from "../lib/types";
 import { versionLabel } from "./HostingMenu";
@@ -7,8 +7,10 @@ export interface SidebarProps {
   projects: ProjectInfo[];
   selected: SessionRef | null;
   onSelect: (ref: SessionRef) => void;
-  /** Rejects with a user-facing message when the name is not accepted. */
-  onCreateProject: (name: string) => Promise<void>;
+  /** Open the New session dialog (Ctrl+N). */
+  onNewSession: () => void;
+  /** Open the search (Ctrl+K). */
+  onSearch: () => void;
   onCreateSession: (project: string) => void;
   onDeleteSession: (ref: SessionRef) => void;
   onRenameSession: (ref: SessionRef, title: string) => Promise<void>;
@@ -27,7 +29,8 @@ export default function Sidebar({
   projects,
   selected,
   onSelect,
-  onCreateProject,
+  onNewSession,
+  onSearch,
   onCreateSession,
   onDeleteSession,
   onRenameSession,
@@ -39,15 +42,6 @@ export default function Sidebar({
   running = [],
 }: SidebarProps) {
   const closed = useClosedProjects();
-  const [query, setQuery] = useState("");
-  const searching = query.trim().toLowerCase();
-  // While searching, only matching sessions, in every project that has some.
-  const shown = projects
-    .map((p) => ({
-      ...p,
-      sessions: searching ? p.sessions.filter((s) => s.title.toLowerCase().includes(searching)) : p.sessions,
-    }))
-    .filter((p) => !searching || p.sessions.length > 0);
   return (
     <aside className="sidebar">
       <div className="sidebar-header">
@@ -57,15 +51,18 @@ export default function Sidebar({
             ⚙
           </button>
         </div>
-        <NewProjectForm onCreate={onCreateProject} />
-        <input
-          type="search"
-          className="sidebar-search"
-          aria-label="Search sessions"
-          placeholder="Search sessions"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-        />
+        <button className="btn btn-primary sidebar-new" onClick={onNewSession}>
+          <span>New session</span>
+          <kbd>Ctrl N</kbd>
+        </button>
+        <button className="sidebar-search" onClick={onSearch}>
+          <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true">
+            <circle cx="7" cy="7" r="4.5" fill="none" stroke="currentColor" strokeWidth="1.4" />
+            <path d="m10.5 10.5 3 3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+          </svg>
+          <span>Search</span>
+          <kbd>Ctrl K</kbd>
+        </button>
       </div>
       {onOpenDatabases && (
         <button
@@ -87,9 +84,11 @@ export default function Sidebar({
       )}
       <nav className="tree" aria-label="Projects">
         {projects.length === 0 && (
-          <p className="tree-empty">Create a project for your customer, then start a session in it.</p>
+          <p className="tree-empty">
+            Start with New session: pick or add the client, then describe what they need.
+          </p>
         )}
-        {shown.map((p) => (
+        {projects.map((p) => (
           <div key={p.name} className="tree-project">
             <div className="tree-project-header">
               <button
@@ -122,7 +121,7 @@ export default function Sidebar({
                 +
               </button>
             </div>
-            {(searching || !closed.has(p.name)) &&
+            {!closed.has(p.name) &&
               p.sessions.map((s) => {
                 const ref = { project: p.name, sessionId: s.id };
                 return (
@@ -256,48 +255,6 @@ function SessionRow({ title, meta, working, active, onSelect, onRename, onDelete
         ×
       </button>
     </div>
-  );
-}
-
-function NewProjectForm({ onCreate }: { onCreate: (name: string) => Promise<void> }) {
-  const [open, setOpen] = useState(false);
-  const [name, setName] = useState("");
-  const [error, setError] = useState<string | null>(null);
-
-  async function submit(e: FormEvent) {
-    e.preventDefault();
-    try {
-      await onCreate(name);
-      setOpen(false);
-      setName("");
-      setError(null);
-    } catch (err) {
-      setError(String(err));
-    }
-  }
-
-  if (!open) {
-    return (
-      <button className="btn btn-primary btn-small" onClick={() => setOpen(true)}>
-        New project
-      </button>
-    );
-  }
-  return (
-    <form className="new-project" onSubmit={submit}>
-      <input
-        autoFocus
-        placeholder="Project name"
-        value={name}
-        onChange={(e) => setName(e.target.value)}
-        onKeyDown={(e) => e.key === "Escape" && setOpen(false)}
-      />
-      {error && (
-        <p role="alert" className="form-error">
-          {error}
-        </p>
-      )}
-    </form>
   );
 }
 

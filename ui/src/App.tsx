@@ -23,11 +23,17 @@ import Sidebar from "./components/Sidebar";
 import { useAssistants } from "./app/useAssistants";
 import { useSpecPanel } from "./app/useSpecPanel";
 import SessionHeader from "./components/SessionHeader";
+import NewSessionDialog from "./components/NewSessionDialog";
+import SearchPalette from "./components/SearchPalette";
+import { useShortcut } from "./app/useShortcut";
 
 export default function App() {
   useAppTheme();
   const app = useSpecsApp();
   const spec = useSpecPanel();
+  const [dialog, setDialog] = useState<"search" | "new" | null>(null);
+  useShortcut("k", () => setDialog("search"));
+  useShortcut("n", () => setDialog("new"));
   const dbs = useDatabases();
   const versions = useOdooVersions();
   // Only versions on this computer are offered, the newest stable one first.
@@ -143,7 +149,8 @@ export default function App() {
         download={download}
         onOpenSetup={() => setSetupOpen(true)}
         onOpenDatabases={() => setView("databases")}
-        onCreateProject={app.createProject}
+        onNewSession={() => setDialog("new")}
+        onSearch={() => setDialog("search")}
         onCreateSession={(project) => {
           setView("session");
           app.createSession(project);
@@ -221,6 +228,27 @@ export default function App() {
           </div>
         )}
       </div>
+      {dialog === "search" && (
+        <SearchPalette
+          onClose={() => setDialog(null)}
+          onOpen={(ref) => {
+            setDialog(null);
+            setView("session");
+            app.open(ref);
+          }}
+        />
+      )}
+      {dialog === "new" && (
+        <NewSessionDialog
+          clients={app.projects}
+          onCancel={() => setDialog(null)}
+          onStart={async (client, isNew) => {
+            await app.newSession(client, isNew);
+            setDialog(null);
+            setView("session");
+          }}
+        />
+      )}
       {newDatabaseFor && (
         <NewDatabaseDialog
           defaultVersion={startVersion}

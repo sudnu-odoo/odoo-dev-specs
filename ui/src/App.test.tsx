@@ -16,6 +16,7 @@ vi.mock("./lib/api", () => ({
     saveScene: vi.fn(),
     sendMessage: vi.fn(),
     attachFile: vi.fn(),
+    searchSessions: vi.fn(async () => []),
     githubStatus: vi.fn(async () => ({
       installed: true,
       connected: true,
@@ -113,7 +114,7 @@ beforeEach(() => {
   mocked.listProjects.mockImplementation(async () => projects);
   mocked.loadSession.mockImplementation(
     async (ref): Promise<SessionData> => ({
-      meta: projects[0].sessions.find((s) => s.id === ref.sessionId)!,
+      meta: projects.flatMap((p) => p.sessions).find((s) => s.id === ref.sessionId)!,
       scene: '{"type":"excalidraw","elements":[]}',
       transcript: ref.sessionId === "s1" ? [{ role: "user", text: "Earlier question" }] : [],
     }),
@@ -589,5 +590,34 @@ describe("App", () => {
       null,
       [quote],
     );
+  });
+
+  it("Ctrl+K searches the sessions, and opens the one picked", async () => {
+    mocked.searchSessions.mockResolvedValue([
+      { project: "Acme", session: meta("s2", "New spec"), snippets: ["…the incoterm…"] },
+    ]);
+    render(<App />);
+    await screen.findByRole("button", { name: "New spec" });
+    await userEvent.keyboard("{Control>}k{/Control}");
+    await userEvent.click(await screen.findByRole("option", { name: /New spec/ }));
+    expect(mocked.loadSession).toHaveBeenCalledWith({ project: "Acme", sessionId: "s2" });
+    expect(screen.queryByRole("combobox", { name: "Search sessions" })).not.toBeInTheDocument();
+  });
+
+  it("Ctrl+N starts a session for a new client", async () => {
+    mocked.createProject.mockImplementation(async (name) => {
+      projects = [...projects, { name, sessions: [] }];
+    });
+    mocked.createSession.mockImplementation(async (client) => {
+      projects = projects.map((p) => (p.name === client ? { ...p, sessions: [meta("s9", "New spec")] } : p));
+      return meta("s9", "New spec");
+    });
+    render(<App />);
+    await screen.findByRole("button", { name: "New spec" });
+    await userEvent.keyboard("{Control>}n{/Control}");
+    await userEvent.click(await screen.findByRole("option", { name: /New client/ }));
+    await userEvent.type(screen.getByRole("textbox", { name: "Client name" }), "Umbrella{Enter}");
+    await waitFor(() => expect(mocked.createSession).toHaveBeenCalledWith("Umbrella", "New spec"));
+    expect(mocked.createProject).toHaveBeenCalledWith("Umbrella");
   });
 });

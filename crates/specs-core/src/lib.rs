@@ -12,6 +12,7 @@ pub mod locate;
 pub mod models;
 pub mod providers;
 pub mod runner;
+pub mod search;
 pub mod settings;
 pub mod transcript;
 pub mod turn;

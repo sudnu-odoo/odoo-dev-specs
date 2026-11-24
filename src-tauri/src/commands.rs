@@ -368,6 +368,19 @@ pub async fn attach_file(
     .map_err(user_error)
 }
 
+/// Sessions matching a search, by title and by what was said in them (Ctrl+K).
+#[tauri::command]
+pub async fn search_sessions(
+    state: State<'_, AppState>,
+    query: String,
+) -> CmdResult<Vec<specs_core::search::SearchHit>> {
+    let workspace = state.workspace.clone();
+    tauri::async_runtime::spawn_blocking(move || specs_core::search::search(&workspace, &query, 30))
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(user_error)
+}
+
 /// Sessions whose assistant is answering right now, so the UI can offer Stop when
 /// it opens one of them (also after the UI reloaded).
 #[tauri::command]
@@ -606,6 +619,7 @@ pub fn register<R: Runtime>(builder: tauri::Builder<R>, state: AppState) -> taur
             save_scene,
             send_message,
             attach_file,
+            search_sessions,
             cancel_turn,
             running_sessions,
             write_file,

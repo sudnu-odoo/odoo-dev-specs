@@ -1174,3 +1174,27 @@ fn preparing_python_needs_the_version_here() {
         .unwrap_err();
     assert!(err.contains("17.0"), "{err}");
 }
+
+#[test]
+fn sessions_are_found_by_what_was_said_in_them() {
+    let h = harness(true);
+    let id = h.new_session();
+    h.events_until_finished(|| {
+        h.call(
+            "send_message",
+            json!({"project": "Acme", "sessionId": id, "text": "Show the incoterm on the quotation"}),
+        )
+        .unwrap();
+    });
+    let hits = h
+        .call("search_sessions", json!({"query": "incoterm"}))
+        .unwrap();
+    assert_eq!(hits[0]["project"], "Acme");
+    assert_eq!(hits[0]["session"]["id"], id.as_str());
+    assert!(hits[0]["snippets"][0]
+        .as_str()
+        .unwrap()
+        .contains("incoterm"));
+    let none = h.call("search_sessions", json!({"query": "zzz"})).unwrap();
+    assert_eq!(none, json!([]));
+}

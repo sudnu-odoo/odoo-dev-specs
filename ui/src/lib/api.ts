@@ -2,6 +2,7 @@
 // Components never call `invoke` directly.
 import type { Attachment } from "./bindings/Attachment";
 import type { GithubStatus } from "./bindings/GithubStatus";
+import type { SearchHit } from "./bindings/SearchHit";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type {
@@ -44,6 +45,8 @@ export const api = {
     effort: string | null,
     attachments?: Attachment[],
   ) => invoke<void>("send_message", { ...ref, text, model, effort, attachments: attachments ?? null }),
+  /** Sessions matching a search, by title and by what was said in them (Ctrl+K). */
+  searchSessions: (query: string) => invoke<SearchHit[]>("search_sessions", { query }),
   /** Prepare a PDF for the AI: its text (personal data removed) and a layout picture. */
   attachFile: (ref: SessionRef, path: string) => invoke<Attachment>("attach_file", { ...ref, path }),
   cancelTurn: (sessionId: string) => invoke<void>("cancel_turn", { sessionId }),

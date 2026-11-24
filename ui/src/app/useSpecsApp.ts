@@ -156,6 +156,17 @@ export function useSpecsApp() {
     [open, refresh],
   );
 
+  /** A new session for a client; a new client is created first. Rejects with why. */
+  const newSession = useCallback(
+    async (client: string, isNew: boolean) => {
+      if (isNew) await api.createProject(client);
+      const meta = await api.createSession(client, DEFAULT_TITLE);
+      await refresh();
+      await open({ project: client, sessionId: meta.id });
+    },
+    [open, refresh],
+  );
+
   const deleteSession = useCallback(
     async (ref: SessionRef) => {
       const title = projects
@@ -283,6 +294,7 @@ export function useSpecsApp() {
     dismissError: () => setError(null),
     open,
     createProject,
+    newSession,
     createSession,
     deleteSession,
     renameSession,

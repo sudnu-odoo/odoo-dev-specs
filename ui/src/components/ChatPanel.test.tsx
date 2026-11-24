@@ -116,7 +116,7 @@ describe("ChatPanel", () => {
   it("is disabled until a session is open", () => {
     setup({ hasSession: false });
     expect(input()).toBeDisabled();
-    expect(screen.getByText(/open or create a session/i)).toBeInTheDocument();
+    expect(screen.getByText(/New session \(Ctrl\+N\)/)).toBeInTheDocument();
   });
 });
 

@@ -115,7 +115,7 @@ export default function ChatPanel({
         {!hasSession && (
           <div className="chat-empty">
             <h2>Describe the feature to spec</h2>
-            <p>Open or create a session on the left to start.</p>
+            <p>Start one with New session (Ctrl+N), or find one with Search (Ctrl+K).</p>
           </div>
         )}
         {hasSession && items.length === 0 && (

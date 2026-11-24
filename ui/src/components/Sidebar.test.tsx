@@ -33,7 +33,8 @@ function setup(overrides: Partial<SidebarProps> = {}) {
     projects,
     selected: { project: "Acme", sessionId: "s1" },
     onSelect: vi.fn(),
-    onCreateProject: vi.fn().mockResolvedValue(undefined),
+    onNewSession: vi.fn(),
+    onSearch: vi.fn(),
     onCreateSession: vi.fn(),
     onDeleteSession: vi.fn(),
     onRenameSession: vi.fn().mockResolvedValue(undefined),
@@ -50,14 +51,6 @@ describe("Sidebar", () => {
     expect(screen.getByRole("button", { name: "Delivery window" })).toHaveTextContent("Online · 19.2");
     const invoice = screen.getByRole("button", { name: "Invoice layout" });
     expect(within(invoice).getByRole("status", { name: "Working" })).toBeInTheDocument();
-  });
-
-  it("finds sessions by their title", async () => {
-    setup();
-    await userEvent.type(screen.getByRole("searchbox", { name: "Search sessions" }), "invoice");
-    expect(screen.getByRole("button", { name: "Invoice layout" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Delivery window" })).not.toBeInTheDocument();
-    expect(screen.queryByText("Globex")).not.toBeInTheDocument();
   });
 
   it("shows or hides a project's sessions when its name is clicked", async () => {
@@ -87,20 +80,16 @@ describe("Sidebar", () => {
     expect(props.onSelect).toHaveBeenCalledWith({ project: "Acme", sessionId: "s2" });
   });
 
-  it("creates a project from the inline form", async () => {
+  it("asks for a new session and for the search, with their shortcuts shown", async () => {
     const props = setup();
-    await userEvent.click(screen.getByRole("button", { name: "New project" }));
-    await userEvent.type(screen.getByPlaceholderText("Project name"), "Initech{Enter}");
-    expect(props.onCreateProject).toHaveBeenCalledWith("Initech");
-    expect(screen.queryByPlaceholderText("Project name")).not.toBeInTheDocument();
-  });
-
-  it("keeps the form open and shows the error when creation fails", async () => {
-    setup({ onCreateProject: vi.fn().mockRejectedValue('A project named "Acme" already exists.') });
-    await userEvent.click(screen.getByRole("button", { name: "New project" }));
-    await userEvent.type(screen.getByPlaceholderText("Project name"), "Acme{Enter}");
-    expect(await screen.findByRole("alert")).toHaveTextContent("already exists");
-    expect(screen.getByPlaceholderText("Project name")).toBeInTheDocument();
+    const start = screen.getByRole("button", { name: "New session Ctrl N" });
+    expect(start).toHaveTextContent("Ctrl N");
+    await userEvent.click(start);
+    expect(props.onNewSession).toHaveBeenCalled();
+    const search = screen.getByRole("button", { name: /^Search/ });
+    expect(search).toHaveTextContent("Ctrl K");
+    await userEvent.click(search);
+    expect(props.onSearch).toHaveBeenCalled();
   });
 
   it("starts a new session in a project", async () => {
@@ -146,8 +135,8 @@ describe("Sidebar", () => {
     expect(props.onSelect).not.toHaveBeenCalled();
   });
 
-  it("guides the user when there are no projects yet", () => {
+  it("guides the user when there are no sessions yet", () => {
     setup({ projects: [], selected: null });
-    expect(screen.getByText(/create a project/i)).toBeInTheDocument();
+    expect(screen.getByText(/Start with New session/)).toBeInTheDocument();
   });
 });
