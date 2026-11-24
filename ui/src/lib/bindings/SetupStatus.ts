@@ -2,6 +2,7 @@
 import type { FoundSource } from "./FoundSource";
 import type { SystemReport } from "./SystemReport";
 import type { Task } from "./Task";
+import type { VersionInfo } from "./VersionInfo";
 
 /**
  * Everything the setup screen shows.
@@ -11,6 +12,10 @@ export type SetupStatus = { system: SystemReport,
  * Odoo versions ready to use (their source is on this computer), newest first.
  */
 versions: Array<string>, 
+/**
+ * The versions in use, with where their files are.
+ */
+sources: Array<VersionInfo>, 
 /**
  * Odoo source found on the computer that is not used yet.
  */

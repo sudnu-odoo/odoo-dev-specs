@@ -11,7 +11,9 @@ use std::time::Duration;
 /// Odoo fixes its branches every week: a version is brought up to date after that.
 const WEEK: Duration = Duration::from_secs(7 * 24 * 3600);
 
-use odoo_runtime::runtime::{Edition, FoundSource, NoAccess, Runtime as OdooRuntime, VersionInfo};
+use odoo_runtime::runtime::{
+    Edition, FoundSource, NoAccess, Runtime as OdooRuntime, SourceState, VersionInfo,
+};
 use odoo_runtime::system::{self, SystemProbe, SystemReport};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Runtime, State};
@@ -123,6 +125,8 @@ pub struct SetupStatus {
     pub system: SystemReport,
     /// Odoo versions ready to use (their source is on this computer), newest first.
     pub versions: Vec<String>,
+    /// The versions in use, with where their files are.
+    pub sources: Vec<VersionInfo>,
     /// Odoo source found on the computer that is not used yet.
     pub found: Vec<FoundSource>,
     /// At least one AI assistant is installed and logged in.
@@ -178,11 +182,17 @@ pub async fn setup_status(state: State<'_, AppState>) -> Result<SetupStatus, Str
         state.providers.clone(),
     );
     tauri::async_runtime::spawn_blocking(move || {
-        let versions = odoo.ready_versions();
+        let sources: Vec<VersionInfo> = odoo
+            .downloaded_versions()
+            .into_iter()
+            .filter(|v| v.community != SourceState::Missing)
+            .collect();
+        let versions = sources.iter().map(|v| v.version.clone()).collect();
         let found = odoo.unused_sources(&setup.hooks.home);
         SetupStatus {
             system: system::report(&(setup.hooks.probe)()),
             versions,
+            sources,
             found,
             ai_ready: providers().iter().any(|p| p.ready()),
             tasks: setup.tasks.lock().unwrap().clone(),

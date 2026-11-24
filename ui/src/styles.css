@@ -1406,6 +1406,7 @@ button.usage-line:hover {
 }
 .setup-row {
   display: flex;
+  flex-wrap: wrap;
   align-items: flex-start;
   gap: 12px;
   padding: 14px 16px;
@@ -1464,6 +1465,11 @@ button.usage-line:hover {
   border-radius: 999px;
   background: var(--bg);
   color: var(--muted);
+}
+/* A step's details: the full width, under its text (past the icon). */
+.setup-row-more {
+  flex-basis: 100%;
+  padding-left: 34px;
 }
 .setup-row-action {
   display: flex;
@@ -1786,4 +1792,57 @@ button.usage-line:hover {
   margin: 8px 10px 0;
   color: var(--danger);
   font-size: 12px;
+}
+
+/* A setup step's title opens what it checked. */
+.setup-row-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+.setup-row-toggle svg {
+  color: var(--muted);
+  transition: transform 0.15s;
+}
+.setup-row-toggle svg[data-open="true"] {
+  transform: rotate(90deg);
+}
+.setup-details {
+  list-style: none;
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--bg);
+  display: grid;
+  gap: 6px;
+}
+.setup-details li {
+  display: grid;
+  grid-template-columns: 14px auto 1fr;
+  column-gap: 8px;
+  align-items: baseline;
+  font-size: 13px;
+}
+.setup-details li[data-ok="true"] > span:first-child {
+  color: #2f9e44;
+}
+.setup-details li[data-ok="false"] > span:first-child {
+  color: var(--muted);
+}
+.setup-details small {
+  color: var(--muted);
+}
+.setup-details code {
+  grid-column: 2 / -1;
+  font-family: ui-monospace, monospace;
+  font-size: 11px;
+  color: var(--muted);
+  word-break: break-all;
 }

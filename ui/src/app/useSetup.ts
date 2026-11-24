@@ -93,6 +93,8 @@ export function useSetup() {
     downloading,
     tools: status?.tasks.tools,
     setUpEverything,
+    /** Use the Odoo folders found on the computer too. */
+    useFound: applyFound,
     installTools,
     chooseFolder,
   };

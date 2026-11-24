@@ -3,18 +3,24 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import HostingMenu, { versionLabel } from "./HostingMenu";
 
-const AVAILABLE = ["saas-19.2", "saas-19.1", "19.0", "saas-18.4", "18.0", "17.0"];
+/** The versions whose source is on this computer, in no particular order. */
+const HERE = ["19.0", "saas-19.2", "18.0", "saas-18.4"];
 const chip = () => screen.getByRole("button", { name: /^Hosting/ });
 
-function setup(hosting: "online" | "sh" | null, version: string | null) {
+function setup(
+  hosting: "online" | "sh" | null,
+  version: string | null,
+  versions: string[] = HERE,
+  loading = false,
+) {
   const onChange = vi.fn();
   render(
     <HostingMenu
       hosting={hosting}
       version={version}
-      available={AVAILABLE}
-      latestSaas="saas-19.2"
+      versions={versions}
       defaultVersion="19.0"
+      loading={loading}
       onChange={onChange}
     />,
   );
@@ -37,21 +43,30 @@ describe("HostingMenu", () => {
     expect(chip()).toHaveTextContent("Odoo Online · 19.2");
   });
 
-  it("Odoo Online picks the latest SaaS version; older ones stay selectable", async () => {
+  it("Odoo Online starts on the newest version here", async () => {
     const onChange = setup(null, null);
     await userEvent.click(chip());
     await userEvent.click(screen.getByRole("menuitemradio", { name: "Odoo Online" }));
     expect(onChange).toHaveBeenCalledWith("online", "saas-19.2");
   });
 
-  it("lists the SaaS versions for Odoo Online and the stable ones for Odoo.sh", async () => {
+  it("Odoo Online can be any version here, SaaS or stable, newest first", async () => {
     const onChange = setup("online", "saas-19.2");
     await userEvent.click(chip());
     const versions = screen.getByRole("group", { name: "Odoo version" });
-    expect(versions).toHaveTextContent(/19\.2.*latest.*19\.1.*18\.4/);
-    expect(versions).not.toHaveTextContent("19.0");
-    await userEvent.click(screen.getByRole("menuitemradio", { name: /^18\.4/ }));
-    expect(onChange).toHaveBeenCalledWith("online", "saas-18.4");
+    expect(versions).toHaveTextContent(/19\.2.*latest.*19\.0.*18\.4.*18\.0/);
+    await userEvent.click(screen.getByRole("menuitemradio", { name: "19.0" }));
+    expect(onChange).toHaveBeenCalledWith("online", "19.0");
+  });
+
+  it("Odoo.sh offers only the stable versions here", async () => {
+    const onChange = setup("sh", "19.0");
+    await userEvent.click(chip());
+    const versions = screen.getByRole("group", { name: "Odoo version" });
+    expect(versions).toHaveTextContent(/19\.0.*18\.0/);
+    expect(versions).not.toHaveTextContent("19.2");
+    await userEvent.click(screen.getByRole("menuitemradio", { name: "18.0" }));
+    expect(onChange).toHaveBeenCalledWith("sh", "18.0");
   });
 
   it("moving the client to Odoo.sh keeps a stable version", async () => {
@@ -61,18 +76,29 @@ describe("HostingMenu", () => {
     expect(onChange).toHaveBeenCalledWith("sh", "19.0");
   });
 
+  it("offers only what is on this computer, never versions without their source", async () => {
+    setup("online", "20.0", ["20.0", "19.0"]);
+    await userEvent.click(chip());
+    const versions = screen.getByRole("group", { name: "Odoo version" });
+    expect(versions).toHaveTextContent(/20\.0.*19\.0/);
+    expect(screen.getAllByRole("menuitemradio")).toHaveLength(4);
+  });
+
+  it("Odoo Online starts on 20.0 when it is newer than every SaaS version here", async () => {
+    const onChange = setup(null, null, ["saas-19.2", "20.0", "19.0"]);
+    await userEvent.click(chip());
+    await userEvent.click(screen.getByRole("menuitemradio", { name: "Odoo Online" }));
+    expect(onChange).toHaveBeenCalledWith("online", "20.0");
+  });
+
+  it("says when no Odoo source is here yet", async () => {
+    setup("sh", null, []);
+    await userEvent.click(chip());
+    expect(screen.getByRole("status")).toHaveTextContent("No Odoo source on this computer yet");
+  });
+
   it("says the versions are loading instead of guessing them", async () => {
-    render(
-      <HostingMenu
-        hosting="sh"
-        version="19.0"
-        available={[]}
-        latestSaas={null}
-        defaultVersion="19.0"
-        loading
-        onChange={vi.fn()}
-      />,
-    );
+    setup("sh", "19.0", [], true);
     await userEvent.click(chip());
     expect(screen.getByRole("status")).toHaveTextContent("Loading versions…");
     expect(screen.queryByRole("menuitemradio", { name: "17.0" })).not.toBeInTheDocument();

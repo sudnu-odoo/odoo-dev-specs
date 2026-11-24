@@ -7,9 +7,25 @@ import SetupScreen from "./SetupScreen";
 
 vi.mock("../lib/pickFolder", () => ({ pickFolder: vi.fn(async () => "/home/me/odev/worktrees/19.0") }));
 
+const source = (version: string, path: string) => ({
+  version,
+  community: { state: "ready" as const, linked: true },
+  enterprise: { state: "ready" as const, linked: true },
+  updated: 0,
+  sizeBytes: 0,
+  communityPath: `${path}/odoo`,
+  enterprisePath: `${path}/enterprise`,
+});
 const ready: SetupStatus = {
-  system: { requirements: [], ready: true },
+  system: {
+    requirements: [
+      { key: "postgresql", label: "PostgreSQL", ok: true, problem: "" },
+      { key: "pdf", label: "PDF tools", ok: false, problem: "The PDF tools are not installed." },
+    ],
+    ready: true,
+  },
   versions: ["19.0"],
+  sources: [source("19.0", "/home/me/odev/worktrees/19.0")],
   found: [],
   aiReady: true,
   tasks: {},
@@ -26,6 +42,7 @@ function setup(status: Partial<SetupStatus>, tools?: SetupTask, complete = false
     downloading: null,
     tools,
     setUpEverything: vi.fn(),
+    useFound: vi.fn(),
     installTools: vi.fn(),
     chooseFolder: vi.fn(),
   } as unknown as Setup;
@@ -61,6 +78,36 @@ describe("SetupScreen", () => {
     );
     await userEvent.click(screen.getByRole("button", { name: "Set up everything" }));
     expect(s.setUpEverything).toHaveBeenCalled();
+  });
+
+  it("counts the source as ready when a version is in use, other folders found are extras", async () => {
+    const { s } = setup({
+      versions: ["19.0", "20.0"],
+      found: ["saas-19.4", "saas-19.2", "18.0"].map(found),
+    });
+    expect(row("Odoo source")).toHaveAttribute("data-state", "done");
+    expect(row("Odoo source")).toHaveTextContent("Using Odoo 19.0, 20.0 from your folders.");
+    expect(row("Odoo source")).toHaveTextContent("Also found: 19.4, 19.2, 18.0");
+    await userEvent.click(within(row("Odoo source")).getByRole("button", { name: "Use them too" }));
+    expect(s.useFound).toHaveBeenCalled();
+  });
+
+  it("opens each step to show what is installed and where", async () => {
+    setup({});
+    await userEvent.click(screen.getByRole("button", { name: "Tools" }));
+    const tools = within(row("Tools")).getByRole("list", { name: "Tools details" });
+    expect(tools).toHaveTextContent("PostgreSQL");
+    expect(tools).toHaveTextContent("The PDF tools are not installed.");
+    await userEvent.click(screen.getByRole("button", { name: "Odoo source" }));
+    expect(within(row("Odoo source")).getByRole("list", { name: "Odoo source details" })).toHaveTextContent(
+      "19.0Community + Enterprise/home/me/odev/worktrees/19.0",
+    );
+    await userEvent.click(screen.getByRole("button", { name: "AI assistant" }));
+    const ai = within(row("AI assistant")).getByRole("list", { name: "AI assistant details" });
+    expect(ai).toHaveTextContent("ClaudeInstalled, not logged in");
+    expect(ai).toHaveTextContent("AntigravityNot installed");
+    await userEvent.click(screen.getByRole("button", { name: "Tools" }));
+    expect(within(row("Tools")).queryByRole("list")).not.toBeInTheDocument();
   });
 
   it("says which versions are in use", () => {

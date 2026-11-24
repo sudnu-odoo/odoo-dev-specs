@@ -1,23 +1,21 @@
 import type { Hosting } from "../lib/types";
 import { usePopover } from "../app/usePopover";
+import { newestFirst } from "../lib/versions";
 
 /** "saas-19.2" -> "19.2"; stable versions stay as they are. */
 export const versionLabel = (v: string) => v.replace(/^saas-/, "");
 
 const HOSTINGS: { value: Hosting; title: string; detail: string }[] = [
-  { value: "online", title: "Odoo Online", detail: "Latest SaaS version; no custom Python code" },
+  { value: "online", title: "Odoo Online", detail: "Usually the latest version; no custom Python code" },
   { value: "sh", title: "Odoo.sh", detail: "The client's stable version; custom modules are possible" },
 ];
-
-const FALLBACK_STABLE = ["19.0", "18.0", "17.0"];
 
 export interface HostingMenuProps {
   /** null until chosen: the assistant asks. */
   hosting: Hosting | null;
   version: string | null;
-  /** Versions Odoo publishes, newest first (empty until GitHub is connected). */
-  available: string[];
-  latestSaas: string | null;
+  /** The versions whose source is on this computer: only these can be chosen. */
+  versions: string[];
   /** The stable version used when nothing else says (Settings). */
   defaultVersion: string;
   disabled?: boolean;
@@ -27,14 +25,14 @@ export interface HostingMenuProps {
 }
 
 /**
- * Where the client's Odoo runs and which version, as one chip ("Odoo Online · 19.2"):
- * Odoo Online clients are on the latest SaaS version, Odoo.sh clients on a stable one.
+ * Where the client's Odoo runs and which version, as one chip ("Odoo Online · 19.2").
+ * Only versions whose source is on this computer are offered, so the assistant can
+ * read their code: any of them for Odoo Online, the stable ones for Odoo.sh.
  */
 export default function HostingMenu({
   hosting,
   version,
-  available,
-  latestSaas,
+  versions: here,
   defaultVersion,
   disabled,
   loading,
@@ -42,19 +40,18 @@ export default function HostingMenu({
 }: HostingMenuProps) {
   const { open, setOpen, root } = usePopover();
 
-  const saas = available.filter((v) => v.startsWith("saas-"));
-  const stable = available.filter((v) => !v.startsWith("saas-"));
-  const stableList = stable.length ? stable : FALLBACK_STABLE;
+  const all = newestFirst(here);
+  const stable = all.filter((v) => !v.startsWith("saas-"));
   const current = HOSTINGS.find((h) => h.value === hosting);
   const label = current ? `${current.title}${version ? ` · ${versionLabel(version)}` : ""}` : "Hosting?";
 
   /** The version a hosting starts with: keep the current one when it fits. */
   const versionFor = (h: Hosting): string => {
     if (h === "online")
-      return version?.startsWith("saas-") ? version : (latestSaas ?? version ?? defaultVersion);
-    return version && !version.startsWith("saas-") ? version : (stable[0] ?? defaultVersion);
+      return version && all.includes(version) ? version : (all[0] ?? version ?? defaultVersion);
+    return version && stable.includes(version) ? version : (stable[0] ?? version ?? defaultVersion);
   };
-  const versions = hosting === "online" ? (saas.length ? saas : version ? [version] : []) : stableList;
+  const versions = hosting === "online" ? all : stable;
 
   const pick = (h: Hosting, v: string) => {
     setOpen(false);
@@ -95,12 +92,19 @@ export default function HostingMenu({
               />
             ))}
           </div>
-          {hosting && loading && available.length === 0 && (
+          {hosting && loading && here.length === 0 && (
             <div role="status" className="menu-group menu-loading">
               <span className="spinner" aria-hidden="true" /> Loading versions…
             </div>
           )}
-          {hosting && versions.length > 0 && !(loading && available.length === 0) && (
+          {hosting && !loading && versions.length === 0 && (
+            <div role="status" className="menu-group menu-loading">
+              {here.length === 0
+                ? "No Odoo source on this computer yet: add a version in Settings → Odoo versions."
+                : "No stable version on this computer: add one in Settings → Odoo versions."}
+            </div>
+          )}
+          {hosting && versions.length > 0 && (
             <div role="group" aria-label="Odoo version" className="menu-group">
               <div className="menu-head" aria-hidden="true">
                 Odoo version
@@ -110,7 +114,7 @@ export default function HostingMenu({
                   key={v}
                   checked={v === version}
                   title={versionLabel(v)}
-                  detail={hosting === "online" && i === 0 && v === latestSaas ? "latest" : ""}
+                  detail={hosting === "online" && i === 0 ? "latest" : ""}
                   onPick={() => pick(hosting, v)}
                 />
               ))}

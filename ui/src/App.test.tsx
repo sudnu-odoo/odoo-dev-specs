@@ -75,6 +75,7 @@ const mocked = vi.mocked(api);
 const readyComputer: SetupStatus = {
   system: { requirements: [], ready: true },
   versions: ["19.0"],
+  sources: [],
   found: [],
   aiReady: true,
   tasks: {},
@@ -498,7 +499,20 @@ describe("App", () => {
     );
   });
 
-  it("choosing Odoo Online sets the latest SaaS version for the session", async () => {
+  it("choosing Odoo Online sets the newest SaaS version on this computer", async () => {
+    const here = (version: string) => ({
+      version,
+      community: { state: "ready" as const, linked: true },
+      enterprise: { state: "missing" as const },
+      updated: 0,
+      sizeBytes: 0,
+      communityPath: `/h/${version}/odoo`,
+      enterprisePath: null,
+    });
+    mocked.odooVersions.mockResolvedValue({
+      downloaded: [here("19.0"), here("saas-19.2")],
+      downloadsFolder: "/home/me/odoo-versions",
+    });
     await openSession("Delivery window");
     await userEvent.click(await screen.findByRole("button", { name: "Hosting: not chosen" }));
     await userEvent.click(screen.getByRole("menuitemradio", { name: "Odoo Online" }));

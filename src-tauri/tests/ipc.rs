@@ -1050,3 +1050,30 @@ fn an_attached_report_is_mentioned_to_the_assistant_and_only_pdfs_are_taken() {
     assert!(sent.starts_with("Map this report"), "{sent}");
     assert!(sent.contains("attachments/quotation.md"), "{sent}");
 }
+
+#[test]
+fn the_setup_lists_the_versions_in_use_with_their_folders() {
+    let h = harness(true);
+    let mine = h.root.join("odev/worktrees/19.0");
+    fs::create_dir_all(mine.join("odoo/odoo")).unwrap();
+    fs::write(mine.join("odoo/odoo-bin"), "").unwrap();
+    fs::write(
+        mine.join("odoo/odoo/release.py"),
+        "version_info = (19, 0, 0, 'final', 0, '')\n",
+    )
+    .unwrap();
+    fs::create_dir_all(mine.join("enterprise/web_enterprise")).unwrap();
+    let version = h.call("use_source_folder", json!({"path": mine})).unwrap();
+    assert_eq!(version, "19.0");
+    let status = h.call("setup_status", json!({})).unwrap();
+    assert_eq!(status["versions"], json!(["19.0"]));
+    let source = &status["sources"][0];
+    assert_eq!(
+        source["communityPath"],
+        mine.join("odoo").display().to_string()
+    );
+    assert_eq!(
+        source["enterprisePath"],
+        mine.join("enterprise").display().to_string()
+    );
+}

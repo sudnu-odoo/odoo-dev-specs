@@ -97,12 +97,10 @@ export default function App() {
           <HostingMenu
             hosting={sessionHosting}
             version={sessionVersion}
-            // Without GitHub, the versions found on this computer.
-            available={versions.available.length ? versions.available : localVersions}
-            latestSaas={versions.latestSaas ?? localVersions.find((v) => v.startsWith("saas-")) ?? null}
+            versions={localVersions}
             defaultVersion={startVersion}
             disabled={app.chat.running}
-            loading={versions.loading || (versions.publishedLoading && localVersions.length === 0)}
+            loading={versions.loading}
             onChange={app.setSessionTarget}
           />
           <DatabaseMenu
