@@ -13,6 +13,8 @@ export interface SidebarProps {
   onSearch: () => void;
   onCreateSession: (project: string) => void;
   onDeleteSession: (ref: SessionRef) => void;
+  /** Delete a client and all its sessions (asks first). */
+  onDeleteProject: (project: string) => void;
   onRenameSession: (ref: SessionRef, title: string) => Promise<void>;
   onOpenSettings: () => void;
   /** The Databases page is showing (instead of a session). */
@@ -33,6 +35,7 @@ export default function Sidebar({
   onSearch,
   onCreateSession,
   onDeleteSession,
+  onDeleteProject,
   onRenameSession,
   onOpenSettings,
   databasesOpen = false,
@@ -108,6 +111,14 @@ export default function Sidebar({
                   <path d="M4.5 3 7.5 6 4.5 9" fill="none" stroke="currentColor" strokeWidth="1.5" />
                 </svg>
                 {p.name}
+              </button>
+              <button
+                className="icon-btn tree-project-action"
+                aria-label={`Delete client ${p.name}`}
+                title="Delete client"
+                onClick={() => onDeleteProject(p.name)}
+              >
+                ×
               </button>
               <button
                 className="icon-btn"

@@ -163,6 +163,12 @@ impl Workspace {
         fs::remove_dir_all(&dir).with_context(|| format!("deleting {}", dir.display()))
     }
 
+    /// Delete a client (project) with all its sessions.
+    pub fn delete_project(&self, project: &str) -> Result<()> {
+        let dir = self.project_dir(project)?;
+        fs::remove_dir_all(&dir).with_context(|| format!("deleting {}", dir.display()))
+    }
+
     /// Record that the AI conversation exists, and bump `updated_at`.
     pub fn mark_started(&self, project: &str, id: &str) -> Result<SessionMeta> {
         self.update_meta(project, id, |m| m.started = true)

@@ -205,6 +205,24 @@ pub fn delete_session(
 }
 
 #[tauri::command]
+pub fn delete_project(state: State<'_, AppState>, project: String) -> CmdResult<()> {
+    let projects = state.workspace.list().map_err(user_error)?;
+    let sessions = projects
+        .iter()
+        .find(|p| p.name == project)
+        .map(|p| p.sessions.as_slice())
+        .unwrap_or_default();
+    let busy = {
+        let running = state.running.lock().unwrap();
+        sessions.iter().any(|s| running.contains_key(&s.id))
+    };
+    if busy {
+        return Err("Stop the assistant before deleting this client.".into());
+    }
+    state.workspace.delete_project(&project).map_err(user_error)
+}
+
+#[tauri::command]
 pub fn load_session(
     state: State<'_, AppState>,
     project: String,
@@ -614,6 +632,7 @@ pub fn register<R: Runtime>(builder: tauri::Builder<R>, state: AppState) -> taur
             create_session,
             rename_session,
             delete_session,
+            delete_project,
             load_session,
             load_scene,
             save_scene,

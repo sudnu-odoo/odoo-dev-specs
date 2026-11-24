@@ -156,6 +156,7 @@ export default function App() {
           app.createSession(project);
         }}
         onDeleteSession={app.deleteSession}
+        onDeleteProject={app.deleteProject}
         onRenameSession={app.renameSession}
         onOpenSettings={() => setSettingsOpen(true)}
       />

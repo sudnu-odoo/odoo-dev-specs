@@ -10,66 +10,77 @@ export interface NewSessionDialogProps {
   onCancel: () => void;
 }
 
-/** One line of the list: an existing client, or the one typed, to create. */
-type Choice = { client: ProjectInfo; isNew: false } | { name: string; isNew: true };
-
-const id = (c: Choice) => `client-${c.isNew ? "new" : c.client.name}`;
-
 /** When a client was last worked on: its most recent session. */
 const lastUsed = (p: ProjectInfo) => Math.max(0, ...p.sessions.map((s) => s.updated_at));
+const optionId = (name: string) => `client-${name}`;
+const same = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase();
 
 /**
- * Ctrl+N: a new session, for which client? Type to find one (the open session's
- * client, then the most recently worked on, come first) or to add a new one; the
- * arrow keys and Enter do the rest, so it stays quick with many clients.
+ * Ctrl+N: a new session, for which client? Two clear steps: pick an existing client
+ * (searchable, current and recent first, arrows and Enter), or "New client" to type
+ * a name. Stays the same size with any number of clients.
  */
 export default function NewSessionDialog({ clients, current, onStart, onCancel }: NewSessionDialogProps) {
+  const [adding, setAdding] = useState(clients.length === 0);
   const [query, setQuery] = useState("");
+  const [name, setName] = useState("");
   const [active, setActive] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
 
-  const typed = query.trim();
-  const exact = (c: ProjectInfo) => !!typed && c.name.toLowerCase() === typed.toLowerCase();
-  const words = typed.toLowerCase().split(/\s+/).filter(Boolean);
-  const choices: Choice[] = [...clients]
+  const words = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  const matches = [...clients]
+    .filter((c) => words.every((w) => c.name.toLowerCase().includes(w)))
     .sort(
       (a, b) =>
-        Number(exact(b)) - Number(exact(a)) ||
+        Number(same(b.name, query)) - Number(same(a.name, query)) ||
         Number(b.name === current) - Number(a.name === current) ||
         lastUsed(b) - lastUsed(a),
-    )
-    .filter((c) => words.every((w) => c.name.toLowerCase().includes(w)))
-    .map((client) => ({ client, isNew: false }));
-  if (typed && !clients.some(exact)) {
-    choices.push({ name: typed, isNew: true });
-  }
-  const selected = choices[Math.min(active, choices.length - 1)];
+    );
+  const selected = matches[Math.min(active, matches.length - 1)];
 
   // Keep the chosen line in view while moving with the arrow keys.
-  const selectedId = selected ? id(selected) : null;
+  const selectedName = adding ? null : selected?.name;
   useEffect(() => {
-    if (selectedId) document.getElementById(selectedId)?.scrollIntoView?.({ block: "nearest" });
-  }, [selectedId]);
+    if (selectedName) document.getElementById(optionId(selectedName))?.scrollIntoView?.({ block: "nearest" });
+  }, [selectedName]);
 
-  async function start(choice: Choice | undefined, e?: FormEvent) {
-    e?.preventDefault();
-    if (!choice || starting) return;
+  async function start(client: string, isNew: boolean) {
+    if (starting) return;
     setStarting(true);
     try {
-      await onStart(choice.isNew ? choice.name : choice.client.name, choice.isNew);
+      await onStart(client, isNew);
     } catch (err) {
       setError(String(err));
       setStarting(false);
     }
   }
 
+  function submit(e: FormEvent) {
+    e.preventDefault();
+    if (!adding) {
+      if (selected) start(selected.name, false);
+      return;
+    }
+    const typed = name.trim();
+    if (!typed) return;
+    const existing = clients.find((c) => same(c.name, typed));
+    if (existing) setError(`"${existing.name}" already exists: pick it from the list.`);
+    else start(typed, true);
+  }
+
+  function openAdding(prefill = "") {
+    setName(prefill);
+    setError(null);
+    setAdding(true);
+  }
+
   function onKeyDown(e: KeyboardEvent) {
     if (e.key === "Escape") onCancel();
-    else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+    else if (!adding && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
       e.preventDefault();
       const step = e.key === "ArrowDown" ? 1 : -1;
-      setActive((i) => Math.max(0, Math.min(choices.length - 1, Math.min(i, choices.length - 1) + step)));
+      setActive((i) => Math.max(0, Math.min(matches.length - 1, Math.min(i, matches.length - 1) + step)));
     }
   }
 
@@ -80,62 +91,106 @@ export default function NewSessionDialog({ clients, current, onStart, onCancel }
       aria-label="New session"
       onMouseDown={(e) => e.target === e.currentTarget && onCancel()}
     >
-      <form className="dialog new-session" onSubmit={(e) => start(selected, e)} onKeyDown={onKeyDown}>
-        <h2>New session</h2>
-        <input
-          autoFocus
-          className="client-search"
-          role="combobox"
-          aria-label="Client"
-          aria-expanded="true"
-          aria-controls="client-list"
-          aria-activedescendant={selected ? id(selected) : undefined}
-          placeholder={clients.length ? "Find a client, or type a new name" : "Client name, e.g. Deco Addict"}
-          value={query}
-          onChange={(e) => {
-            setQuery(e.target.value);
-            setActive(0);
-            setError(null);
-          }}
-        />
-        <div className="client-list" id="client-list" role="listbox" aria-label="Clients">
-          {choices.map((c, i) => (
-            <div
-              key={id(c)}
-              id={id(c)}
-              role="option"
-              aria-selected={c === selected}
-              className={`client-option${c.isNew ? " client-new" : ""}`}
-              onMouseEnter={() => setActive(i)}
-              onClick={() => start(c)}
-            >
-              <span className="client-badge" aria-hidden="true">
-                {c.isNew ? "+" : c.client.name.slice(0, 2).toUpperCase()}
-              </span>
-              <span className="client-name">{c.isNew ? `Create client "${c.name}"` : c.client.name}</span>
-              {!c.isNew && (
-                <small>
-                  {c.client.name === current
-                    ? "current"
-                    : `${c.client.sessions.length} session${c.client.sessions.length === 1 ? "" : "s"}`}
-                </small>
+      <form className="dialog new-session" onSubmit={submit} onKeyDown={onKeyDown}>
+        {adding ? (
+          <>
+            <h2>New client</h2>
+            <p className="dialog-lead">
+              A folder for this client's sessions. Its first session starts right away.
+            </p>
+            <label className="dialog-field">
+              <span>Client name</span>
+              <input
+                autoFocus
+                aria-label="Client name"
+                placeholder="e.g. Deco Addict"
+                value={name}
+                onChange={(e) => {
+                  setName(e.target.value);
+                  setError(null);
+                }}
+              />
+            </label>
+          </>
+        ) : (
+          <>
+            <div className="dialog-title-row">
+              <h2>New session</h2>
+              <button type="button" className="btn btn-small" onClick={() => openAdding()}>
+                <span aria-hidden="true">+</span> New client
+              </button>
+            </div>
+            <input
+              autoFocus
+              className="client-search"
+              role="combobox"
+              aria-label="Client"
+              aria-expanded="true"
+              aria-controls="client-list"
+              aria-activedescendant={selected ? optionId(selected.name) : undefined}
+              placeholder="Search clients"
+              value={query}
+              onChange={(e) => {
+                setQuery(e.target.value);
+                setActive(0);
+                setError(null);
+              }}
+            />
+            <div className="client-list" id="client-list" role="listbox" aria-label="Clients">
+              {matches.map((c, i) => (
+                <div
+                  key={c.name}
+                  id={optionId(c.name)}
+                  role="option"
+                  aria-selected={c === selected}
+                  className="client-option"
+                  onMouseEnter={() => setActive(i)}
+                  onClick={() => start(c.name, false)}
+                >
+                  <span className="client-badge" aria-hidden="true">
+                    {c.name.slice(0, 2).toUpperCase()}
+                  </span>
+                  <span className="client-name">{c.name}</span>
+                  <small>
+                    {c.name === current
+                      ? "current"
+                      : `${c.sessions.length} session${c.sessions.length === 1 ? "" : "s"}`}
+                  </small>
+                </div>
+              ))}
+              {!matches.length && (
+                <div className="client-empty">
+                  <p>No client called "{query.trim()}".</p>
+                  <button type="button" className="btn" onClick={() => openAdding(query.trim())}>
+                    Add "{query.trim()}" as a new client
+                  </button>
+                </div>
               )}
             </div>
-          ))}
-          {!choices.length && <p className="client-empty">Type the client's name to add it.</p>}
-        </div>
+          </>
+        )}
         {error && (
           <div role="alert" className="dialog-error">
             {error}
           </div>
         )}
         <div className="dialog-actions">
-          <span className="dialog-hint">↑↓ to choose · Enter to start</span>
+          {adding && clients.length > 0 ? (
+            <button type="button" className="btn dialog-back" onClick={() => setAdding(false)}>
+              Back
+            </button>
+          ) : (
+            !adding && <span className="dialog-hint">↑↓ to choose · Enter to start</span>
+          )}
           <button type="button" className="btn" onClick={onCancel}>
             Cancel
           </button>
-          <button type="submit" className="btn btn-primary" disabled={starting || !selected}>
-            Start
+          <button
+            type="submit"
+            className="btn btn-primary"
+            disabled={starting || (adding ? !name.trim() : !selected)}
+          >
+            {adding ? "Create and start" : "Start"}
           </button>
         </div>
       </form>

@@ -12,6 +12,7 @@ vi.mock("./lib/api", () => ({
     createSession: vi.fn(),
     renameSession: vi.fn(),
     deleteSession: vi.fn(),
+    deleteProject: vi.fn(),
     loadSession: vi.fn(),
     saveScene: vi.fn(),
     sendMessage: vi.fn(),
@@ -386,6 +387,17 @@ describe("App", () => {
     expect(message()).toBeDisabled();
   });
 
+  it("closes the open session when its client is deleted", async () => {
+    mocked.deleteProject.mockImplementation(async () => {
+      projects = [];
+    });
+    await openSession("Delivery window");
+    await screen.findByText("Earlier question");
+    await userEvent.click(screen.getByRole("button", { name: "Delete client Acme" }));
+    await waitFor(() => expect(screen.queryByText("Earlier question")).not.toBeInTheDocument());
+    expect(mocked.deleteProject).toHaveBeenCalledWith("Acme");
+  });
+
   it("moves the diagram to its own window and back", async () => {
     await openSession("Delivery window");
     await showSpec();
@@ -615,7 +627,8 @@ describe("App", () => {
     render(<App />);
     await screen.findByRole("button", { name: "New spec" });
     await userEvent.keyboard("{Control>}n{/Control}");
-    await userEvent.type(await screen.findByRole("combobox", { name: "Client" }), "Umbrella{Enter}");
+    await userEvent.click(await screen.findByRole("button", { name: "New client" }));
+    await userEvent.type(screen.getByRole("textbox", { name: "Client name" }), "Umbrella{Enter}");
     await waitFor(() => expect(mocked.createSession).toHaveBeenCalledWith("Umbrella", "New spec"));
     expect(mocked.createProject).toHaveBeenCalledWith("Umbrella");
   });

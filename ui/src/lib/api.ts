@@ -35,6 +35,7 @@ export const api = {
     invoke<SessionMeta>("create_session", { project, title }),
   renameSession: (ref: SessionRef, title: string) => invoke<SessionMeta>("rename_session", { ...ref, title }),
   deleteSession: (ref: SessionRef) => invoke<void>("delete_session", { ...ref }),
+  deleteProject: (project: string) => invoke<void>("delete_project", { project }),
   loadSession: (ref: SessionRef) => invoke<SessionData>("load_session", { ...ref }),
   loadScene: (ref: SessionRef) => invoke<string>("load_scene", { ...ref }),
   saveScene: (ref: SessionRef, scene: string) => invoke<void>("save_scene", { ...ref, scene }),

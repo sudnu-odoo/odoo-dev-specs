@@ -37,6 +37,7 @@ function setup(overrides: Partial<SidebarProps> = {}) {
     onSearch: vi.fn(),
     onCreateSession: vi.fn(),
     onDeleteSession: vi.fn(),
+    onDeleteProject: vi.fn(),
     onRenameSession: vi.fn().mockResolvedValue(undefined),
     onOpenSettings: vi.fn(),
     ...overrides,
@@ -133,6 +134,12 @@ describe("Sidebar", () => {
     await userEvent.click(screen.getByRole("button", { name: "Delete Invoice layout" }));
     expect(props.onDeleteSession).toHaveBeenCalledWith({ project: "Acme", sessionId: "s2" });
     expect(props.onSelect).not.toHaveBeenCalled();
+  });
+
+  it("deletes a client from its header", async () => {
+    const props = setup();
+    await userEvent.click(screen.getByRole("button", { name: "Delete client Globex" }));
+    expect(props.onDeleteProject).toHaveBeenCalledWith("Globex");
   });
 
   it("guides the user when there are no sessions yet", () => {

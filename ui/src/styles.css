@@ -175,8 +175,13 @@ body {
 .tree-session.active .tree-session-title {
   font-weight: 500;
 }
-.tree-session-action {
+.tree-session-action,
+.tree-project-action {
   visibility: hidden;
+}
+.tree-project-header:hover .tree-project-action,
+.tree-project-action:focus-visible {
+  visibility: visible;
 }
 .tree-session:hover .tree-session-action,
 .tree-session-action:focus-visible {
@@ -2157,8 +2162,26 @@ button.usage-line:hover {
   border-color: var(--accent);
 }
 .client-empty {
+  display: grid;
+  justify-items: start;
+  gap: 8px;
   margin: 8px 10px;
   color: var(--muted);
+}
+.client-empty p {
+  margin: 0;
+}
+.dialog-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+.dialog-title-row h2 {
+  margin: 0;
+}
+.dialog-back {
+  margin-right: auto;
 }
 .dialog-hint {
   margin-right: auto;

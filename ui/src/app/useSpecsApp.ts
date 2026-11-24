@@ -188,6 +188,26 @@ export function useSpecsApp() {
     [close, projects, refresh],
   );
 
+  /** Delete a client with all its sessions, after asking. */
+  const deleteProject = useCallback(
+    async (project: string) => {
+      const count = projects.find((p) => p.name === project)?.sessions.length ?? 0;
+      const ok = await confirmAction(
+        `Delete the client "${project}" and its ${count} session${count === 1 ? "" : "s"}, with their diagrams? This cannot be undone.`,
+        "Delete client",
+      );
+      if (!ok) return;
+      try {
+        await api.deleteProject(project);
+        if (selectedRef.current?.project === project) close();
+        await refresh();
+      } catch (e) {
+        setError(String(e));
+      }
+    },
+    [close, projects, refresh],
+  );
+
   const renameSession = useCallback(
     async (ref: SessionRef, title: string) => {
       try {
@@ -297,6 +317,7 @@ export function useSpecsApp() {
     newSession,
     createSession,
     deleteSession,
+    deleteProject,
     renameSession,
     send,
     attach,

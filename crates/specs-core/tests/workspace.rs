@@ -100,6 +100,26 @@ fn rename_and_delete_session() {
 }
 
 #[test]
+fn delete_project_removes_the_client_and_its_sessions() {
+    let (ws, d) = workspace();
+    ws.create_project("P").unwrap();
+    ws.create_project("Q").unwrap();
+    let s = ws.create_session("P", "t", "claude").unwrap();
+    ws.delete_project("P").unwrap();
+    assert!(ws.session("P", &s.id).is_err());
+    let names: Vec<_> = ws.list().unwrap().into_iter().map(|p| p.name).collect();
+    assert_eq!(names, ["Q"]);
+    assert!(ws.delete_project("P").is_err(), "already gone");
+    for name in ["..", "../outside", "", "/"] {
+        assert!(ws.delete_project(name).is_err(), "accepted {name:?}");
+    }
+    assert!(
+        d.path().join("OdooSpecs").is_dir(),
+        "the workspace itself stays"
+    );
+}
+
+#[test]
 fn paths_cannot_escape_the_workspace() {
     let (ws, d) = workspace();
     ws.create_project("P").unwrap();

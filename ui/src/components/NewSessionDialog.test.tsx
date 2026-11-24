@@ -56,22 +56,45 @@ describe("NewSessionDialog", () => {
     expect(onStart).toHaveBeenCalledWith("Initech", false);
   });
 
-  it("offers to create the client typed when none has that name", async () => {
+  it("adds a new client from its own button, always visible", async () => {
     const onStart = vi.fn(async () => {});
     render(<NewSessionDialog clients={clients} onStart={onStart} onCancel={vi.fn()} />);
-    await userEvent.type(screen.getByRole("combobox", { name: "Client" }), "Umbrella");
-    expect(screen.getByRole("option", { name: /Create client "Umbrella"/ })).toHaveAttribute(
-      "aria-selected",
-      "true",
-    );
-    await userEvent.keyboard("{Enter}");
+    await userEvent.click(screen.getByRole("button", { name: "New client" }));
+    expect(screen.getByRole("heading", { name: "New client" })).toBeInTheDocument();
+    const field = screen.getByRole("textbox", { name: "Client name" });
+    expect(field).toHaveFocus();
+    await userEvent.type(field, "Umbrella{Enter}");
     expect(onStart).toHaveBeenCalledWith("Umbrella", true);
   });
 
-  it("does not offer to create a client that already exists", async () => {
+  it("goes back from a new client to the list", async () => {
     render(<NewSessionDialog clients={clients} onStart={vi.fn()} onCancel={vi.fn()} />);
-    await userEvent.type(screen.getByRole("combobox", { name: "Client" }), "acme");
-    expect(screen.queryByRole("option", { name: /Create client/ })).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "New client" }));
+    await userEvent.click(screen.getByRole("button", { name: "Back" }));
+    expect(screen.getByRole("combobox", { name: "Client" })).toBeInTheDocument();
+  });
+
+  it("only lists clients while searching, and offers to add the name when none matches", async () => {
+    const onStart = vi.fn(async () => {});
+    render(<NewSessionDialog clients={clients} onStart={onStart} onCancel={vi.fn()} />);
+    const search = screen.getByRole("combobox", { name: "Client" });
+    await userEvent.type(search, "ac");
+    expect(screen.getAllByRole("option").map((o) => o.textContent)).toEqual([expect.stringMatching(/Acme/)]);
+    await userEvent.clear(search);
+    await userEvent.type(search, "Umbrella");
+    expect(screen.queryAllByRole("option")).toHaveLength(0);
+    expect(screen.getByText(/No client called "Umbrella"/)).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: 'Add "Umbrella" as a new client' }));
+    expect(screen.getByRole("textbox", { name: "Client name" })).toHaveValue("Umbrella");
+  });
+
+  it("refuses a client name that already exists", async () => {
+    const onStart = vi.fn(async () => {});
+    render(<NewSessionDialog clients={clients} onStart={onStart} onCancel={vi.fn()} />);
+    await userEvent.click(screen.getByRole("button", { name: "New client" }));
+    await userEvent.type(screen.getByRole("textbox", { name: "Client name" }), "acme{Enter}");
+    expect(screen.getByRole("alert")).toHaveTextContent('"Acme" already exists');
+    expect(onStart).not.toHaveBeenCalled();
   });
 
   it("puts the current session's client first", () => {
@@ -83,15 +106,16 @@ describe("NewSessionDialog", () => {
     const onCancel = vi.fn();
     const onStart = vi.fn(async () => Promise.reject("Could not create it."));
     render(<NewSessionDialog clients={clients} onStart={onStart} onCancel={onCancel} />);
-    await userEvent.type(screen.getByRole("combobox", { name: "Client" }), "Umbrella{Enter}");
+    await userEvent.click(screen.getByRole("button", { name: "New client" }));
+    await userEvent.type(screen.getByRole("textbox", { name: "Client name" }), "Umbrella{Enter}");
     expect(await screen.findByRole("alert")).toHaveTextContent("Could not create it.");
     await userEvent.keyboard("{Escape}");
     expect(onCancel).toHaveBeenCalled();
   });
 
-  it("asks for a name when there is no client yet", () => {
+  it("asks for the first client's name when there is none yet", () => {
     render(<NewSessionDialog clients={[]} onStart={vi.fn()} onCancel={vi.fn()} />);
-    expect(screen.getByRole("combobox", { name: "Client" })).toHaveFocus();
-    expect(screen.getByText(/Type the client's name/)).toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: "Client name" })).toHaveFocus();
+    expect(screen.queryByRole("button", { name: "Back" })).not.toBeInTheDocument();
   });
 });
