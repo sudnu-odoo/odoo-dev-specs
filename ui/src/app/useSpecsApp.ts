@@ -156,15 +156,21 @@ export function useSpecsApp() {
     [open, refresh],
   );
 
-  /** A new session for a client; a new client is created first. Rejects with why. */
-  const newSession = useCallback(
-    async (client: string, isNew: boolean) => {
-      if (isNew) await api.createProject(client);
-      const meta = await api.createSession(client, DEFAULT_TITLE);
-      await refresh();
-      await open({ project: client, sessionId: meta.id });
+  /** A new session without a project (Ctrl+N). */
+  const newSession = useCallback(() => createSession(""), [createSession]);
+
+  /** Put a session in a project ("" = none); its files stay where they are. */
+  const moveSession = useCallback(
+    async (ref: SessionRef, project: string) => {
+      try {
+        await api.moveSession(ref.sessionId, project);
+        if (sameRef(ref, selectedRef.current)) setSelected({ project, sessionId: ref.sessionId });
+        await refresh();
+      } catch (e) {
+        setError(String(e));
+      }
     },
-    [open, refresh],
+    [refresh],
   );
 
   const deleteSession = useCallback(
@@ -188,13 +194,13 @@ export function useSpecsApp() {
     [close, projects, refresh],
   );
 
-  /** Delete a client with all its sessions, after asking. */
+  /** Delete a project with all its sessions, after asking. */
   const deleteProject = useCallback(
     async (project: string) => {
       const count = projects.find((p) => p.name === project)?.sessions.length ?? 0;
       const ok = await confirmAction(
-        `Delete the client "${project}" and its ${count} session${count === 1 ? "" : "s"}, with their diagrams? This cannot be undone.`,
-        "Delete client",
+        `Delete the project "${project}" and its ${count} session${count === 1 ? "" : "s"}, with their diagrams? This cannot be undone.`,
+        "Delete project",
       );
       if (!ok) return;
       try {
@@ -315,6 +321,7 @@ export function useSpecsApp() {
     open,
     createProject,
     newSession,
+    moveSession,
     createSession,
     deleteSession,
     deleteProject,

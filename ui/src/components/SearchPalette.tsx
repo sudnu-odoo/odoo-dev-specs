@@ -98,10 +98,10 @@ export default function SearchPalette({ onOpen, onClose }: SearchPaletteProps) {
             <p className="palette-empty">No session mentions “{query.trim()}”.</p>
           )}
           {groups.map((g) => (
-            <div key={g.project} role="group" aria-label={g.project}>
+            <div key={g.project} role="group" aria-label={g.project || "No project"}>
               {query.trim() && (
                 <div className="palette-group-title">
-                  {g.project} · {g.items.length} session{g.items.length > 1 ? "s" : ""}
+                  {g.project || "No project"} · {g.items.length} session{g.items.length > 1 ? "s" : ""}
                 </div>
               )}
               {g.items.map(({ hit, index }) => (

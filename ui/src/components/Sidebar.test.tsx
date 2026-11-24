@@ -1,4 +1,4 @@
-import { render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import Sidebar, { type SidebarProps } from "./Sidebar";
@@ -27,6 +27,7 @@ const projects: ProjectInfo[] = [
   },
   { name: "Globex", sessions: [] },
 ];
+const withLoose: ProjectInfo[] = [{ name: "", sessions: [session("s3", "Quick question")] }, ...projects];
 
 function setup(overrides: Partial<SidebarProps> = {}) {
   const props: SidebarProps = {
@@ -38,6 +39,8 @@ function setup(overrides: Partial<SidebarProps> = {}) {
     onCreateSession: vi.fn(),
     onDeleteSession: vi.fn(),
     onDeleteProject: vi.fn(),
+    onNewProject: vi.fn(),
+    onMoveSession: vi.fn(),
     onRenameSession: vi.fn().mockResolvedValue(undefined),
     onOpenSettings: vi.fn(),
     ...overrides,
@@ -49,8 +52,11 @@ function setup(overrides: Partial<SidebarProps> = {}) {
 describe("Sidebar", () => {
   it("shows each session's client hosting and version, and a spinner while it works", () => {
     setup({ running: ["s2"] });
-    expect(screen.getByRole("button", { name: "Delivery window" })).toHaveTextContent("Online · 19.2");
-    const invoice = screen.getByRole("button", { name: "Invoice layout" });
+    expect(screen.getByRole("button", { name: "Delivery window" })).toHaveAttribute(
+      "title",
+      expect.stringContaining("Online · 19.2"),
+    );
+    const invoice = screen.getByRole("button", { name: "Invoice layout" }).parentElement!;
     expect(within(invoice).getByRole("status", { name: "Working" })).toBeInTheDocument();
   });
 
@@ -83,11 +89,9 @@ describe("Sidebar", () => {
 
   it("asks for a new session and for the search, with their shortcuts shown", async () => {
     const props = setup();
-    const start = screen.getByRole("button", { name: "New session Ctrl N" });
-    expect(start).toHaveTextContent("Ctrl N");
-    await userEvent.click(start);
+    await userEvent.click(screen.getByRole("button", { name: "New session Ctrl N" }));
     expect(props.onNewSession).toHaveBeenCalled();
-    const search = screen.getByRole("button", { name: /^Search/ });
+    const search = screen.getByRole("button", { name: "Search Ctrl K" });
     expect(search).toHaveTextContent("Ctrl K");
     await userEvent.click(search);
     expect(props.onSearch).toHaveBeenCalled();
@@ -136,14 +140,52 @@ describe("Sidebar", () => {
     expect(props.onSelect).not.toHaveBeenCalled();
   });
 
-  it("deletes a client from its header", async () => {
+  it("deletes a project from its header", async () => {
     const props = setup();
-    await userEvent.click(screen.getByRole("button", { name: "Delete client Globex" }));
+    await userEvent.click(screen.getByRole("button", { name: "Delete project Globex" }));
     expect(props.onDeleteProject).toHaveBeenCalledWith("Globex");
   });
 
   it("guides the user when there are no sessions yet", () => {
     setup({ projects: [], selected: null });
     expect(screen.getByText(/Start with New session/)).toBeInTheDocument();
+  });
+
+  it("lists sessions without a project under Sessions, apart from the projects", () => {
+    setup({ projects: withLoose });
+    const quick = screen.getByRole("button", { name: "Quick question" });
+    expect(quick.closest(".tree-loose")).not.toBeNull();
+    expect(screen.queryByRole("button", { name: "" })).not.toBeInTheDocument();
+  });
+
+  it("asks for a new project", async () => {
+    const props = setup();
+    await userEvent.click(screen.getByRole("button", { name: "New project" }));
+    expect(props.onNewProject).toHaveBeenCalled();
+  });
+
+  it("drags a session into a project", () => {
+    const props = setup({ projects: withLoose });
+    const row = screen.getByRole("button", { name: "Quick question" }).parentElement!;
+    const globex = screen.getByRole("button", { name: "Globex" }).closest(".tree-project")!;
+    const dataTransfer = { setData: vi.fn(), effectAllowed: "", dropEffect: "" };
+    fireEvent.dragStart(row, { dataTransfer });
+    fireEvent.dragOver(globex, { dataTransfer });
+    expect(globex).toHaveAttribute("data-drop", "true");
+    fireEvent.drop(globex, { dataTransfer });
+    expect(props.onMoveSession).toHaveBeenCalledWith({ project: "", sessionId: "s3" }, "Globex");
+  });
+
+  it("drags a session out of its project, and not into the one it is in", () => {
+    const props = setup({ projects: withLoose });
+    const row = screen.getByRole("button", { name: "Invoice layout" }).parentElement!;
+    const acme = screen.getByRole("button", { name: "Acme" }).closest(".tree-project")!;
+    const dataTransfer = { setData: vi.fn(), effectAllowed: "", dropEffect: "" };
+    fireEvent.dragStart(row, { dataTransfer });
+    fireEvent.drop(acme, { dataTransfer });
+    expect(props.onMoveSession).not.toHaveBeenCalled();
+    fireEvent.dragStart(row, { dataTransfer });
+    fireEvent.drop(document.querySelector(".tree-loose")!, { dataTransfer });
+    expect(props.onMoveSession).toHaveBeenCalledWith({ project: "Acme", sessionId: "s2" }, "");
   });
 });

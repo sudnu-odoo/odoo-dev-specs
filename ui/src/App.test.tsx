@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
@@ -13,6 +13,7 @@ vi.mock("./lib/api", () => ({
     renameSession: vi.fn(),
     deleteSession: vi.fn(),
     deleteProject: vi.fn(),
+    moveSession: vi.fn(),
     loadSession: vi.fn(),
     saveScene: vi.fn(),
     sendMessage: vi.fn(),
@@ -387,13 +388,13 @@ describe("App", () => {
     expect(message()).toBeDisabled();
   });
 
-  it("closes the open session when its client is deleted", async () => {
+  it("closes the open session when its project is deleted", async () => {
     mocked.deleteProject.mockImplementation(async () => {
       projects = [];
     });
     await openSession("Delivery window");
     await screen.findByText("Earlier question");
-    await userEvent.click(screen.getByRole("button", { name: "Delete client Acme" }));
+    await userEvent.click(screen.getByRole("button", { name: "Delete project Acme" }));
     await waitFor(() => expect(screen.queryByText("Earlier question")).not.toBeInTheDocument());
     expect(mocked.deleteProject).toHaveBeenCalledWith("Acme");
   });
@@ -616,20 +617,37 @@ describe("App", () => {
     expect(screen.queryByRole("combobox", { name: "Search sessions" })).not.toBeInTheDocument();
   });
 
-  it("Ctrl+N starts a session for a new client", async () => {
-    mocked.createProject.mockImplementation(async (name) => {
-      projects = [...projects, { name, sessions: [] }];
-    });
-    mocked.createSession.mockImplementation(async (client) => {
-      projects = projects.map((p) => (p.name === client ? { ...p, sessions: [meta("s9", "New spec")] } : p));
+  it("Ctrl+N starts a session without a project", async () => {
+    mocked.createSession.mockImplementation(async () => {
+      projects = [{ name: "", sessions: [meta("s9", "New spec")] }, ...projects];
       return meta("s9", "New spec");
     });
     render(<App />);
-    await screen.findByRole("button", { name: "New spec" });
+    await screen.findByRole("button", { name: "Delivery window" });
     await userEvent.keyboard("{Control>}n{/Control}");
-    await userEvent.click(await screen.findByRole("button", { name: "New client" }));
-    await userEvent.type(screen.getByRole("textbox", { name: "Client name" }), "Umbrella{Enter}");
-    await waitFor(() => expect(mocked.createSession).toHaveBeenCalledWith("Umbrella", "New spec"));
+    await waitFor(() => expect(mocked.createSession).toHaveBeenCalledWith("", "New spec"));
+    expect(mocked.loadSession).toHaveBeenCalledWith({ project: "", sessionId: "s9" });
+  });
+
+  it("creates a project from the sidebar", async () => {
+    mocked.createProject.mockImplementation(async (name) => {
+      projects = [...projects, { name, sessions: [] }];
+    });
+    render(<App />);
+    await userEvent.click(await screen.findByRole("button", { name: "New project" }));
+    await userEvent.type(screen.getByRole("textbox", { name: "Project name" }), "Umbrella{Enter}");
     expect(mocked.createProject).toHaveBeenCalledWith("Umbrella");
+    expect(await screen.findByRole("button", { name: "Umbrella" })).toBeInTheDocument();
+  });
+
+  it("moves the open session to another project by drag and drop", async () => {
+    projects = [...projects, { name: "Globex", sessions: [] }];
+    await openSession("Delivery window");
+    const row = screen.getByRole("button", { name: "Delivery window" }).parentElement!;
+    const globex = screen.getByRole("button", { name: "Globex" }).closest(".tree-project")!;
+    const dataTransfer = { setData: vi.fn(), effectAllowed: "", dropEffect: "" };
+    fireEvent.dragStart(row, { dataTransfer });
+    fireEvent.drop(globex, { dataTransfer });
+    await waitFor(() => expect(mocked.moveSession).toHaveBeenCalledWith("s1", "Globex"));
   });
 });

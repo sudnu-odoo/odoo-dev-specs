@@ -1,20 +1,26 @@
-import { useRef, useState } from "react";
+import { useRef, useState, type DragEvent, type ReactNode } from "react";
 import { useClosedProjects } from "../app/useClosedProjects";
 import type { ProjectInfo, SessionMeta, SessionRef } from "../lib/types";
 import { versionLabel } from "./HostingMenu";
+import { Icon, type IconName } from "./Icon";
 
 export interface SidebarProps {
+  /** Projects; the sessions without a project come as the one named "". */
   projects: ProjectInfo[];
   selected: SessionRef | null;
   onSelect: (ref: SessionRef) => void;
-  /** Open the New session dialog (Ctrl+N). */
+  /** Start a session without a project (Ctrl+N). */
   onNewSession: () => void;
   /** Open the search (Ctrl+K). */
   onSearch: () => void;
+  /** Ask for a new project's name. */
+  onNewProject: () => void;
   onCreateSession: (project: string) => void;
   onDeleteSession: (ref: SessionRef) => void;
-  /** Delete a client and all its sessions (asks first). */
+  /** Delete a project and all its sessions (asks first). */
   onDeleteProject: (project: string) => void;
+  /** Put a session in a project ("" = none), by drag and drop. */
+  onMoveSession: (ref: SessionRef, project: string) => void;
   onRenameSession: (ref: SessionRef, title: string) => Promise<void>;
   onOpenSettings: () => void;
   /** The Databases page is showing (instead of a session). */
@@ -33,9 +39,11 @@ export default function Sidebar({
   onSelect,
   onNewSession,
   onSearch,
+  onNewProject,
   onCreateSession,
   onDeleteSession,
   onDeleteProject,
+  onMoveSession,
   onRenameSession,
   onOpenSettings,
   databasesOpen = false,
@@ -45,111 +53,130 @@ export default function Sidebar({
   running = [],
 }: SidebarProps) {
   const closed = useClosedProjects();
+  // The session being dragged, and the place it would land ("" = no project).
+  const [dragging, setDragging] = useState<SessionRef | null>(null);
+  const [over, setOver] = useState<string | null>(null);
+  const loose = projects.find((p) => p.name === "")?.sessions ?? [];
+  const named = projects.filter((p) => p.name !== "");
+
+  /** Props that make an element a place to drop a session into `project`. */
+  const dropInto = (project: string) => ({
+    "data-drop": dragging && dragging.project !== project && over === project ? "true" : undefined,
+    onDragOver: (e: DragEvent) => {
+      if (!dragging || dragging.project === project) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "move";
+      setOver(project);
+    },
+    onDragLeave: (e: DragEvent) => {
+      if (!e.currentTarget.contains(e.relatedTarget as Node | null))
+        setOver((o) => (o === project ? null : o));
+    },
+    onDrop: (e: DragEvent) => {
+      e.preventDefault();
+      if (dragging && dragging.project !== project) {
+        if (project) closed.open(project);
+        onMoveSession(dragging, project);
+      }
+      setDragging(null);
+      setOver(null);
+    },
+  });
+
+  const row = (s: SessionMeta, project: string, nested: boolean) => {
+    const ref = { project, sessionId: s.id };
+    return (
+      <SessionRow
+        key={s.id}
+        title={s.title}
+        meta={sessionMeta(s)}
+        when={ago(s.updated_at)}
+        nested={nested}
+        working={running.includes(s.id)}
+        active={!databasesOpen && selected?.sessionId === s.id}
+        onSelect={() => onSelect(ref)}
+        onRename={(title) => onRenameSession(ref, title)}
+        onDelete={() => onDeleteSession(ref)}
+        onDragStart={() => setDragging(ref)}
+        onDragEnd={() => {
+          setDragging(null);
+          setOver(null);
+        }}
+      />
+    );
+  };
+
   return (
     <aside className="sidebar">
-      <div className="sidebar-header">
-        <div className="sidebar-title">
-          <span className="brand">Odoo Dev Specs</span>
-          <button className="icon-btn" aria-label="Settings" title="Settings" onClick={onOpenSettings}>
-            ⚙
-          </button>
-        </div>
-        <button className="btn btn-primary sidebar-new" onClick={onNewSession}>
-          <span>New session</span>
-          <kbd>Ctrl N</kbd>
-        </button>
-        <button className="sidebar-search" onClick={onSearch}>
-          <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true">
-            <circle cx="7" cy="7" r="4.5" fill="none" stroke="currentColor" strokeWidth="1.4" />
-            <path d="m10.5 10.5 3 3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
-          </svg>
-          <span>Search</span>
-          <kbd>Ctrl K</kbd>
+      <div className="sidebar-title">
+        <span className="brand">Odoo Dev Specs</span>
+        <button className="icon-btn" aria-label="Settings" title="Settings" onClick={onOpenSettings}>
+          <Icon name="settings" />
         </button>
       </div>
-      {onOpenDatabases && (
-        <button
-          className={"sidebar-nav" + (databasesOpen ? " active" : "")}
-          aria-current={databasesOpen ? "page" : undefined}
-          onClick={onOpenDatabases}
-        >
-          <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
-            <ellipse cx="8" cy="3.5" rx="5.5" ry="2" fill="none" stroke="currentColor" strokeWidth="1.3" />
-            <path
-              d="M2.5 3.5v9c0 1.1 2.5 2 5.5 2s5.5-.9 5.5-2v-9M2.5 8c0 1.1 2.5 2 5.5 2s5.5-.9 5.5-2"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.3"
-            />
-          </svg>
-          Databases
-        </button>
-      )}
-      <nav className="tree" aria-label="Projects">
-        {projects.length === 0 && (
-          <p className="tree-empty">
-            Start with New session: pick or add the client, then describe what they need.
-          </p>
+      <div className="side-nav">
+        <NavRow icon="compose" label="New session" shortcut="Ctrl N" onClick={onNewSession} />
+        <NavRow icon="search" label="Search" shortcut="Ctrl K" onClick={onSearch} />
+        {onOpenDatabases && (
+          <NavRow icon="database" label="Databases" active={databasesOpen} onClick={onOpenDatabases} />
         )}
-        {projects.map((p) => (
-          <div key={p.name} className="tree-project">
-            <div className="tree-project-header">
-              <button
-                className="tree-project-name"
-                aria-expanded={!closed.has(p.name)}
-                title={closed.has(p.name) ? "Show sessions" : "Hide sessions"}
-                onClick={() => closed.toggle(p.name)}
-              >
-                <svg
-                  className="tree-chevron"
-                  viewBox="0 0 12 12"
-                  width="10"
-                  height="10"
-                  aria-hidden="true"
-                  data-open={!closed.has(p.name)}
+      </div>
+      <nav className="tree" aria-label="Projects">
+        <SectionTitle title="Projects">
+          <button className="icon-btn" aria-label="New project" title="New project" onClick={onNewProject}>
+            <Icon name="plus" />
+          </button>
+        </SectionTitle>
+        {named.length === 0 && <p className="tree-empty">Group a client's sessions in a project.</p>}
+        {named.map((p) => {
+          const open = !closed.has(p.name);
+          return (
+            <div key={p.name} className="tree-project" {...dropInto(p.name)}>
+              <div className="side-row tree-project-header">
+                <button
+                  className="side-row-main"
+                  aria-expanded={open}
+                  title={open ? "Hide sessions" : "Show sessions"}
+                  onClick={() => closed.toggle(p.name)}
                 >
-                  <path d="M4.5 3 7.5 6 4.5 9" fill="none" stroke="currentColor" strokeWidth="1.5" />
-                </svg>
-                {p.name}
-              </button>
-              <button
-                className="icon-btn tree-project-action"
-                aria-label={`Delete client ${p.name}`}
-                title="Delete client"
-                onClick={() => onDeleteProject(p.name)}
-              >
-                ×
-              </button>
-              <button
-                className="icon-btn"
-                aria-label={`New session in ${p.name}`}
-                title="New session"
-                onClick={() => {
-                  closed.open(p.name);
-                  onCreateSession(p.name);
-                }}
-              >
-                +
-              </button>
+                  <Icon name={open ? "folder-open" : "folder"} />
+                  <span className="side-row-label">{p.name}</span>
+                </button>
+                <button
+                  className="icon-btn side-row-action"
+                  aria-label={`Delete project ${p.name}`}
+                  title="Delete project"
+                  onClick={() => onDeleteProject(p.name)}
+                >
+                  <Icon name="trash" />
+                </button>
+                <button
+                  className="icon-btn side-row-action"
+                  aria-label={`New session in ${p.name}`}
+                  title="New session in this project"
+                  onClick={() => {
+                    closed.open(p.name);
+                    onCreateSession(p.name);
+                  }}
+                >
+                  <Icon name="plus" />
+                </button>
+              </div>
+              {open && p.sessions.map((s) => row(s, p.name, true))}
+              {open && p.sessions.length === 0 && <p className="tree-empty nested">No sessions yet.</p>}
             </div>
-            {!closed.has(p.name) &&
-              p.sessions.map((s) => {
-                const ref = { project: p.name, sessionId: s.id };
-                return (
-                  <SessionRow
-                    key={s.id}
-                    title={s.title}
-                    meta={sessionMeta(s)}
-                    working={running.includes(s.id)}
-                    active={!databasesOpen && selected?.project === p.name && selected.sessionId === s.id}
-                    onSelect={() => onSelect(ref)}
-                    onRename={(title) => onRenameSession(ref, title)}
-                    onDelete={() => onDeleteSession(ref)}
-                  />
-                );
-              })}
-          </div>
-        ))}
+          );
+        })}
+        <div className="tree-loose" {...dropInto("")}>
+          <SectionTitle title="Sessions" />
+          {loose.map((s) => row(s, "", false))}
+          {loose.length === 0 &&
+            (dragging?.project ? (
+              <p className="tree-empty">Drop here to take it out of its project.</p>
+            ) : named.length === 0 ? (
+              <p className="tree-empty">Start with New session, then describe what the client needs.</p>
+            ) : null)}
+        </div>
       </nav>
       {download && (
         <button className="sidebar-download" onClick={onOpenSetup} title="Open the setup">
@@ -177,22 +204,60 @@ export default function Sidebar({
   );
 }
 
+function NavRow(props: {
+  icon: IconName;
+  label: string;
+  shortcut?: string;
+  active?: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      className={"side-row side-row-main" + (props.active ? " active" : "")}
+      aria-label={props.shortcut ? `${props.label} ${props.shortcut}` : props.label}
+      aria-current={props.active ? "page" : undefined}
+      onClick={props.onClick}
+    >
+      <Icon name={props.icon} />
+      <span className="side-row-label">{props.label}</span>
+      {props.shortcut && <kbd>{props.shortcut}</kbd>}
+    </button>
+  );
+}
+
+function SectionTitle({ title, children }: { title: string; children?: ReactNode }) {
+  return (
+    <div className="side-section">
+      <span>{title}</span>
+      {children}
+    </div>
+  );
+}
+
 interface SessionRowProps {
   title: string;
   /** "Online · 19.2 · 2h": the client's hosting and version, and when last used. */
   meta: string;
+  /** How long ago it was used: "2h". */
+  when: string | null;
+  /** Inside a project: indented under its name. */
+  nested: boolean;
   working: boolean;
   active: boolean;
   onSelect: () => void;
   onRename: (title: string) => Promise<void>;
   onDelete: () => void;
+  onDragStart: () => void;
+  onDragEnd: () => void;
 }
 
-function SessionRow({ title, meta, working, active, onSelect, onRename, onDelete }: SessionRowProps) {
+function SessionRow(p: SessionRowProps) {
+  const { title, meta, when, nested, working, active, onSelect, onRename, onDelete } = p;
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(title);
   // Enter closes the field, which may also fire blur: finish each edit only once.
   const finished = useRef(false);
+  const className = "side-row tree-session" + (nested ? " nested" : "") + (active ? " active" : "");
 
   function startEditing() {
     finished.current = false;
@@ -215,7 +280,7 @@ function SessionRow({ title, meta, working, active, onSelect, onRename, onDelete
 
   if (editing) {
     return (
-      <div className={"tree-session" + (active ? " active" : "")}>
+      <div className={className}>
         <input
           className="tree-session-input"
           aria-label="Session name"
@@ -233,37 +298,47 @@ function SessionRow({ title, meta, working, active, onSelect, onRename, onDelete
     );
   }
   return (
-    <div className={"tree-session" + (active ? " active" : "")}>
+    <div
+      className={className}
+      draggable
+      onDragStart={(e) => {
+        e.dataTransfer.effectAllowed = "move";
+        e.dataTransfer.setData("text/plain", title);
+        p.onDragStart();
+      }}
+      onDragEnd={p.onDragEnd}
+    >
       <button
-        className="tree-session-title"
+        className="side-row-main"
         aria-label={title}
         aria-current={active ? "true" : undefined}
+        title={meta ? `${title}\n${meta}` : title}
         onClick={onSelect}
         onDoubleClick={startEditing}
       >
-        <span className="tree-session-name">{title}</span>
-        {(meta || working) && (
-          <span className="tree-session-meta">
-            {working && <span className="spinner spinner-small" role="status" aria-label="Working" />}
-            {meta}
-          </span>
-        )}
+        {!nested && <Icon name="chat" />}
+        <span className="side-row-label">{title}</span>
       </button>
+      {working ? (
+        <span className="spinner spinner-small" role="status" aria-label="Working" />
+      ) : (
+        when && <small className="side-row-hint">{when}</small>
+      )}
       <button
-        className="icon-btn tree-session-action"
+        className="icon-btn side-row-action"
         aria-label={`Rename ${title}`}
         title="Rename"
         onClick={startEditing}
       >
-        ✎
+        <Icon name="pencil" />
       </button>
       <button
-        className="icon-btn tree-session-action"
+        className="icon-btn side-row-action"
         aria-label={`Delete ${title}`}
         title="Delete"
         onClick={onDelete}
       >
-        ×
+        <Icon name="trash" />
       </button>
     </div>
   );

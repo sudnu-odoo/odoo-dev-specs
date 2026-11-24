@@ -119,6 +119,78 @@ fn delete_project_removes_the_client_and_its_sessions() {
     );
 }
 
+fn names(ws: &Workspace) -> Vec<(String, Vec<String>)> {
+    ws.list()
+        .unwrap()
+        .into_iter()
+        .map(|p| (p.name, p.sessions.into_iter().map(|s| s.title).collect()))
+        .collect()
+}
+
+#[test]
+fn a_session_needs_no_project() {
+    let (ws, _d) = workspace();
+    ws.create_project("P").unwrap();
+    let s = ws.create_session("", "loose", "claude").unwrap();
+    assert_eq!(
+        names(&ws),
+        [("".into(), vec!["loose".into()]), ("P".into(), vec![])]
+    );
+    // Found by its id, whatever project is named with it.
+    assert!(ws.session("", &s.id).is_ok());
+    ws.rename_session("", &s.id, "still loose").unwrap();
+}
+
+#[test]
+fn moving_a_session_never_moves_its_folder() {
+    let (ws, _d) = workspace();
+    ws.create_project("P").unwrap();
+    ws.create_project("Q").unwrap();
+    let s = ws.create_session("P", "s", "claude").unwrap();
+    let dir = ws.session_dir("P", &s.id).unwrap();
+
+    ws.move_session(&s.id, "Q").unwrap();
+    assert_eq!(
+        names(&ws),
+        [("P".into(), vec![]), ("Q".into(), vec!["s".into()])]
+    );
+    assert_eq!(
+        ws.session_dir("Q", &s.id).unwrap(),
+        dir,
+        "same folder: chats resume"
+    );
+
+    ws.move_session(&s.id, "").unwrap();
+    assert_eq!(names(&ws)[0], ("".into(), vec!["s".into()]));
+    assert!(ws.move_session(&s.id, "Nope").is_err(), "unknown project");
+    let t = ws.create_session("", "t", "claude").unwrap();
+    ws.move_session(&t.id, "P").unwrap();
+    assert_eq!(names(&ws)[1], ("P".into(), vec!["t".into()]));
+}
+
+#[test]
+fn deleting_a_project_keeps_sessions_moved_out_of_it() {
+    let (ws, _d) = workspace();
+    ws.create_project("P").unwrap();
+    ws.create_project("Q").unwrap();
+    let stays = ws.create_session("P", "stays", "claude").unwrap();
+    let gone = ws.create_session("P", "gone", "claude").unwrap();
+    let moved_in = ws.create_session("Q", "moved in", "claude").unwrap();
+    ws.move_session(&stays.id, "Q").unwrap();
+    ws.move_session(&moved_in.id, "P").unwrap();
+
+    ws.delete_project("P").unwrap();
+    assert_eq!(names(&ws), [("Q".into(), vec!["stays".into()])]);
+    assert!(ws.session("", &gone.id).is_err());
+    assert!(ws.session("", &moved_in.id).is_err());
+    assert!(ws.session("", &stays.id).is_ok());
+    assert!(ws.move_session(&stays.id, "P").is_err(), "deleted");
+
+    // The name can be used again, empty.
+    ws.create_project("P").unwrap();
+    assert_eq!(names(&ws)[0], ("P".into(), vec![]));
+}
+
 #[test]
 fn paths_cannot_escape_the_workspace() {
     let (ws, d) = workspace();
@@ -129,7 +201,9 @@ fn paths_cannot_escape_the_workspace() {
         assert!(ws.delete_session("P", id).is_err());
     }
     let s = ws.create_session("P", "t", "claude").unwrap();
-    assert!(ws.session_dir("../P", &s.id).is_err());
+    assert!(ws.session_dir("P", &s.id).is_ok());
+    assert!(ws.create_session("../P", "t", "claude").is_err());
+    assert!(ws.move_session(&s.id, "../outside").is_err());
     assert!(d.path().join("outside").exists());
 }
 

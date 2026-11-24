@@ -23,7 +23,7 @@ import Sidebar from "./components/Sidebar";
 import { useAssistants } from "./app/useAssistants";
 import { useSpecPanel } from "./app/useSpecPanel";
 import SessionHeader from "./components/SessionHeader";
-import NewSessionDialog from "./components/NewSessionDialog";
+import NewProjectDialog from "./components/NewProjectDialog";
 import SearchPalette from "./components/SearchPalette";
 import { useShortcut } from "./app/useShortcut";
 
@@ -31,9 +31,12 @@ export default function App() {
   useAppTheme();
   const app = useSpecsApp();
   const spec = useSpecPanel();
-  const [dialog, setDialog] = useState<"search" | "new" | null>(null);
+  const [dialog, setDialog] = useState<"search" | "project" | null>(null);
   useShortcut("k", () => setDialog("search"));
-  useShortcut("n", () => setDialog("new"));
+  useShortcut("n", () => {
+    setView("session");
+    app.newSession();
+  });
   const dbs = useDatabases();
   const versions = useOdooVersions();
   // Only versions on this computer are offered, the newest stable one first.
@@ -149,7 +152,12 @@ export default function App() {
         download={download}
         onOpenSetup={() => setSetupOpen(true)}
         onOpenDatabases={() => setView("databases")}
-        onNewSession={() => setDialog("new")}
+        onNewSession={() => {
+          setView("session");
+          app.newSession();
+        }}
+        onNewProject={() => setDialog("project")}
+        onMoveSession={app.moveSession}
         onSearch={() => setDialog("search")}
         onCreateSession={(project) => {
           setView("session");
@@ -239,15 +247,13 @@ export default function App() {
           }}
         />
       )}
-      {dialog === "new" && (
-        <NewSessionDialog
-          clients={app.projects}
-          current={app.selected?.project}
+      {dialog === "project" && (
+        <NewProjectDialog
+          existing={app.projects.map((p) => p.name)}
           onCancel={() => setDialog(null)}
-          onStart={async (client, isNew) => {
-            await app.newSession(client, isNew);
+          onCreate={async (name) => {
+            await app.createProject(name);
             setDialog(null);
-            setView("session");
           }}
         />
       )}

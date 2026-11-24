@@ -176,6 +176,19 @@ pub fn create_session(
         .map_err(user_error)
 }
 
+/// Put a session in another project ("" = none). Its files stay where they are.
+#[tauri::command]
+pub fn move_session(
+    state: State<'_, AppState>,
+    session_id: String,
+    project: String,
+) -> CmdResult<()> {
+    state
+        .workspace
+        .move_session(&session_id, &project)
+        .map_err(user_error)
+}
+
 #[tauri::command]
 pub fn rename_session(
     state: State<'_, AppState>,
@@ -217,7 +230,7 @@ pub fn delete_project(state: State<'_, AppState>, project: String) -> CmdResult<
         sessions.iter().any(|s| running.contains_key(&s.id))
     };
     if busy {
-        return Err("Stop the assistant before deleting this client.".into());
+        return Err("Stop the assistant before deleting this project.".into());
     }
     state.workspace.delete_project(&project).map_err(user_error)
 }
@@ -633,6 +646,7 @@ pub fn register<R: Runtime>(builder: tauri::Builder<R>, state: AppState) -> taur
             rename_session,
             delete_session,
             delete_project,
+            move_session,
             load_session,
             load_scene,
             save_scene,

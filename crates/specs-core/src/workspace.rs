@@ -5,6 +5,12 @@
 //!     session.json  spec.excalidraw  transcript.jsonl  screenshots/
 //! ```
 //! Session folders are named by id so renaming a session never moves files.
+//!
+//! A session's folder never moves either, as the assistants find a conversation
+//! again by the folder it ran in. So sessions without a project live in
+//! `<root>/.sessions/`, and moving a session to another project only writes the
+//! project's name in its `project` file. A deleted project whose folder still
+//! holds sessions moved elsewhere keeps the folder, marked `.removed`.
 
 use std::fs::{self, OpenOptions};
 use std::io::Write;
@@ -23,6 +29,12 @@ const META: &str = "session.json";
 const SCENE: &str = "spec.excalidraw";
 const TRANSCRIPT: &str = "transcript.jsonl";
 const SCREENSHOTS: &str = "screenshots";
+/// Where sessions without a project are created.
+const LOOSE: &str = ".sessions";
+/// In a session folder: the project it belongs to ("" = none), when it was moved.
+const MEMBER: &str = "project";
+/// In a project folder: the project was deleted (its folder only holds others' sessions).
+const REMOVED: &str = ".removed";
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ts_rs::TS)]
 #[ts(export)]
@@ -81,30 +93,111 @@ impl Workspace {
         &self.root
     }
 
-    /// All projects sorted by name; creates the root folder on first use.
+    /// All projects sorted by name, after the sessions without a project (named "",
+    /// only when there are some); creates the root folder on first use.
     pub fn list(&self) -> Result<Vec<ProjectInfo>> {
         fs::create_dir_all(&self.root)
             .with_context(|| format!("creating {}", self.root.display()))?;
-        let mut projects = Vec::new();
+        let mut projects: Vec<ProjectInfo> = Vec::new();
         for entry in fs::read_dir(&self.root)? {
             let entry = entry?;
             let name = entry.file_name().to_string_lossy().into_owned();
-            if !entry.file_type()?.is_dir() || validate_name(&name).is_err() {
-                continue;
+            if entry.file_type()?.is_dir()
+                && validate_name(&name).is_ok()
+                && !entry.path().join(REMOVED).exists()
+            {
+                projects.push(ProjectInfo {
+                    name,
+                    sessions: vec![],
+                });
             }
-            let mut sessions: Vec<SessionMeta> = fs::read_dir(entry.path())?
-                .filter_map(|e| read_meta(&e.ok()?.path()).ok())
-                .collect();
-            sessions.sort_by_key(|s| std::cmp::Reverse(s.updated_at));
-            projects.push(ProjectInfo { name, sessions });
         }
         projects.sort_by_key(|p| p.name.to_lowercase());
+        let mut loose = Vec::new();
+        for (dir, project) in self.session_folders()? {
+            let Ok(meta) = read_meta(&dir) else { continue };
+            match projects.iter_mut().find(|p| p.name == project) {
+                Some(p) => p.sessions.push(meta),
+                None => loose.push(meta),
+            }
+        }
+        for p in &mut projects {
+            p.sessions.sort_by_key(|s| std::cmp::Reverse(s.updated_at));
+        }
+        if !loose.is_empty() {
+            loose.sort_by_key(|s| std::cmp::Reverse(s.updated_at));
+            projects.insert(
+                0,
+                ProjectInfo {
+                    name: String::new(),
+                    sessions: loose,
+                },
+            );
+        }
         Ok(projects)
+    }
+
+    /// Every session folder, with the project it belongs to ("" = none).
+    fn session_folders(&self) -> Result<Vec<(PathBuf, String)>> {
+        let mut found = Vec::new();
+        for folder in fs::read_dir(&self.root)? {
+            let folder = folder?;
+            if !folder.file_type()?.is_dir() {
+                continue;
+            }
+            let folder_name = folder.file_name().to_string_lossy().into_owned();
+            for entry in fs::read_dir(folder.path())? {
+                let dir = entry?.path();
+                if dir.join(META).is_file() {
+                    let project = member_of(&dir, &folder_name);
+                    found.push((dir, project));
+                }
+            }
+        }
+        Ok(found)
+    }
+
+    /// Put a session in another project ("" = none). Its folder stays where it is.
+    ///
+    /// # Errors
+    /// Unknown session or project.
+    pub fn move_session(&self, id: &str, project: &str) -> Result<()> {
+        let dir = self.session_dir("", id)?;
+        let project = project.trim();
+        if !project.is_empty() {
+            self.project_dir(project)?;
+        }
+        write_atomic(&dir.join(MEMBER), project.as_bytes())
+    }
+
+    /// Delete a project with its sessions. Sessions moved out of it are kept.
+    ///
+    /// # Errors
+    /// Unknown project, or files that cannot be deleted.
+    pub fn delete_project(&self, project: &str) -> Result<()> {
+        let dir = self.project_dir(project)?;
+        for (session, member) in self.session_folders()? {
+            if member == project.trim() {
+                fs::remove_dir_all(&session)
+                    .with_context(|| format!("deleting {}", session.display()))?;
+            }
+        }
+        let others = fs::read_dir(&dir)?
+            .filter_map(Result::ok)
+            .any(|e| e.path().join(META).is_file());
+        if others {
+            write_atomic(&dir.join(REMOVED), b"")
+        } else {
+            fs::remove_dir_all(&dir).with_context(|| format!("deleting {}", dir.display()))
+        }
     }
 
     pub fn create_project(&self, name: &str) -> Result<()> {
         let name = validate_name(name)?;
         let dir = self.root.join(name);
+        if dir.join(REMOVED).exists() {
+            return fs::remove_file(dir.join(REMOVED)).context("restoring the project");
+        }
         ensure!(!dir.exists(), "A project named \"{name}\" already exists.");
         fs::create_dir_all(&dir).with_context(|| format!("creating {}", dir.display()))
     }
@@ -115,7 +208,11 @@ impl Workspace {
         title: &str,
         provider: &str,
     ) -> Result<SessionMeta> {
-        let project_dir = self.project_dir(project)?;
+        let project_dir = if project.trim().is_empty() {
+            self.root.join(LOOSE)
+        } else {
+            self.project_dir(project)?
+        };
         let now = now_ms();
         let latest = self.latest_target(project);
         let meta = SessionMeta {
@@ -143,14 +240,20 @@ impl Workspace {
         read_meta(&self.session_dir(project, id)?)
     }
 
-    /// Folder of an existing session. Rejects ids and names that could escape the root.
-    pub fn session_dir(&self, project: &str, id: &str) -> Result<PathBuf> {
+    /// Folder of an existing session, found by its id (`_project` is not needed: a
+    /// session moved to another project keeps its folder). Rejects ids that could
+    /// escape the root.
+    pub fn session_dir(&self, _project: &str, id: &str) -> Result<PathBuf> {
         let id = Uuid::parse_str(id)
             .context("Invalid session id.")?
             .to_string();
-        let dir = self.project_dir(project)?.join(id);
-        ensure!(dir.join(META).is_file(), "This session no longer exists.");
-        Ok(dir)
+        for folder in fs::read_dir(&self.root).context("This session no longer exists.")? {
+            let dir = folder?.path().join(&id);
+            if dir.join(META).is_file() {
+                return Ok(dir);
+            }
+        }
+        bail!("This session no longer exists.")
     }
 
     pub fn rename_session(&self, project: &str, id: &str, title: &str) -> Result<SessionMeta> {
@@ -160,12 +263,6 @@ impl Workspace {
 
     pub fn delete_session(&self, project: &str, id: &str) -> Result<()> {
         let dir = self.session_dir(project, id)?;
-        fs::remove_dir_all(&dir).with_context(|| format!("deleting {}", dir.display()))
-    }
-
-    /// Delete a client (project) with all its sessions.
-    pub fn delete_project(&self, project: &str) -> Result<()> {
-        let dir = self.project_dir(project)?;
         fs::remove_dir_all(&dir).with_context(|| format!("deleting {}", dir.display()))
     }
 
@@ -223,10 +320,15 @@ impl Workspace {
     /// The project's most recently changed session that has a hosting: new sessions
     /// start with its hosting and version.
     fn latest_target(&self, project: &str) -> Option<SessionMeta> {
-        let dir = self.project_dir(project).ok()?;
-        fs::read_dir(dir)
+        if project.trim().is_empty() {
+            return None;
+        }
+        self.list()
             .ok()?
-            .filter_map(|e| read_meta(&e.ok()?.path()).ok())
+            .into_iter()
+            .find(|p| p.name == project.trim())?
+            .sessions
+            .into_iter()
             .filter(|m| m.hosting.is_some())
             .max_by_key(|m| (m.updated_at, m.created_at))
     }
@@ -282,7 +384,7 @@ impl Workspace {
 
     fn project_dir(&self, project: &str) -> Result<PathBuf> {
         let dir = self.root.join(validate_name(project)?);
-        if !dir.is_dir() {
+        if !dir.is_dir() || dir.join(REMOVED).exists() {
             bail!("The project \"{project}\" does not exist.");
         }
         Ok(dir)
@@ -300,6 +402,15 @@ impl Workspace {
         meta.updated_at = now_ms().max(meta.updated_at + 1);
         write_meta(&dir, &meta)?;
         Ok(meta)
+    }
+}
+
+/// The project of the session in `dir`, inside the folder named `folder`.
+fn member_of(dir: &Path, folder: &str) -> String {
+    match fs::read_to_string(dir.join(MEMBER)) {
+        Ok(project) => project.trim().to_string(),
+        Err(_) if folder == LOOSE => String::new(),
+        Err(_) => folder.to_string(),
     }
 }
 
