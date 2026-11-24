@@ -1,30 +1,35 @@
-/** The app's line icons: one size and stroke everywhere, coloured by the text. */
+/**
+ * The app's line icons, from Lucide (lucide.dev, ISC licence): drawn on a 24-point
+ * grid, shown at one size and stroke everywhere, coloured by the text.
+ */
 const PATHS = {
-  compose: "M11.5 2.5l2 2L7 11H5V9zM9 2.5H3.5a1 1 0 0 0-1 1v9a1 1 0 0 0 1 1h9a1 1 0 0 0 1-1V7",
-  search: "M7 11.5a4.5 4.5 0 1 0 0-9 4.5 4.5 0 0 0 0 9zM10.3 10.3l3.2 3.2",
-  database:
-    "M8 2c3 0 5.5.9 5.5 2S11 6 8 6 2.5 5.1 2.5 4 5 2 8 2zM2.5 4v8c0 1.1 2.5 2 5.5 2s5.5-.9 5.5-2V4M2.5 8c0 1.1 2.5 2 5.5 2s5.5-.9 5.5-2",
+  compose:
+    "M12 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7M18.375 2.625a1 1 0 0 1 3 3l-9.013 9.014a2 2 0 0 1-.853.505l-2.873.84a.5.5 0 0 1-.62-.62l.84-2.873a2 2 0 0 1 .506-.852z",
+  search: "m21 21-4.34-4.34M19 11a8 8 0 1 1-16 0 8 8 0 0 1 16 0z",
+  database: "M21 5c0 1.66-4 3-9 3S3 6.66 3 5s4-3 9-3 9 1.34 9 3zM3 5v14a9 3 0 0 0 18 0V5M3 12a9 3 0 0 0 18 0",
   settings:
-    "M8 10a2 2 0 1 0 0-4 2 2 0 0 0 0 4zM13 8l1.3-1-1.2-2.1-1.6.5-1.3-.8L9.8 3H6.2l-.4 1.6-1.3.8-1.6-.5L1.7 7 3 8l-1.3 1 1.2 2.1 1.6-.5 1.3.8.4 1.6h3.6l.4-1.6 1.3-.8 1.6.5L14.3 9z",
-  plus: "M8 3v10M3 8h10",
-  folder: "M2 4.5a1 1 0 0 1 1-1h3.2l1.5 1.5H13a1 1 0 0 1 1 1V12a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1z",
+    "M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2zM15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0z",
+  plus: "M5 12h14M12 5v14",
+  folder:
+    "M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2z",
   "folder-open":
-    "M2 12V4.5a1 1 0 0 1 1-1h3.2l1.5 1.5H12a1 1 0 0 1 1 1V7M2 12l1.6-4.3a1 1 0 0 1 .9-.7H14l-1.8 5.3a1 1 0 0 1-.9.7H3a1 1 0 0 1-1-1z",
-  chat: "M3 3.5h10a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1H7l-3 2.5v-2.5H3a1 1 0 0 1-1-1v-6a1 1 0 0 1 1-1z",
-  pencil: "M10.5 2.5l3 3L6 13H3v-3z",
-  trash: "M3 4.5h10M6.5 4.5V3h3v1.5M4.5 4.5l.6 8.6a1 1 0 0 0 1 .9h3.8a1 1 0 0 0 1-.9l.6-8.6",
+    "m6 14 1.5-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.54 6a2 2 0 0 1-1.95 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 2 0 0 1 2 2v2",
+  chat: "M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z",
+  pencil:
+    "M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497zM15 5l4 4",
+  trash: "M3 6h18M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2",
 } as const;
 
 export type IconName = keyof typeof PATHS;
 
-export function Icon({ name }: { name: IconName }) {
+export function Icon({ name, size = 16 }: { name: IconName; size?: number }) {
   return (
-    <svg className="icon" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
+    <svg className="icon" viewBox="0 0 24 24" width={size} height={size} aria-hidden="true">
       <path
         d={PATHS[name]}
         fill="none"
         stroke="currentColor"
-        strokeWidth="1.3"
+        strokeWidth="1.75"
         strokeLinecap="round"
         strokeLinejoin="round"
       />

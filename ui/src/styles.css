@@ -37,7 +37,7 @@ body {
   background: var(--bg);
   color: var(--text);
   font:
-    14px/1.45 system-ui,
+    15px/1.5 system-ui,
     -apple-system,
     "Segoe UI",
     Roboto,
@@ -72,7 +72,7 @@ body {
 
 /* Sidebar */
 .sidebar {
-  width: 248px;
+  width: 264px;
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
@@ -209,7 +209,7 @@ body {
   background: transparent;
   color: inherit;
   font: inherit;
-  font-size: 14.5px;
+  font-size: 15px;
   line-height: 1.5;
   padding: 14px 18px 4px;
   max-height: 40vh;
@@ -452,7 +452,7 @@ body {
 /* Buttons */
 .btn {
   font: inherit;
-  font-size: 13px;
+  font-size: 13.5px;
   padding: 6px 12px;
   border-radius: 6px;
   cursor: pointer;
@@ -2078,8 +2078,8 @@ button.usage-line:hover {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  height: 48px;
-  padding: 0 8px 0 16px;
+  height: 52px;
+  padding: 0 8px 0 18px;
 }
 .side-nav {
   display: grid;
@@ -2096,21 +2096,21 @@ button.usage-line:hover {
   display: flex;
   align-items: center;
   gap: 4px;
-  height: 32px;
-  border-radius: 6px;
+  height: 34px;
+  border-radius: 8px;
   color: var(--text);
-  font-size: 13px;
+  font-size: 14px;
 }
 .side-row-main {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   flex: 1;
   min-width: 0;
   height: 100%;
-  padding: 0 8px;
+  padding: 0 10px;
   border: 0;
-  border-radius: 6px;
+  border-radius: 8px;
   background: none;
   color: inherit;
   font: inherit;
@@ -2130,7 +2130,7 @@ button.usage-line:hover {
 }
 .side-row-main kbd {
   font-family: inherit;
-  font-size: 11px;
+  font-size: 12px;
   color: var(--muted);
 }
 .side-nav .side-row-main:hover,
@@ -2152,8 +2152,8 @@ button.usage-line:hover {
 }
 .side-row-hint {
   flex: none;
-  padding-right: 8px;
-  font-size: 11px;
+  padding-right: 10px;
+  font-size: 12px;
   color: var(--muted);
 }
 .side-row-action {
@@ -2171,7 +2171,7 @@ button.usage-line:hover {
   margin-right: 8px;
 }
 .tree-session.nested .side-row-main {
-  padding-left: 32px;
+  padding-left: 36px;
 }
 .tree-session[draggable="true"] {
   cursor: grab;
@@ -2181,9 +2181,9 @@ button.usage-line:hover {
   align-items: center;
   justify-content: space-between;
   height: 32px;
-  margin-top: 8px;
-  padding: 0 4px 0 8px;
-  font-size: 12px;
+  margin-top: 10px;
+  padding: 0 4px 0 10px;
+  font-size: 12.5px;
   font-weight: 500;
   color: var(--muted);
 }
@@ -2196,12 +2196,12 @@ button.usage-line:hover {
 }
 .tree-empty {
   margin: 0;
-  padding: 6px 8px;
-  font-size: 12px;
+  padding: 6px 10px;
+  font-size: 13px;
   color: var(--muted);
 }
 .tree-empty.nested {
-  padding-left: 32px;
+  padding-left: 36px;
 }
 .tree-project,
 .tree-loose {
@@ -2247,12 +2247,13 @@ button.usage-line:hover {
   margin-top: 16px;
 }
 .dialog-actions .btn {
-  height: 32px;
-  padding: 0 14px;
+  height: 34px;
+  padding: 0 16px;
+  font-size: 14px;
 }
 .side-nav .side-row-main {
-  height: 32px;
-  font-size: 13px;
+  height: 34px;
+  font-size: 14px;
 }
 
 .text-size {
@@ -2267,4 +2268,16 @@ button.usage-line:hover {
 .text-size-value {
   min-width: 56px;
   font-variant-numeric: tabular-nums;
+}
+
+.sidebar-title .icon-btn {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  display: inline-grid;
+  place-items: center;
+  color: var(--muted);
+}
+.sidebar-title .icon-btn:hover {
+  color: var(--text);
 }
