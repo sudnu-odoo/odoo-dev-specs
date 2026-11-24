@@ -2254,3 +2254,17 @@ button.usage-line:hover {
   height: 32px;
   font-size: 13px;
 }
+
+.text-size {
+  display: inline-flex;
+  gap: 4px;
+}
+.text-size .btn {
+  height: 28px;
+  min-width: 36px;
+  padding: 0 8px;
+}
+.text-size-value {
+  min-width: 56px;
+  font-variant-numeric: tabular-nums;
+}

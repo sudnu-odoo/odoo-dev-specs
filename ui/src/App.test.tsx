@@ -617,6 +617,18 @@ describe("App", () => {
     expect(screen.queryByRole("combobox", { name: "Search sessions" })).not.toBeInTheDocument();
   });
 
+  it("Ctrl + and Ctrl − change the text size, Ctrl 0 resets it", async () => {
+    localStorage.removeItem("textSize");
+    render(<App />);
+    await screen.findByRole("button", { name: "Delivery window" });
+    await userEvent.keyboard("{Control>}={/Control}{Control>}={/Control}");
+    expect(localStorage.getItem("textSize")).toBe("1.25");
+    await userEvent.keyboard("{Control>}-{/Control}");
+    expect(localStorage.getItem("textSize")).toBe("1.1");
+    await userEvent.keyboard("{Control>}0{/Control}");
+    expect(localStorage.getItem("textSize")).toBe("1");
+  });
+
   it("Ctrl+N starts a session without a project", async () => {
     mocked.createSession.mockImplementation(async () => {
       projects = [{ name: "", sessions: [meta("s9", "New spec")] }, ...projects];

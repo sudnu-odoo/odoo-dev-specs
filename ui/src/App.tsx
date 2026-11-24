@@ -26,9 +26,15 @@ import SessionHeader from "./components/SessionHeader";
 import NewProjectDialog from "./components/NewProjectDialog";
 import SearchPalette from "./components/SearchPalette";
 import { useShortcut } from "./app/useShortcut";
+import { getTextSize, setTextSize, stepTextSize, useAppTextSize } from "./lib/textSize";
 
 export default function App() {
   useAppTheme();
+  useAppTextSize();
+  useShortcut("=", () => setTextSize(stepTextSize(getTextSize(), 1)));
+  useShortcut("+", () => setTextSize(stepTextSize(getTextSize(), 1)));
+  useShortcut("-", () => setTextSize(stepTextSize(getTextSize(), -1)));
+  useShortcut("0", () => setTextSize(1));
   const app = useSpecsApp();
   const spec = useSpecPanel();
   const [dialog, setDialog] = useState<"search" | "project" | null>(null);

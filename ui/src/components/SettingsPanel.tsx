@@ -5,6 +5,7 @@ import VersionsPage from "./VersionsPage";
 import { useOdooVersions } from "../app/useOdooVersions";
 import { newestFirst } from "../lib/versions";
 import { setCanvasTheme, useCanvasTheme, type CanvasTheme } from "../lib/canvasTheme";
+import { setTextSize, stepTextSize, TEXT_SIZES, useTextSize } from "../lib/textSize";
 import type { EnvCheck, ProviderStatus } from "../lib/types";
 
 export interface SettingsPanelProps {
@@ -24,6 +25,7 @@ type Page = "general" | "versions" | "ai";
 export default function SettingsPanel({ onClose, onOpenSetup }: SettingsPanelProps) {
   const [page, setPage] = useState<Page>("general");
   const canvasTheme = useCanvasTheme();
+  const textSize = useTextSize();
   const odoo = useOdooVersions();
   const { settings, problems, error: settingsError, edit } = useSettings();
   const { assistants, error: assistantsError, login } = useAssistants();
@@ -118,6 +120,36 @@ export default function SettingsPanel({ onClose, onOpenSetup }: SettingsPanelPro
                         {t[0].toUpperCase() + t.slice(1)}
                       </button>
                     ))}
+                  </div>
+                </Row>
+                <Row
+                  label="Text size"
+                  hint="Everything in the window. Also Ctrl + and Ctrl −, Ctrl 0 to reset"
+                >
+                  <div className="text-size">
+                    <button
+                      className="btn"
+                      aria-label="Smaller text"
+                      disabled={textSize === TEXT_SIZES[0]}
+                      onClick={() => setTextSize(stepTextSize(textSize, -1))}
+                    >
+                      A−
+                    </button>
+                    <button
+                      className="btn text-size-value"
+                      title="Back to 100%"
+                      onClick={() => setTextSize(1)}
+                    >
+                      {Math.round(textSize * 100)}%
+                    </button>
+                    <button
+                      className="btn"
+                      aria-label="Larger text"
+                      disabled={textSize === TEXT_SIZES[TEXT_SIZES.length - 1]}
+                      onClick={() => setTextSize(stepTextSize(textSize, 1))}
+                    >
+                      A+
+                    </button>
                   </div>
                 </Row>
               </div>

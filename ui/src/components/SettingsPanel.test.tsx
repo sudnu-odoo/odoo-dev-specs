@@ -37,6 +37,19 @@ beforeEach(() => {
 });
 
 describe("SettingsPanel", () => {
+  it("makes the text bigger or smaller, and back to 100%", async () => {
+    localStorage.removeItem("textSize");
+    render(<SettingsPanel onClose={() => {}} />);
+    const size = await screen.findByRole("button", { name: "100%" });
+    await userEvent.click(screen.getByRole("button", { name: "Larger text" }));
+    expect(size).toHaveTextContent("110%");
+    await userEvent.click(screen.getByRole("button", { name: "Smaller text" }));
+    await userEvent.click(screen.getByRole("button", { name: "Smaller text" }));
+    expect(size).toHaveTextContent("90%");
+    await userEvent.click(size);
+    expect(size).toHaveTextContent("100%");
+  });
+
   it("shows the Odoo settings on the General page", async () => {
     render(<SettingsPanel onClose={vi.fn()} />);
     expect(await screen.findByLabelText("Odoo version")).toHaveValue("19.0");
