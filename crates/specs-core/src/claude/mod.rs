@@ -1,6 +1,7 @@
 //! Claude Code adapter: runs `claude -p` headless and reads its stream-json output.
 
 mod command;
+pub mod guides;
 mod parse;
 
 pub(crate) use command::mcp_args;

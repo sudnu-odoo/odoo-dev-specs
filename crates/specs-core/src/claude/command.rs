@@ -213,6 +213,8 @@ mod tests {
             "Do not mention Studio and never use `x_studio_` names",
             "never take them as facts",
             "Never suggest moving the client to another hosting",
+            "## Guides",
+            "Never give time, effort or cost estimates",
         ] {
             assert!(SYSTEM_PROMPT.contains(rule), "missing: {rule}");
         }

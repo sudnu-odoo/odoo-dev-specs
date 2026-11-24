@@ -69,6 +69,8 @@ pub async fn send_message(
 ) -> Result<ChatEvent> {
     let meta = workspace.session(project, session_id)?;
     let cwd = workspace.session_dir(project, session_id)?;
+    // The guides the assistant reads on demand, refreshed when the app is updated.
+    claude::guides::install(&cwd)?;
     workspace.append_transcript(
         project,
         session_id,
