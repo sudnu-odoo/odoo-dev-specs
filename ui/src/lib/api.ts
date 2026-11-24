@@ -1,6 +1,7 @@
 // Typed wrappers around the Tauri commands in src-tauri/src/commands.rs.
 // Components never call `invoke` directly.
 import type { Attachment } from "./bindings/Attachment";
+import type { GithubStatus } from "./bindings/GithubStatus";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type {
@@ -87,8 +88,15 @@ export const api = {
   /** Use a folder the person picked; returns the Odoo version found in it. */
   useSourceFolder: (path: string) => invoke<string>("use_source_folder", { path }),
   /** Whether the app can read Odoo's repositories (needed only to download versions). */
-  githubStatus: () =>
-    invoke<{ installed: boolean; connected: boolean; enterprise: boolean }>("github_status_cmd"),
+  githubStatus: () => invoke<GithubStatus>("github_status_cmd"),
+  /** Reinstall PostgreSQL's programs (its databases are kept); progress as the "tools" task. */
+  repairPostgres: () => invoke<void>("repair_postgres"),
+  /** Stop using a version's folder (e.g. one that was moved); its files stay. */
+  forgetSource: (version: string, edition: Edition) => invoke<void>("forget_source", { version, edition }),
+  /** Install a version's Python packages in the background (task "python:<version>"). */
+  prepareOdoo: (version: string) => invoke<void>("prepare_odoo", { version }),
+  /** Every check as plain text for support, without personal paths. */
+  setupReport: () => invoke<string>("setup_report"),
   /** Install and start what the computer is missing (one password prompt). */
   installTools: () => invoke<void>("install_tools"),
   /** Start a background download; progress arrives through onSetupProgress. */

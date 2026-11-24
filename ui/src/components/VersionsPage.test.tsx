@@ -44,6 +44,7 @@ beforeEach(() => {
         sizeBytes: 2.8 * 1024 ** 3,
         communityPath: "/home/me/odoo-versions/saas-19.2/odoo",
         enterprisePath: "/home/me/odoo-versions/saas-19.2/enterprise",
+        pythonReady: true,
       },
       {
         version: "19.0",
@@ -53,6 +54,7 @@ beforeEach(() => {
         sizeBytes: 1024 ** 2,
         communityPath: "/home/me/odev/worktrees/19.0/odoo",
         enterprisePath: null,
+        pythonReady: true,
       },
     ],
   });

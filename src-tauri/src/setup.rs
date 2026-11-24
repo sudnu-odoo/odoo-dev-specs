@@ -27,8 +27,9 @@ pub const SETUP_EVENT: &str = "setup-progress";
 pub type Elevate = dyn Fn(&str) -> Result<String, String> + Send + Sync;
 
 /// Is GitHub's tool there, and can the app's key read Odoo's repositories?
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(export)]
 pub struct GithubStatus {
     pub installed: bool,
     /// The app's key reads Odoo Community (any GitHub account can).

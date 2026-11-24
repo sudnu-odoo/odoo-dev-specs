@@ -16,6 +16,12 @@ vi.mock("./lib/api", () => ({
     saveScene: vi.fn(),
     sendMessage: vi.fn(),
     attachFile: vi.fn(),
+    githubStatus: vi.fn(async () => ({
+      installed: true,
+      connected: true,
+      enterprise: true,
+      unreachable: false,
+    })),
     cancelTurn: vi.fn(),
     onChatEvent: vi.fn(),
     loadScene: vi.fn(),
@@ -76,6 +82,7 @@ const readyComputer: SetupStatus = {
   system: { requirements: [], ready: true },
   versions: ["19.0"],
   sources: [],
+  broken: [],
   found: [],
   aiReady: true,
   tasks: {},
@@ -446,7 +453,15 @@ describe("App", () => {
       system: {
         ready: false,
         requirements: [
-          { key: "postgresql", label: "PostgreSQL", ok: false, problem: "PostgreSQL is not installed." },
+          {
+            key: "postgresql",
+            label: "PostgreSQL",
+            ok: false,
+            problem: "PostgreSQL is not installed.",
+            cause: "postgresMissing",
+            help: "",
+            fix: "automatic",
+          },
         ],
       },
       versions: [],
@@ -508,6 +523,7 @@ describe("App", () => {
       sizeBytes: 0,
       communityPath: `/h/${version}/odoo`,
       enterprisePath: null,
+      pythonReady: true,
     });
     mocked.odooVersions.mockResolvedValue({
       downloaded: [here("19.0"), here("saas-19.2")],

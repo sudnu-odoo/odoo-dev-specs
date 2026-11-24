@@ -2,13 +2,17 @@
 // generated into ./bindings by `cargo test` (ts-rs): edit the Rust type, never the
 // generated file. Only the UI's own types are written here.
 
+export type { BrokenSource } from "./bindings/BrokenSource";
+export type { Cause } from "./bindings/Cause";
 export type { ChatEvent } from "./bindings/ChatEvent";
 export type { ChatEventPayload } from "./bindings/ChatEventPayload";
 export type { Check as EnvCheck } from "./bindings/Check";
 export type { DatabaseForm } from "./bindings/DatabaseForm";
 export type { DatabaseInfo } from "./bindings/DatabaseInfo";
 export type { Edition } from "./bindings/Edition";
+export type { FixKind } from "./bindings/FixKind";
 export type { FoundSource } from "./bindings/FoundSource";
+export type { GithubStatus } from "./bindings/GithubStatus";
 export type { Model } from "./bindings/Model";
 export type { NewDatabase } from "./bindings/NewDatabase";
 export type { OdooVersions } from "./bindings/OdooVersions";

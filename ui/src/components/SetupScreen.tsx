@@ -1,7 +1,15 @@
 import { useState, type ReactNode } from "react";
 import type { Setup } from "../app/useSetup";
 import { pickFolder } from "../lib/pickFolder";
-import type { ProviderStatus, Requirement, VersionInfo } from "../lib/types";
+import type {
+  BrokenSource,
+  Edition,
+  GithubStatus,
+  ProviderStatus,
+  Requirement,
+  SetupTask,
+  VersionInfo,
+} from "../lib/types";
 import { versionLabel } from "./HostingMenu";
 
 export interface SetupScreenProps {
@@ -28,6 +36,7 @@ function versionList(versions: string[]): string {
  */
 export default function SetupScreen({ setup, providers, onLogin, onDone }: SetupScreenProps) {
   const s = setup.status;
+  const [copied, setCopied] = useState(false);
   if (!s) {
     return (
       <div className="setup" role="main">
@@ -55,6 +64,22 @@ export default function SetupScreen({ setup, providers, onLogin, onDone }: Setup
             ? "Everything is ready."
             : "One click installs what is missing. You type your password once."}
         </p>
+        <div className="setup-tools">
+          <button className="btn btn-small" onClick={setup.refresh}>
+            Check again
+          </button>
+          <button
+            className="btn btn-small"
+            onClick={async () => {
+              if (await setup.copyReport()) {
+                setCopied(true);
+                setTimeout(() => setCopied(false), 2000);
+              }
+            }}
+          >
+            {copied ? "Copied" : "Copy a report for support"}
+          </button>
+        </div>
         {setup.error && (
           <div role="alert" className="banner-error setup-error">
             {setup.error}
@@ -80,16 +105,28 @@ export default function SetupScreen({ setup, providers, onLogin, onDone }: Setup
                     : `Missing: ${missing.map((r) => r.label).join(", ")}.`
             }
             progress={busy ? null : undefined}
-            details={<ToolDetails requirements={s.system.requirements} />}
+            details={
+              <ToolDetails
+                requirements={s.system.requirements}
+                // The usual fixes ran and PostgreSQL still fails: offer the repair.
+                onRepair={tools?.state === "failed" ? setup.repairPostgres : undefined}
+              />
+            }
           />
           <SourceRow
             versions={s.versions}
             sources={s.sources}
+            broken={s.broken}
             found={s.found.map((f) => f.version)}
+            tasks={s.tasks}
             onChoose={choose}
             onUseFound={setup.useFound}
+            onChooseAgain={setup.chooseAgain}
+            onForget={setup.forgetSource}
+            onPrepare={setup.prepare}
           />
           <AiRow ready={s.aiReady} providers={providers} onLogin={onLogin} />
+          <GithubRow github={setup.github} onConnect={setup.connectGithub} />
         </ol>
 
         <div className="setup-actions">
@@ -124,22 +161,57 @@ export default function SetupScreen({ setup, providers, onLogin, onDone }: Setup
 function SourceRow({
   versions,
   sources,
+  broken,
   found,
+  tasks,
   onChoose,
   onUseFound,
+  onChooseAgain,
+  onForget,
+  onPrepare,
 }: {
   versions: string[];
   sources: VersionInfo[];
+  broken: BrokenSource[];
   found: string[];
+  tasks: Record<string, SetupTask>;
   onChoose: () => void;
   onUseFound: () => void;
+  onChooseAgain: (version: string, edition: Edition) => void;
+  onForget: (version: string, edition: Edition) => void;
+  onPrepare: (version: string) => void;
 }) {
   const choose = (
     <button className="btn btn-small" onClick={onChoose}>
       Choose a folder…
     </button>
   );
-  const details = <SourceDetails sources={sources} found={found} />;
+  const details = <SourceDetails sources={sources} found={found} tasks={tasks} onPrepare={onPrepare} />;
+  // A folder that was moved needs the person: say which, and offer both ways out.
+  if (broken.length > 0)
+    return (
+      <Row
+        label="Odoo source"
+        state="attention"
+        detail={
+          <span className="setup-broken">
+            {broken.map((b) => (
+              <span key={`${b.version}-${b.edition}`} className="setup-broken-item">
+                {versionLabel(b.version)} {b.edition === "community" ? "Community" : "Enterprise"}: its folder
+                was moved or deleted ({b.path}).
+                <button className="btn btn-small" onClick={() => onChooseAgain(b.version, b.edition)}>
+                  Choose again
+                </button>
+                <button className="btn btn-small" onClick={() => onForget(b.version, b.edition)}>
+                  Forget it
+                </button>
+              </span>
+            ))}
+          </span>
+        }
+        details={sources.length ? details : undefined}
+      />
+    );
   // One version in use is enough; other folders found are only extras.
   if (versions.length > 0)
     return (
@@ -189,7 +261,7 @@ function listText(items: string[]): string {
   return items.length < 2 ? items.join("") : `${items.slice(0, -1).join(", ")} and ${items.at(-1)}`;
 }
 
-function ToolDetails({ requirements }: { requirements: Requirement[] }) {
+function ToolDetails({ requirements, onRepair }: { requirements: Requirement[]; onRepair?: () => void }) {
   return (
     <ul className="setup-details" aria-label="Tools details">
       {requirements.map((r) => (
@@ -197,13 +269,37 @@ function ToolDetails({ requirements }: { requirements: Requirement[] }) {
           <span aria-hidden="true">{r.ok ? "✓" : "✗"}</span>
           <span>{r.label}</span>
           <small>{r.ok ? "Installed" : r.problem}</small>
+          {!r.ok && r.help && (
+            <p className="setup-help">
+              {r.fix === "manual" && <strong>You fix this one: </strong>}
+              {r.help}
+            </p>
+          )}
+          {!r.ok && r.key === "postgresql" && onRepair && (
+            <div className="setup-help">
+              <button className="btn btn-small" onClick={onRepair}>
+                Repair PostgreSQL
+              </button>{" "}
+              Reinstalls it and keeps your databases.
+            </div>
+          )}
         </li>
       ))}
     </ul>
   );
 }
 
-function SourceDetails({ sources, found }: { sources: VersionInfo[]; found: string[] }) {
+function SourceDetails({
+  sources,
+  found,
+  tasks,
+  onPrepare,
+}: {
+  sources: VersionInfo[];
+  found: string[];
+  tasks: Record<string, SetupTask>;
+  onPrepare: (version: string) => void;
+}) {
   const where = (v: VersionInfo) => {
     const c = v.communityPath;
     const e = v.enterprisePath;
@@ -218,6 +314,12 @@ function SourceDetails({ sources, found }: { sources: VersionInfo[]; found: stri
           <span>{versionLabel(v.version)}</span>
           <small>{v.enterprise.state === "ready" ? "Community + Enterprise" : "Community"}</small>
           <code>{where(v)}</code>
+          <PythonState
+            version={v.version}
+            ready={v.pythonReady}
+            task={tasks[`python:${v.version}`]}
+            onPrepare={onPrepare}
+          />
         </li>
       ))}
       {found.map((v) => (
@@ -228,6 +330,83 @@ function SourceDetails({ sources, found }: { sources: VersionInfo[]; found: stri
         </li>
       ))}
     </ul>
+  );
+}
+
+/** Whether a version's Python packages are installed, with a way to install them. */
+function PythonState({
+  version,
+  ready,
+  task,
+  onPrepare,
+}: {
+  version: string;
+  ready: boolean;
+  task?: SetupTask;
+  onPrepare: (version: string) => void;
+}) {
+  if (task?.state === "running")
+    return (
+      <p className="setup-help">
+        <span className="spinner spinner-small" aria-hidden="true" /> Installing Python packages…
+      </p>
+    );
+  if (task?.state === "failed")
+    return (
+      <p className="setup-help">
+        Python packages failed: {task.message}{" "}
+        <button className="btn btn-small" onClick={() => onPrepare(version)}>
+          Try again
+        </button>
+      </p>
+    );
+  if (ready) return <p className="setup-help">Python packages ready.</p>;
+  return (
+    <p className="setup-help">
+      Python packages not installed yet (done on first use, or now:{" "}
+      <button className="btn btn-small" onClick={() => onPrepare(version)}>
+        Prepare
+      </button>
+      ).
+    </p>
+  );
+}
+
+/** GitHub is only needed to download versions: never blocks the setup. */
+function GithubRow({ github, onConnect }: { github: GithubStatus | null; onConnect: () => void }) {
+  if (!github)
+    return <Row label="GitHub" state="working" detail="Checking GitHub… (optional, for downloads)" />;
+  if (github.unreachable)
+    return (
+      <Row
+        label="GitHub"
+        state="todo"
+        detail="GitHub does not answer: check the internet connection, then check again. Only needed to download versions."
+      />
+    );
+  if (!github.connected)
+    return (
+      <Row
+        label="GitHub"
+        state="todo"
+        detail="Optional: connect it to download Odoo versions. A window shows a code for github.com/login/device."
+        action={
+          <button className="btn btn-small" onClick={onConnect} disabled={!github.installed}>
+            Connect GitHub
+          </button>
+        }
+      />
+    );
+  return (
+    <Row
+      label="GitHub"
+      state="done"
+      detail={
+        github.enterprise
+          ? "Connected: Community and Enterprise can be downloaded."
+          : "Connected for Community. Your account cannot read Odoo Enterprise: ask for access, or use a folder you have."
+      }
+    />
   );
 }
 

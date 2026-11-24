@@ -211,8 +211,11 @@ async fn failed_first_turn_keeps_message_and_error_but_not_started() {
             TranscriptEntry::User {
                 text: "hello".into()
             },
+            // Said plainly, with what to do (see specs_core::errors).
             TranscriptEntry::Error {
-                message: "Not logged in".into()
+                message: "The assistant is logged out. Log in again from the model menu, then \
+resend your message."
+                    .into()
             },
         ]
     );

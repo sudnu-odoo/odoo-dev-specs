@@ -15,24 +15,39 @@ const source = (version: string, path: string) => ({
   sizeBytes: 0,
   communityPath: `${path}/odoo`,
   enterprisePath: `${path}/enterprise`,
+  pythonReady: true,
 });
 const ready: SetupStatus = {
   system: {
     requirements: [
-      { key: "postgresql", label: "PostgreSQL", ok: true, problem: "" },
-      { key: "pdf", label: "PDF tools", ok: false, problem: "The PDF tools are not installed." },
+      { key: "postgresql", label: "PostgreSQL", ok: true, problem: "", cause: null, help: "", fix: null },
+      {
+        key: "pdf",
+        label: "PDF tools",
+        ok: false,
+        problem: "The PDF tools are not installed.",
+        cause: "pdfToolsMissing",
+        help: "They read the reports attached in the chat.",
+        fix: "automatic",
+      },
     ],
     ready: true,
   },
   versions: ["19.0"],
   sources: [source("19.0", "/home/me/odev/worktrees/19.0")],
+  broken: [],
   found: [],
   aiReady: true,
   tasks: {},
 };
 const found = (version: string) => ({ version, community: `/h/${version}/odoo`, enterprise: null });
 
-function setup(status: Partial<SetupStatus>, tools?: SetupTask, complete = false) {
+function setup(
+  status: Partial<SetupStatus>,
+  tools?: SetupTask,
+  complete = false,
+  github?: { installed: boolean; connected: boolean; enterprise: boolean; unreachable: boolean },
+) {
   const s = {
     status: { ...ready, ...status },
     error: null,
@@ -43,6 +58,12 @@ function setup(status: Partial<SetupStatus>, tools?: SetupTask, complete = false
     tools,
     setUpEverything: vi.fn(),
     useFound: vi.fn(),
+    github: github ?? { installed: true, connected: true, enterprise: true, unreachable: false },
+    repairPostgres: vi.fn(),
+    forgetSource: vi.fn(),
+    prepare: vi.fn(),
+    chooseAgain: vi.fn(),
+    copyReport: vi.fn(async () => true),
     installTools: vi.fn(),
     chooseFolder: vi.fn(),
   } as unknown as Setup;
@@ -62,9 +83,14 @@ function setup(status: Partial<SetupStatus>, tools?: SetupTask, complete = false
 const row = (name: string) => screen.getByRole("listitem", { name });
 
 describe("SetupScreen", () => {
-  it("has no GitHub step and downloads nothing", () => {
-    setup({ versions: [], found: [found("19.0")] });
-    expect(screen.queryByRole("listitem", { name: "GitHub" })).not.toBeInTheDocument();
+  it("GitHub is optional: not connected never blocks the setup, and nothing is downloaded", () => {
+    setup({ versions: [], found: [found("19.0")] }, undefined, false, {
+      installed: true,
+      connected: false,
+      enterprise: false,
+      unreachable: false,
+    });
+    expect(row("GitHub")).toHaveTextContent("Optional");
     expect(row("Odoo source")).toHaveTextContent("nothing is downloaded");
   });
 
@@ -133,7 +159,22 @@ describe("SetupScreen", () => {
 
   it("shows a failed install with its reason", () => {
     setup(
-      { system: { ready: false, requirements: [{ key: "git", label: "Git", ok: false, problem: "" }] } },
+      {
+        system: {
+          ready: false,
+          requirements: [
+            {
+              key: "git",
+              label: "Git",
+              ok: false,
+              problem: "",
+              cause: "gitMissing",
+              help: "",
+              fix: "automatic",
+            },
+          ],
+        },
+      },
       { state: "failed", progress: null, message: "The password was not given." },
     );
     expect(row("Tools")).toHaveTextContent("The password was not given.");
@@ -144,5 +185,97 @@ describe("SetupScreen", () => {
     expect(screen.getByText("Everything is ready.")).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Start writing specs" }));
     expect(onDone).toHaveBeenCalled();
+  });
+
+  it("explains each problem: why it matters, and what the person does when the app cannot", async () => {
+    setup({
+      system: {
+        ready: false,
+        requirements: [
+          {
+            key: "postgresql",
+            label: "PostgreSQL",
+            ok: false,
+            problem: "Another program uses PostgreSQL's port.",
+            cause: "postgresPortTaken",
+            help: "Port 5432 is taken, often by PostgreSQL running in Docker.",
+            fix: "manual",
+          },
+        ],
+      },
+    });
+    await userEvent.click(screen.getByRole("button", { name: "Tools" }));
+    const details = within(row("Tools")).getByRole("list", { name: "Tools details" });
+    expect(details).toHaveTextContent("Another program uses PostgreSQL's port.");
+    expect(details).toHaveTextContent("Port 5432 is taken");
+    expect(details).toHaveTextContent("You fix this one");
+  });
+
+  it("offers to repair PostgreSQL when installing did not cure it", async () => {
+    const { s } = setup(
+      {
+        system: {
+          ready: false,
+          requirements: [
+            {
+              key: "postgresql",
+              label: "PostgreSQL",
+              ok: false,
+              problem: "PostgreSQL is installed but stopped.",
+              cause: "postgresStopped",
+              help: "",
+              fix: "automatic",
+            },
+          ],
+        },
+      },
+      { state: "failed", progress: null, message: "PostgreSQL is installed but stopped." },
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Tools" }));
+    await userEvent.click(screen.getByRole("button", { name: "Repair PostgreSQL" }));
+    expect(s.repairPostgres).toHaveBeenCalled();
+  });
+
+  it("shows a moved Odoo folder, to choose again or forget", async () => {
+    const { s } = setup({
+      versions: [],
+      sources: [],
+      broken: [{ version: "19.0", edition: "community", path: "/home/me/old/odoo" }],
+    });
+    expect(row("Odoo source")).toHaveAttribute("data-state", "attention");
+    expect(row("Odoo source")).toHaveTextContent("19.0 Community: its folder was moved or deleted");
+    await userEvent.click(within(row("Odoo source")).getByRole("button", { name: "Choose again" }));
+    expect(s.chooseAgain).toHaveBeenCalledWith("19.0", "community");
+    await userEvent.click(within(row("Odoo source")).getByRole("button", { name: "Forget it" }));
+    expect(s.forgetSource).toHaveBeenCalledWith("19.0", "community");
+  });
+
+  it("prepares a version's Python packages, and says why it failed", async () => {
+    const notReady = { ...source("19.0", "/home/me/odev/worktrees/19.0"), pythonReady: false };
+    const { s } = setup({
+      sources: [notReady],
+      tasks: {
+        "python:19.0": { state: "failed", progress: null, message: "No matching distribution for psycopg2" },
+      },
+    });
+    await userEvent.click(screen.getByRole("button", { name: "Odoo source" }));
+    const details = within(row("Odoo source")).getByRole("list", { name: "Odoo source details" });
+    expect(details).toHaveTextContent("Python packages failed: No matching distribution for psycopg2");
+    await userEvent.click(within(details).getByRole("button", { name: "Try again" }));
+    expect(s.prepare).toHaveBeenCalledWith("19.0");
+  });
+
+  it("says when GitHub does not answer, apart from not being connected", async () => {
+    setup({}, undefined, false, { installed: true, connected: false, enterprise: false, unreachable: true });
+    expect(row("GitHub")).toHaveTextContent("GitHub does not answer");
+  });
+
+  it("checks again, and copies a report for support", async () => {
+    const { s } = setup({});
+    await userEvent.click(screen.getByRole("button", { name: "Check again" }));
+    expect(s.refresh).toHaveBeenCalled();
+    await userEvent.click(screen.getByRole("button", { name: "Copy a report for support" }));
+    expect(s.copyReport).toHaveBeenCalled();
+    expect(await screen.findByText("Copied")).toBeInTheDocument();
   });
 });
