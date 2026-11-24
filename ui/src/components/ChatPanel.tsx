@@ -33,6 +33,8 @@ export interface ChatPanelProps {
   composerExtras?: ReactNode;
   /** Pick and prepare a file to attach; null when the person cancels. */
   onAttach?: () => Promise<Attachment | null>;
+  /** Show the spec panel (offered once the assistant has drawn the spec). */
+  onOpenSpec?: () => void;
 }
 
 const NO_USAGE: TokenUsage = { inputTokens: 0, outputTokens: 0 };
@@ -57,6 +59,7 @@ export default function ChatPanel({
   composerExtras,
   showUsage = true,
   onAttach,
+  onOpenSpec,
 }: ChatPanelProps) {
   const [draft, setDraft] = useState("");
   const [attached, setAttached] = useState<Attachment[]>([]);
@@ -125,7 +128,14 @@ export default function ChatPanel({
           </div>
         )}
         {groupSteps(items).map((group, i) =>
-          Array.isArray(group) ? <ToolSteps key={i} steps={group} /> : <Message key={i} item={group} />,
+          Array.isArray(group) ? (
+            <div key={i}>
+              <ToolSteps steps={group} />
+              {onOpenSpec && drewSpec(group) && <SpecCard onOpen={onOpenSpec} />}
+            </div>
+          ) : (
+            <Message key={i} item={group} />
+          ),
         )}
         {thinking && (
           <div role="status" className="chat-thinking">
@@ -162,9 +172,7 @@ export default function ChatPanel({
           aria-label="Message"
           title="Enter to send · Shift+Enter for a new line"
           placeholder={
-            hasSession
-              ? "Describe the feature, e.g. a delivery window on sales orders…"
-              : "Open a session first"
+            hasSession ? "Ask anything about Odoo, or describe the feature to spec…" : "Open a session first"
           }
           rows={2}
           value={draft}
@@ -295,4 +303,34 @@ function attachmentText(a: Attachment): string {
   const pages = `${a.pages} page${a.pages === 1 ? "" : "s"}`;
   if (a.scanned) return `${pages} · scan: layout only`;
   return a.removed ? `${pages} · ${a.removed} items removed` : pages;
+}
+
+/** The assistant finished drawing the spec in these steps. */
+function drewSpec(steps: ToolItem[]): boolean {
+  return steps.some((s) => s.name.endsWith("spec_build") && s.status === "ok");
+}
+
+/** "The spec is ready", with the way to see it (the panel is hidden at first). */
+function SpecCard({ onOpen }: { onOpen: () => void }) {
+  return (
+    <div className="spec-card">
+      <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
+        <rect
+          x="1.5"
+          y="2.5"
+          width="13"
+          height="11"
+          rx="2"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.3"
+        />
+        <path d="M9.5 2.5v11M4 6h3M4 9h3" stroke="currentColor" strokeWidth="1.3" />
+      </svg>
+      <span className="spec-card-text">The spec is drawn.</span>
+      <button className="btn btn-small btn-primary" onClick={onOpen}>
+        Open spec
+      </button>
+    </div>
+  );
 }

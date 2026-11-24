@@ -1879,3 +1879,130 @@ button.usage-line:hover {
   border-radius: 3px;
   background: var(--surface);
 }
+
+/* The open session: its title bar, then the chat (and the spec panel when shown). */
+.session-view {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.session-view > .main-panels {
+  flex: 1;
+  min-height: 0;
+}
+.chat-only > .chat {
+  height: 100%;
+}
+.session-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  height: 46px;
+  padding: 0 14px 0 20px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg);
+}
+.session-crumbs {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+  margin: 0;
+  font-size: 14px;
+  font-weight: 500;
+}
+.session-crumb-project {
+  color: var(--muted);
+  white-space: nowrap;
+}
+.session-crumb-sep {
+  color: var(--border);
+}
+.session-crumb-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.session-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.spec-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.spec-toggle[aria-pressed="true"] {
+  background: var(--active);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.spec-toggle kbd {
+  font-family: inherit;
+  font-size: 10px;
+  color: var(--muted);
+  padding: 0 4px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+
+/* "The spec is drawn" in the chat, with Open spec. */
+.spec-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 8px 0 14px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  color: var(--text);
+}
+.spec-card > svg {
+  color: var(--accent);
+  flex: none;
+}
+.spec-card-text {
+  flex: 1;
+  font-size: 13px;
+}
+
+/* Session cards: the title, then hosting · version · when (or a spinner). */
+.tree-session-title {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  min-width: 0;
+}
+.tree-session-name {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tree-session-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--muted);
+}
+.sidebar-search {
+  width: 100%;
+  margin-top: 8px;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+}
+.sidebar-search:focus {
+  outline: none;
+  border-color: var(--accent);
+}

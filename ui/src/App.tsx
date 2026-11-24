@@ -21,10 +21,13 @@ import SessionDiagram from "./components/SessionDiagram";
 import SettingsPanel from "./components/SettingsPanel";
 import Sidebar from "./components/Sidebar";
 import { useAssistants } from "./app/useAssistants";
+import { useSpecPanel } from "./app/useSpecPanel";
+import SessionHeader from "./components/SessionHeader";
 
 export default function App() {
   useAppTheme();
   const app = useSpecsApp();
+  const spec = useSpecPanel();
   const dbs = useDatabases();
   const versions = useOdooVersions();
   // Only versions on this computer are offered, the newest stable one first.
@@ -77,6 +80,7 @@ export default function App() {
       hasSession={!!app.session}
       onSend={app.send}
       onAttach={app.attach}
+      onOpenSpec={() => (app.diagramDetached ? app.dockDiagram() : spec.setOpen(true))}
       onStop={app.stop}
       models={app.models}
       selectedModel={app.selectedModel}
@@ -135,6 +139,7 @@ export default function App() {
           app.open(ref);
         }}
         databasesOpen={view === "databases"}
+        running={app.runningSessions}
         download={download}
         onOpenSetup={() => setSetupOpen(true)}
         onOpenDatabases={() => setView("databases")}
@@ -167,43 +172,53 @@ export default function App() {
         )}
         {view === "databases" ? (
           <DatabasesPage dbs={dbs} usage={usage} defaultVersion={startVersion} versions={localVersions} />
-        ) : app.diagramDetached ? (
-          <div className="main-panels detached">
-            <div className="detached-bar">
-              The diagram is open in its own window.
-              <button className="btn btn-small" onClick={app.dockDiagram}>
-                Bring diagram back
-              </button>
-            </div>
-            {chat}
-          </div>
         ) : (
-          // autoSaveId keeps the chat/diagram split the user dragged to.
-          <PanelGroup direction="horizontal" autoSaveId="main-split" className="main-panels">
-            <Panel defaultSize={38} minSize={25}>
-              {chat}
-            </Panel>
-            <PanelResizeHandle className="resize-handle" />
-            <Panel defaultSize={62} minSize={30}>
-              {app.selected && app.session ? (
-                <SessionDiagram
-                  sessionRef={app.selected}
-                  title={app.session.meta.title}
-                  actions={
-                    <button
-                      className="btn"
-                      title="Edit the diagram in a separate window"
-                      onClick={app.detachDiagram}
-                    >
-                      Open in new window
-                    </button>
-                  }
-                />
-              ) : (
-                <div className="artifact-placeholder">The diagram of the open session appears here.</div>
-              )}
-            </Panel>
-          </PanelGroup>
+          <div className="session-view">
+            {app.selected && app.session && (
+              <SessionHeader
+                project={app.selected.project}
+                title={app.session.meta.title}
+                specOpen={spec.open && !app.diagramDetached}
+                onToggleSpec={() => (app.diagramDetached ? app.dockDiagram() : spec.toggle())}
+              />
+            )}
+            {app.diagramDetached ? (
+              <div className="main-panels detached">
+                <div className="detached-bar">
+                  The diagram is open in its own window.
+                  <button className="btn btn-small" onClick={app.dockDiagram}>
+                    Bring diagram back
+                  </button>
+                </div>
+                {chat}
+              </div>
+            ) : spec.open && app.selected && app.session ? (
+              // autoSaveId keeps the chat/spec split the user dragged to.
+              <PanelGroup direction="horizontal" autoSaveId="main-split" className="main-panels">
+                <Panel defaultSize={42} minSize={25}>
+                  {chat}
+                </Panel>
+                <PanelResizeHandle className="resize-handle" />
+                <Panel defaultSize={58} minSize={30}>
+                  <SessionDiagram
+                    sessionRef={app.selected}
+                    title={app.session.meta.title}
+                    actions={
+                      <button
+                        className="btn"
+                        title="Edit the diagram in a separate window"
+                        onClick={app.detachDiagram}
+                      >
+                        Open in new window
+                      </button>
+                    }
+                  />
+                </Panel>
+              </PanelGroup>
+            ) : (
+              <div className="main-panels chat-only">{chat}</div>
+            )}
+          </div>
         )}
       </div>
       {newDatabaseFor && (

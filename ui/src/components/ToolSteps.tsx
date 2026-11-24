@@ -9,6 +9,7 @@ const LABELS: Record<string, string> = {
   Grep: "Searching the Odoo source",
   Glob: "Looking for files",
   odoo_screenshots: "Taking screenshots of Odoo",
+  spec_build: "Drawing the spec",
   diagram_summary: "Checking the layout",
   diagram_add_text: "Adding text",
   diagram_add_image: "Placing a screenshot",

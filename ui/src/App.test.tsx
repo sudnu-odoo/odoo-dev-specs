@@ -107,6 +107,7 @@ let docked: () => void;
 const emitEvent = (sessionId: string, event: ChatEvent) => act(() => emit({ sessionId, event }));
 
 beforeEach(() => {
+  localStorage.clear();
   vi.clearAllMocks();
   projects = [{ name: "Acme", sessions: [meta("s1", "Delivery window"), meta("s2", "New spec")] }];
   mocked.listProjects.mockImplementation(async () => projects);
@@ -180,11 +181,32 @@ async function openSession(title: string) {
 }
 
 const message = () => screen.getByRole("textbox", { name: "Message" });
+/** The spec panel starts hidden: open it like a person would. */
+async function showSpec() {
+  await userEvent.click(await screen.findByRole("button", { name: /^Spec/ }));
+}
 
 describe("App", () => {
-  it("opens a session with its history and diagram", async () => {
+  it("hides the spec until asked: the Spec button and Ctrl+B show and hide it", async () => {
+    await openSession("Delivery window");
+    await screen.findByText("Earlier question");
+    const spec = screen.getByRole("button", { name: /^Spec/ });
+    expect(spec).toHaveAttribute("aria-pressed", "false");
+    await userEvent.click(spec);
+    expect(spec).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByTestId("diagram")).toBeInTheDocument();
+    await userEvent.keyboard("{Control>}b{/Control}");
+    expect(screen.queryByTestId("diagram")).not.toBeInTheDocument();
+    await userEvent.keyboard("{Control>}b{/Control}");
+    expect(screen.getByTestId("diagram")).toBeInTheDocument();
+  });
+
+  it("opens a session with its history; the spec shows on demand", async () => {
     await openSession("Delivery window");
     expect(await screen.findByText("Earlier question")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Acme / Delivery window" })).toBeInTheDocument();
+    expect(screen.queryByTestId("diagram")).not.toBeInTheDocument();
+    await showSpec();
     expect(screen.getByTestId("diagram")).toHaveTextContent("Delivery window");
     expect(mocked.loadSession).toHaveBeenCalledWith({ project: "Acme", sessionId: "s1" });
   });
@@ -346,6 +368,7 @@ describe("App", () => {
     await userEvent.clear(field);
     await userEvent.type(field, "Delivery slots{Enter}");
     expect(mocked.renameSession).toHaveBeenCalledWith({ project: "Acme", sessionId: "s1" }, "Delivery slots");
+    await showSpec();
     expect(await screen.findByTestId("diagram")).toHaveTextContent("Delivery slots");
     expect(await screen.findByRole("button", { name: "Delivery slots" })).toBeInTheDocument();
   });
@@ -364,6 +387,7 @@ describe("App", () => {
 
   it("moves the diagram to its own window and back", async () => {
     await openSession("Delivery window");
+    await showSpec();
     await userEvent.click(await screen.findByRole("button", { name: "Open in new window" }));
     expect(mocked.openDiagramWindow).toHaveBeenCalledWith(
       { project: "Acme", sessionId: "s1" },
@@ -380,6 +404,7 @@ describe("App", () => {
 
   it("shows the diagram again when its window is closed directly", async () => {
     await openSession("Delivery window");
+    await showSpec();
     await userEvent.click(await screen.findByRole("button", { name: "Open in new window" }));
     act(() => docked());
     expect(await screen.findByTestId("diagram")).toBeInTheDocument();
@@ -387,6 +412,7 @@ describe("App", () => {
 
   it("keeps the separate diagram window on the selected session", async () => {
     await openSession("Delivery window");
+    await showSpec();
     await userEvent.click(await screen.findByRole("button", { name: "Open in new window" }));
     await userEvent.click(screen.getByRole("button", { name: "New spec" }));
     await waitFor(() =>

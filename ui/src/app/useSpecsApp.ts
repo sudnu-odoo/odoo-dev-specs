@@ -275,6 +275,10 @@ export function useSpecsApp() {
     selected,
     session,
     chat,
+    /** Ids of the sessions whose assistant is answering right now. */
+    runningSessions: Object.entries(chats.chats)
+      .filter(([, c]) => c.running)
+      .map(([id]) => id),
     error,
     dismissError: () => setError(null),
     open,

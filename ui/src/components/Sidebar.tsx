@@ -1,6 +1,7 @@
 import { useRef, useState, type FormEvent } from "react";
 import { useClosedProjects } from "../app/useClosedProjects";
-import type { ProjectInfo, SessionRef } from "../lib/types";
+import type { ProjectInfo, SessionMeta, SessionRef } from "../lib/types";
+import { versionLabel } from "./HostingMenu";
 
 export interface SidebarProps {
   projects: ProjectInfo[];
@@ -15,6 +16,8 @@ export interface SidebarProps {
   /** The Databases page is showing (instead of a session). */
   databasesOpen?: boolean;
   onOpenDatabases?: () => void;
+  /** Ids of the sessions whose assistant is answering right now. */
+  running?: string[];
   /** A setup download still going on; clicking it opens the setup. */
   download?: { label: string; percent: number | null } | null;
   onOpenSetup?: () => void;
@@ -33,8 +36,18 @@ export default function Sidebar({
   onOpenDatabases,
   download,
   onOpenSetup,
+  running = [],
 }: SidebarProps) {
   const closed = useClosedProjects();
+  const [query, setQuery] = useState("");
+  const searching = query.trim().toLowerCase();
+  // While searching, only matching sessions, in every project that has some.
+  const shown = projects
+    .map((p) => ({
+      ...p,
+      sessions: searching ? p.sessions.filter((s) => s.title.toLowerCase().includes(searching)) : p.sessions,
+    }))
+    .filter((p) => !searching || p.sessions.length > 0);
   return (
     <aside className="sidebar">
       <div className="sidebar-header">
@@ -45,6 +58,14 @@ export default function Sidebar({
           </button>
         </div>
         <NewProjectForm onCreate={onCreateProject} />
+        <input
+          type="search"
+          className="sidebar-search"
+          aria-label="Search sessions"
+          placeholder="Search sessions"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+        />
       </div>
       {onOpenDatabases && (
         <button
@@ -68,7 +89,7 @@ export default function Sidebar({
         {projects.length === 0 && (
           <p className="tree-empty">Create a project for your customer, then start a session in it.</p>
         )}
-        {projects.map((p) => (
+        {shown.map((p) => (
           <div key={p.name} className="tree-project">
             <div className="tree-project-header">
               <button
@@ -101,13 +122,15 @@ export default function Sidebar({
                 +
               </button>
             </div>
-            {!closed.has(p.name) &&
+            {(searching || !closed.has(p.name)) &&
               p.sessions.map((s) => {
                 const ref = { project: p.name, sessionId: s.id };
                 return (
                   <SessionRow
                     key={s.id}
                     title={s.title}
+                    meta={sessionMeta(s)}
+                    working={running.includes(s.id)}
                     active={!databasesOpen && selected?.project === p.name && selected.sessionId === s.id}
                     onSelect={() => onSelect(ref)}
                     onRename={(title) => onRenameSession(ref, title)}
@@ -146,13 +169,16 @@ export default function Sidebar({
 
 interface SessionRowProps {
   title: string;
+  /** "Online · 19.2 · 2h": the client's hosting and version, and when last used. */
+  meta: string;
+  working: boolean;
   active: boolean;
   onSelect: () => void;
   onRename: (title: string) => Promise<void>;
   onDelete: () => void;
 }
 
-function SessionRow({ title, active, onSelect, onRename, onDelete }: SessionRowProps) {
+function SessionRow({ title, meta, working, active, onSelect, onRename, onDelete }: SessionRowProps) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(title);
   // Enter closes the field, which may also fire blur: finish each edit only once.
@@ -200,11 +226,18 @@ function SessionRow({ title, active, onSelect, onRename, onDelete }: SessionRowP
     <div className={"tree-session" + (active ? " active" : "")}>
       <button
         className="tree-session-title"
+        aria-label={title}
         aria-current={active ? "true" : undefined}
         onClick={onSelect}
         onDoubleClick={startEditing}
       >
-        {title}
+        <span className="tree-session-name">{title}</span>
+        {(meta || working) && (
+          <span className="tree-session-meta">
+            {working && <span className="spinner spinner-small" role="status" aria-label="Working" />}
+            {meta}
+          </span>
+        )}
       </button>
       <button
         className="icon-btn tree-session-action"
@@ -266,4 +299,20 @@ function NewProjectForm({ onCreate }: { onCreate: (name: string) => Promise<void
       )}
     </form>
   );
+}
+
+/** "Online · 19.2 · 2h": hosting and version when chosen, and how long ago it was used. */
+function sessionMeta(s: SessionMeta): string {
+  const hosting = s.hosting === "online" ? "Online" : s.hosting === "sh" ? "Odoo.sh" : null;
+  return [hosting, s.version ? versionLabel(s.version) : null, ago(s.updated_at)].filter(Boolean).join(" · ");
+}
+
+/** "now", "5m", "2h", "3d" since a time in ms; nothing when unknown. */
+function ago(ms: number): string | null {
+  if (!ms) return null;
+  const minutes = Math.floor((Date.now() - ms) / 60_000);
+  if (minutes < 1) return "now";
+  if (minutes < 60) return `${minutes}m`;
+  if (minutes < 24 * 60) return `${Math.floor(minutes / 60)}h`;
+  return `${Math.floor(minutes / (24 * 60))}d`;
 }

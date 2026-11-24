@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import Sidebar, { type SidebarProps } from "./Sidebar";
@@ -18,7 +18,13 @@ const session = (id: string, title: string) => ({
 });
 
 const projects: ProjectInfo[] = [
-  { name: "Acme", sessions: [session("s1", "Delivery window"), session("s2", "Invoice layout")] },
+  {
+    name: "Acme",
+    sessions: [
+      { ...session("s1", "Delivery window"), hosting: "online", version: "saas-19.2" },
+      session("s2", "Invoice layout"),
+    ],
+  },
   { name: "Globex", sessions: [] },
 ];
 
@@ -39,6 +45,21 @@ function setup(overrides: Partial<SidebarProps> = {}) {
 }
 
 describe("Sidebar", () => {
+  it("shows each session's client hosting and version, and a spinner while it works", () => {
+    setup({ running: ["s2"] });
+    expect(screen.getByRole("button", { name: "Delivery window" })).toHaveTextContent("Online · 19.2");
+    const invoice = screen.getByRole("button", { name: "Invoice layout" });
+    expect(within(invoice).getByRole("status", { name: "Working" })).toBeInTheDocument();
+  });
+
+  it("finds sessions by their title", async () => {
+    setup();
+    await userEvent.type(screen.getByRole("searchbox", { name: "Search sessions" }), "invoice");
+    expect(screen.getByRole("button", { name: "Invoice layout" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Delivery window" })).not.toBeInTheDocument();
+    expect(screen.queryByText("Globex")).not.toBeInTheDocument();
+  });
+
   it("shows or hides a project's sessions when its name is clicked", async () => {
     setup();
     const acme = screen.getByRole("button", { name: "Acme" });

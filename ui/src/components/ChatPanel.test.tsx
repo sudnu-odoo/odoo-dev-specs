@@ -397,4 +397,30 @@ describe("ChatPanel model picker and usage", () => {
     expect(screen.queryByRole("meter")).not.toBeInTheDocument();
     expect(screen.queryByText(/tokens|limit/i)).not.toBeInTheDocument();
   });
+
+  it("says when the spec is drawn, with a way to open it", async () => {
+    const onOpenSpec = vi.fn();
+    setup({
+      onOpenSpec,
+      items: [
+        { role: "user", text: "Spec it" },
+        { role: "tool", name: "Read", status: "ok" },
+        { role: "tool", name: "mcp__specs__spec_build", status: "ok" },
+        { role: "assistant", text: "Done." },
+      ],
+    });
+    await userEvent.click(screen.getByRole("button", { name: "Open spec" }));
+    expect(onOpenSpec).toHaveBeenCalled();
+  });
+
+  it("shows no spec card while it is being drawn or when drawing failed", () => {
+    setup({
+      onOpenSpec: vi.fn(),
+      items: [
+        { role: "tool", name: "mcp__specs__spec_build", status: "error" },
+        { role: "tool", name: "mcp__specs__spec_build", status: "running" },
+      ],
+    });
+    expect(screen.queryByRole("button", { name: "Open spec" })).not.toBeInTheDocument();
+  });
 });
