@@ -204,6 +204,9 @@ exit 0
                 git: true,
                 chrome: true,
                 pdf_tools: true,
+                postgres_cluster: true,
+                postgres_port_taken: false,
+                postgres_login_error: None,
             };
             Ok("== Done".into())
         }),
@@ -212,6 +215,7 @@ exit 0
             installed: true,
             connected: false,
             enterprise: false,
+            unreachable: false,
         }),
         user: "ana".into(),
     };
@@ -1076,4 +1080,97 @@ fn the_setup_lists_the_versions_in_use_with_their_folders() {
         source["enterprisePath"],
         mine.join("enterprise").display().to_string()
     );
+}
+
+// --- Setup doctor: precise problems, their fixes, and a report for support ---
+
+#[test]
+fn repairing_postgresql_runs_the_reinstall_and_keeps_data() {
+    let h = harness(true);
+    h.call("repair_postgres", json!({})).unwrap();
+    let scripts = h.scripts.lock().unwrap().clone();
+    let last = scripts.last().unwrap();
+    assert!(
+        last.contains("apt-get install --reinstall -y postgresql"),
+        "{last}"
+    );
+    assert!(
+        !last.contains("pg_dropcluster") && !last.contains("purge"),
+        "{last}"
+    );
+}
+
+#[test]
+fn a_moved_odoo_folder_shows_in_the_setup_and_can_be_forgotten() {
+    let h = harness(true);
+    let mine = h.root.join("work/odoo-19");
+    fs::create_dir_all(mine.join("odoo/odoo")).unwrap();
+    fs::write(mine.join("odoo/odoo-bin"), "").unwrap();
+    fs::write(
+        mine.join("odoo/odoo/release.py"),
+        "version_info = (19, 0, 0, 'final', 0, '')\n",
+    )
+    .unwrap();
+    h.call("use_source_folder", json!({"path": mine})).unwrap();
+    fs::rename(&mine, h.root.join("work/odoo-19-moved")).unwrap();
+    let status = h.call("setup_status", json!({})).unwrap();
+    assert_eq!(status["broken"][0]["version"], "19.0");
+    assert_eq!(
+        status["broken"][0]["path"],
+        mine.join("odoo").display().to_string()
+    );
+    h.call(
+        "forget_source",
+        json!({"version": "19.0", "edition": "community"}),
+    )
+    .unwrap();
+    let status = h.call("setup_status", json!({})).unwrap();
+    assert_eq!(status["broken"], json!([]));
+}
+
+#[test]
+fn the_report_for_support_lists_every_check_without_personal_paths() {
+    let h = harness(true);
+    let home = h.root.parent().unwrap().join("home");
+    let mine = home.join("odev/worktrees/19.0");
+    fs::create_dir_all(mine.join("odoo/odoo")).unwrap();
+    fs::write(mine.join("odoo/odoo-bin"), "").unwrap();
+    fs::write(
+        mine.join("odoo/odoo/release.py"),
+        "version_info = (19, 0, 0, 'final', 0, '')\n",
+    )
+    .unwrap();
+    h.call("use_source_folder", json!({"path": mine})).unwrap();
+    let report = h.call("setup_report", json!({})).unwrap();
+    let report = report.as_str().unwrap();
+    for part in [
+        "PostgreSQL",
+        "Python",
+        "Chrome",
+        "AI assistants",
+        "Claude",
+        "Odoo source",
+        "19.0",
+    ] {
+        assert!(report.contains(part), "{part} missing:\n{report}");
+    }
+    assert!(report.contains("~/odev/worktrees/19.0"), "{report}");
+    let home = home.display().to_string();
+    assert!(
+        !report.contains(&home),
+        "the home folder is hidden:\n{report}"
+    );
+    assert!(
+        !report.contains("ana"),
+        "the user name is hidden:\n{report}"
+    );
+}
+
+#[test]
+fn preparing_python_needs_the_version_here() {
+    let h = harness(true);
+    let err = h
+        .call("prepare_odoo", json!({"version": "17.0"}))
+        .unwrap_err();
+    assert!(err.contains("17.0"), "{err}");
 }

@@ -35,6 +35,40 @@ pub struct SystemProbe {
     pub chrome: bool,
     /// The PDF tools (poppler-utils), to read reports attached in the chat.
     pub pdf_tools: bool,
+    /// PostgreSQL has a database folder (a "cluster"); a broken install has none.
+    pub postgres_cluster: bool,
+    /// Something else answers on PostgreSQL's port (often PostgreSQL in Docker).
+    pub postgres_port_taken: bool,
+    /// What PostgreSQL said when this person could not log in.
+    pub postgres_login_error: Option<String>,
+}
+
+/// Why a requirement is not met: the setup screen explains each one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, ts_rs::TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub enum Cause {
+    PostgresMissing,
+    PostgresNoCluster,
+    PostgresStopped,
+    PostgresPortTaken,
+    PostgresNoRole,
+    PostgresNoAccess,
+    PythonMissing,
+    PythonTooOld,
+    PythonNoVenv,
+    GitMissing,
+    PdfToolsMissing,
+    ChromeMissing,
+}
+
+/// Who fixes a problem: the app (one password prompt), or the person.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, ts_rs::TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub enum FixKind {
+    Automatic,
+    Manual,
 }
 
 /// One thing the app needs, as the setup screen shows it.
@@ -48,6 +82,10 @@ pub struct Requirement {
     pub ok: bool,
     /// What is wrong, in plain words (empty when ok).
     pub problem: String,
+    pub cause: Option<Cause>,
+    /// Why it matters, or what the person does when the app cannot fix it.
+    pub help: String,
+    pub fix: Option<FixKind>,
 }
 
 /// Everything the app needs from the system, with what is missing.
@@ -72,55 +110,168 @@ pub enum Fix {
     StartPostgres,
     /// Create this person's database user (allowed to create databases).
     CreateUser,
+    /// Reinstall PostgreSQL's programs (its databases stay).
+    RepairPostgres,
 }
 
-fn requirement(key: &'static str, label: &'static str, problem: Option<String>) -> Requirement {
-    Requirement {
-        key,
-        label,
-        ok: problem.is_none(),
-        problem: problem.unwrap_or_default(),
+/// What is wrong with a requirement, why it matters, and who fixes it.
+struct Problem {
+    cause: Cause,
+    text: String,
+    help: String,
+    fix: FixKind,
+}
+
+fn problem(cause: Cause, text: &str, help: &str) -> Option<Problem> {
+    Some(Problem {
+        cause,
+        text: text.into(),
+        help: help.into(),
+        fix: FixKind::Automatic,
+    })
+}
+
+fn requirement(key: &'static str, label: &'static str, problem: Option<Problem>) -> Requirement {
+    match problem {
+        None => Requirement {
+            key,
+            label,
+            ok: true,
+            problem: String::new(),
+            cause: None,
+            help: String::new(),
+            fix: None,
+        },
+        Some(p) => Requirement {
+            key,
+            label,
+            ok: false,
+            problem: p.text,
+            cause: Some(p.cause),
+            help: p.help,
+            fix: Some(p.fix),
+        },
+    }
+}
+
+const POSTGRES_WHY: &str = "The local Odoo keeps its databases in PostgreSQL.";
+
+fn postgres_problem(p: &SystemProbe) -> Option<Problem> {
+    if !p.postgres_installed {
+        return problem(
+            Cause::PostgresMissing,
+            "PostgreSQL is not installed.",
+            POSTGRES_WHY,
+        );
+    }
+    if p.postgres_port_taken && !p.postgres_running {
+        return Some(Problem {
+            cause: Cause::PostgresPortTaken,
+            text: "Another program uses PostgreSQL's port.".into(),
+            help: "Port 5432 is taken, often by PostgreSQL running in Docker. Stop that program \
+(see it with `docker ps`, stop it with `docker stop <name>`), or ask IT, then check again."
+                .into(),
+            fix: FixKind::Manual,
+        });
+    }
+    if !p.postgres_cluster {
+        return problem(
+            Cause::PostgresNoCluster,
+            "PostgreSQL has no database folder.",
+            "Its install did not finish; the app makes the folder.",
+        );
+    }
+    if !p.postgres_running {
+        return problem(
+            Cause::PostgresStopped,
+            "PostgreSQL is installed but stopped.",
+            POSTGRES_WHY,
+        );
+    }
+    if !p.postgres_user {
+        let said = p.postgres_login_error.as_deref().unwrap_or_default();
+        return if said.contains("does not exist") {
+            problem(
+                Cause::PostgresNoRole,
+                "Your database user does not exist yet.",
+                "The app creates it, with your Linux user name.",
+            )
+        } else {
+            problem(
+                Cause::PostgresNoAccess,
+                "PostgreSQL does not let your user in.",
+                "Its access rules were changed by another program; the app adds one rule for \
+your user only, and keeps a copy of the old file.",
+            )
+        };
+    }
+    None
+}
+
+fn missing(cause: Cause, text: &str, help: &str, ok: bool) -> Option<Problem> {
+    if ok {
+        None
+    } else {
+        problem(cause, text, help)
     }
 }
 
 /// What works and what does not, in the setup screen's words.
 pub fn report(p: &SystemProbe) -> SystemReport {
+    const PYTHON_WHY: &str = "Odoo runs on Python.";
     let python_problem = match p.python {
-        None => Some("Python 3 is not installed.".to_string()),
-        Some(v) if v < MIN_PYTHON => Some(format!(
-            "Python {}.{} is too old (needs {}.{} or newer).",
-            v.0, v.1, MIN_PYTHON.0, MIN_PYTHON.1
-        )),
-        Some(_) if !p.python_venv => Some("Python cannot make environments yet.".to_string()),
+        None => problem(
+            Cause::PythonMissing,
+            "Python 3 is not installed.",
+            PYTHON_WHY,
+        ),
+        Some(v) if v < MIN_PYTHON => problem(
+            Cause::PythonTooOld,
+            &format!(
+                "Python {}.{} is too old (needs {}.{} or newer).",
+                v.0, v.1, MIN_PYTHON.0, MIN_PYTHON.1
+            ),
+            PYTHON_WHY,
+        ),
+        Some(_) if !p.python_venv => problem(
+            Cause::PythonNoVenv,
+            "Python cannot make environments yet.",
+            "Each Odoo version gets its own Python packages.",
+        ),
         Some(_) => None,
     };
-    let postgres_problem = if !p.postgres_installed {
-        Some("PostgreSQL is not installed.".to_string())
-    } else if !p.postgres_running {
-        Some("PostgreSQL is not running.".to_string())
-    } else if !p.postgres_user {
-        Some("The app cannot log in to PostgreSQL yet (your database user or its access is missing).".to_string())
-    } else {
-        None
-    };
     let requirements = vec![
-        requirement("postgresql", "PostgreSQL", postgres_problem),
+        requirement("postgresql", "PostgreSQL", postgres_problem(p)),
         requirement("python", "Python", python_problem),
         requirement(
             "git",
             "Git",
-            (!p.git).then(|| "Git is not installed.".into()),
+            missing(
+                Cause::GitMissing,
+                "Git is not installed.",
+                "Odoo versions are downloaded with it.",
+                p.git,
+            ),
         ),
         requirement(
             "pdf",
             "PDF tools",
-            (!p.pdf_tools)
-                .then(|| "The PDF tools are not installed (to read attached reports).".into()),
+            missing(
+                Cause::PdfToolsMissing,
+                "The PDF tools are not installed.",
+                "They read the reports attached in the chat.",
+                p.pdf_tools,
+            ),
         ),
         requirement(
             "chrome",
             "Chrome",
-            (!p.chrome).then(|| "Chrome is not installed.".into()),
+            missing(
+                Cause::ChromeMissing,
+                "Chrome is not installed.",
+                "It takes the screenshots of Odoo.",
+                p.chrome,
+            ),
         ),
     ];
     let ready = requirements.iter().all(|r| r.ok);
@@ -155,7 +306,7 @@ pub fn plan(p: &SystemProbe) -> Vec<Fix> {
     if !p.chrome {
         fixes.push(Fix::Chrome);
     }
-    if !p.postgres_installed || !p.postgres_running {
+    if !p.postgres_installed || !p.postgres_cluster || !p.postgres_running {
         fixes.push(Fix::StartPostgres);
     }
     if !p.postgres_user {
@@ -177,6 +328,15 @@ const FIND_HBA: &str = r#"find_hba() {
   ls /etc/postgresql/*/*/pg_hba.conf 2>/dev/null | sort -V | tail -n 1 || true
 }
 "#;
+
+/// Reinstall PostgreSQL's programs and set it up again, for a damaged install the
+/// usual fixes did not cure. Databases are kept: nothing is dropped or purged.
+pub fn repair_script(user: &str) -> String {
+    script(
+        &[Fix::RepairPostgres, Fix::StartPostgres, Fix::CreateUser],
+        user,
+    )
+}
 
 /// A user name safe to put in the script (Linux user names are like this).
 pub fn valid_user(user: &str) -> bool {
@@ -221,6 +381,12 @@ pub fn script(fixes: &[Fix], user: &str) -> String {
              wget -q -O \"$tmp/chrome.deb\" {CHROME_DEB}\n\
              apt-get install -y \"$tmp/chrome.deb\"\nrm -rf \"$tmp\"\n"
         ));
+    }
+    if fixes.contains(&Fix::RepairPostgres) {
+        s.push_str(
+            "say Reinstalling PostgreSQL\napt-get update\n\
+             apt-get install --reinstall -y postgresql postgresql-common\n",
+        );
     }
     if fixes.contains(&Fix::StartPostgres) {
         // systemd on a laptop; plain `service` where there is none (containers).
@@ -323,8 +489,21 @@ pub fn probe() -> SystemProbe {
         python.is_some() && run("python3", &["-c", "import ensurepip, venv"]).is_some();
     let postgres_installed = on_path("psql") || Path::new("/usr/lib/postgresql").is_dir();
     let postgres_running = run("pg_isready", &["-q"]).is_some();
-    let postgres_user =
-        postgres_running && run("psql", &["-d", "postgres", "-Atc", "SELECT 1"]).is_some();
+    let login = postgres_running.then(|| run_err("psql", &["-d", "postgres", "-Atc", "SELECT 1"]));
+    let postgres_user = matches!(login, Some(Ok(_)));
+    let postgres_login_error = match login {
+        Some(Err(said)) => Some(said),
+        _ => None,
+    };
+    let postgres_cluster = run("pg_lsclusters", &["-h"]).is_some_and(|out| !out.trim().is_empty())
+        || has_cluster_config();
+    // Our PostgreSQL does not answer, but something listens on its port.
+    let postgres_port_taken = !postgres_running
+        && std::net::TcpStream::connect_timeout(
+            &std::net::SocketAddr::from(([127, 0, 0, 1], 5432)),
+            Duration::from_millis(500),
+        )
+        .is_ok();
     SystemProbe {
         postgres_installed,
         postgres_running,
@@ -341,6 +520,38 @@ pub fn probe() -> SystemProbe {
         .iter()
         .any(|c| on_path(c)),
         pdf_tools: on_path("pdftotext") && on_path("pdftoppm"),
+        postgres_cluster,
+        postgres_port_taken,
+        postgres_login_error,
+    }
+}
+
+/// A cluster's config, `/etc/postgresql/<version>/<name>/postgresql.conf`.
+fn has_cluster_config() -> bool {
+    std::fs::read_dir("/etc/postgresql")
+        .into_iter()
+        .flatten()
+        .flatten()
+        .flat_map(|v| std::fs::read_dir(v.path()).into_iter().flatten().flatten())
+        .any(|c| c.path().join("postgresql.conf").is_file())
+}
+
+/// Like `run`, but says what the program printed when it failed.
+fn run_err(program: &str, args: &[&str]) -> Result<String, String> {
+    let out = Command::new(program)
+        .args(args)
+        .stdin(Stdio::null())
+        .output()
+        .map_err(|e| e.to_string())?;
+    let text = format!(
+        "{}{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    if out.status.success() {
+        Ok(text)
+    } else {
+        Err(text.trim().to_string())
     }
 }
 
@@ -358,6 +569,9 @@ mod tests {
             git: true,
             chrome: true,
             pdf_tools: true,
+            postgres_cluster: true,
+            postgres_port_taken: false,
+            postgres_login_error: None,
         }
     }
 
@@ -413,9 +627,114 @@ mod tests {
         let s = script(&plan(&p), "ana");
         assert!(!s.contains("apt-get"), "nothing to install: {s}");
         assert_eq!(
-            report(&p).requirements[0].problem,
-            "The app cannot log in to PostgreSQL yet (your database user or its access is missing)."
+            report(&p).requirements[0].cause,
+            Some(Cause::PostgresNoAccess)
         );
+    }
+
+    fn postgres(p: SystemProbe) -> Requirement {
+        report(&p).requirements.remove(0)
+    }
+
+    #[test]
+    fn each_postgresql_failure_is_told_apart_with_its_fix() {
+        let missing = postgres(SystemProbe {
+            postgres_installed: false,
+            postgres_cluster: false,
+            postgres_running: false,
+            postgres_user: false,
+            ..all_good()
+        });
+        assert_eq!(missing.cause, Some(Cause::PostgresMissing));
+        assert_eq!(missing.fix, Some(FixKind::Automatic));
+
+        // Installed, but its database folder was never made (a broken install).
+        let no_cluster = SystemProbe {
+            postgres_cluster: false,
+            postgres_running: false,
+            postgres_user: false,
+            ..all_good()
+        };
+        assert_eq!(
+            postgres(no_cluster.clone()).cause,
+            Some(Cause::PostgresNoCluster)
+        );
+        assert!(
+            plan(&no_cluster).contains(&Fix::StartPostgres),
+            "makes the folder"
+        );
+
+        let stopped = postgres(SystemProbe {
+            postgres_running: false,
+            postgres_user: false,
+            ..all_good()
+        });
+        assert_eq!(stopped.cause, Some(Cause::PostgresStopped));
+
+        // Something else (often PostgreSQL in Docker) holds the port: only the
+        // person can stop it, so the app explains instead of trying.
+        let taken = SystemProbe {
+            postgres_running: false,
+            postgres_user: false,
+            postgres_port_taken: true,
+            ..all_good()
+        };
+        let r = postgres(taken.clone());
+        assert_eq!(
+            (r.cause, r.fix),
+            (Some(Cause::PostgresPortTaken), Some(FixKind::Manual))
+        );
+        assert!(
+            r.help.contains("5432") && r.help.contains("docker"),
+            "{}",
+            r.help
+        );
+
+        let no_role = postgres(SystemProbe {
+            postgres_user: false,
+            postgres_login_error: Some("FATAL:  role \"ana\" does not exist".into()),
+            ..all_good()
+        });
+        assert_eq!(no_role.cause, Some(Cause::PostgresNoRole));
+        let no_access = postgres(SystemProbe {
+            postgres_user: false,
+            postgres_login_error: Some(
+                "FATAL:  no pg_hba.conf entry for host \"[local]\", user \"ana\"".into(),
+            ),
+            ..all_good()
+        });
+        assert_eq!(no_access.cause, Some(Cause::PostgresNoAccess));
+        assert!(!no_access.help.is_empty());
+    }
+
+    #[test]
+    fn every_problem_says_why_it_matters_and_how_it_is_fixed() {
+        let fresh = SystemProbe::default();
+        for r in report(&fresh).requirements {
+            assert!(!r.ok, "{}", r.key);
+            assert!(r.cause.is_some() && r.fix.is_some(), "{}", r.key);
+            assert!(!r.problem.is_empty() && !r.help.is_empty(), "{}", r.key);
+        }
+        for r in report(&all_good()).requirements {
+            assert!(r.ok && r.cause.is_none() && r.fix.is_none(), "{}", r.key);
+        }
+    }
+
+    #[test]
+    fn repairing_postgresql_reinstalls_its_programs_and_keeps_the_databases() {
+        let s = repair_script("ana");
+        assert!(
+            s.contains("apt-get install --reinstall -y postgresql postgresql-common"),
+            "{s}"
+        );
+        assert!(
+            s.contains("pg_createcluster"),
+            "a missing folder is made again: {s}"
+        );
+        assert!(s.contains("createuser --superuser 'ana'"), "{s}");
+        for gone in ["pg_dropcluster", "rm -rf", "purge", "dropdb"] {
+            assert!(!s.contains(gone), "never deletes data ({gone}): {s}");
+        }
     }
 
     #[test]

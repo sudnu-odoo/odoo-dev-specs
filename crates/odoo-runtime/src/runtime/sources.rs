@@ -31,6 +31,8 @@ const OLDEST_MAJOR: u32 = 17;
 pub struct GithubAccess {
     pub community: bool,
     pub enterprise: bool,
+    /// GitHub did not answer (offline, or blocked by the network).
+    pub unreachable: bool,
 }
 
 /// Odoo source found on the computer (e.g. an odev worktree), by version.
@@ -55,6 +57,18 @@ const SOURCE_PLACES: [&str; 6] = [
     "Documents",
 ];
 
+/// A folder the app used for a version that is no longer there (moved or deleted).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+#[derive(ts_rs::TS)]
+#[ts(export)]
+pub struct BrokenSource {
+    pub version: String,
+    pub edition: Edition,
+    /// Where it was.
+    pub path: PathBuf,
+}
+
 /// A version on this computer, for the versions list.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -71,6 +85,8 @@ pub struct VersionInfo {
     /// Where each edition's files really are (a download or the person's folder).
     pub community_path: Option<PathBuf>,
     pub enterprise_path: Option<PathBuf>,
+    /// Odoo's Python packages are installed for this version.
+    pub python_ready: bool,
 }
 
 /// A database's version from its `base` module ("19.0.1.3" -> "19.0",
@@ -501,13 +517,17 @@ impl Runtime {
 
     /// Can this computer read Odoo's repositories with the app's key?
     pub fn github_access(&self) -> GithubAccess {
-        let readable = |edition| {
-            self.git_timed(&["ls-remote", "--heads", self.git_url(edition), "HEAD"])
-                .is_ok()
-        };
+        let check =
+            |edition| self.git_timed(&["ls-remote", "--heads", self.git_url(edition), "HEAD"]);
+        let community = check(Edition::Community);
+        let unreachable = community
+            .as_ref()
+            .is_err_and(|e| e.to_string().contains("did not answer"));
         GithubAccess {
-            community: readable(Edition::Community),
-            enterprise: readable(Edition::Enterprise),
+            community: community.is_ok(),
+            // No need to wait twice for a GitHub that does not answer.
+            enterprise: !unreachable && check(Edition::Enterprise).is_ok(),
+            unreachable,
         }
     }
 
@@ -639,6 +659,52 @@ impl Runtime {
         Ok(used)
     }
 
+    /// Folders the app used that are no longer there: their version silently
+    /// disappeared otherwise.
+    pub fn broken_sources(&self) -> Vec<BrokenSource> {
+        let mut broken: Vec<BrokenSource> = fs::read_dir(self.root.join("sources"))
+            .into_iter()
+            .flatten()
+            .flatten()
+            .filter_map(|e| {
+                let version = e.file_name().to_string_lossy().into_owned();
+                validate_version(&version).ok().map(|_| version)
+            })
+            .flat_map(|version| {
+                [Edition::Community, Edition::Enterprise]
+                    .into_iter()
+                    .filter_map(move |edition| Some((version.clone(), edition)))
+            })
+            .filter_map(|(version, edition)| {
+                let link = self.source_path(&version, edition);
+                let target = fs::read_link(&link).ok()?;
+                (!target.exists()).then_some(BrokenSource {
+                    version,
+                    edition,
+                    path: target,
+                })
+            })
+            .collect();
+        broken.sort_by(|a, b| (&a.version, a.edition as u8).cmp(&(&b.version, b.edition as u8)));
+        broken
+    }
+
+    /// Stop using a folder for a version's edition (its files are not touched).
+    ///
+    /// # Errors
+    /// The link could not be removed.
+    pub fn forget_source(&self, version: &str, edition: Edition) -> Result<()> {
+        validate_version(version)?;
+        let link = self.source_path(version, edition);
+        if is_link(&link) {
+            fs::remove_file(&link)?;
+        }
+        let _ = fs::remove_file(self.stamp(version, edition));
+        let _ = fs::remove_dir(self.root.join("sources").join(version));
+        self.forget_size(version);
+        Ok(())
+    }
+
     /// Versions Odoo can run from right now (their Community source is here), newest
     /// first.
     pub fn ready_versions(&self) -> Vec<String> {
@@ -756,6 +822,7 @@ impl Runtime {
                             size_bytes,
                             community_path,
                             enterprise_path,
+                            python_ready: self.python_ready(&version),
                         }
                     },
                 )

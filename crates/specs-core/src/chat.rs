@@ -139,6 +139,17 @@ pub async fn send_message(
         turn,
         parse,
         |event| {
+            // The assistants' failures, said plainly (also in the saved transcript).
+            let event = match event {
+                ChatEvent::Finished {
+                    is_error: true,
+                    message: Some(raw),
+                } => ChatEvent::Finished {
+                    is_error: true,
+                    message: Some(crate::errors::friendly(&raw)),
+                },
+                other => other,
+            };
             conversation_exists |= !matches!(event, ChatEvent::Finished { is_error: true, .. });
             recorder.push(&event);
             if let ChatEvent::Conversation { id } = &event {

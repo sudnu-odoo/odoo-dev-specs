@@ -232,11 +232,24 @@ fn safe_stem(name: &str) -> String {
 }
 
 fn run(program: &Path, args: &[&std::ffi::OsStr]) -> Result<String> {
-    let out = Command::new(program)
-        .args(args)
-        .stdin(Stdio::null())
-        .output()
-        .with_context(|| format!("{} is not installed.", program.display()))?;
+    // A program written a moment ago can be "busy" (ETXTBSY) while another process
+    // starts: wait a little and try again rather than call it missing.
+    const TEXT_FILE_BUSY: i32 = 26;
+    let mut tries = 0;
+    let out = loop {
+        match Command::new(program)
+            .args(args)
+            .stdin(Stdio::null())
+            .output()
+        {
+            Err(e) if e.raw_os_error() == Some(TEXT_FILE_BUSY) && tries < 20 => {
+                tries += 1;
+                std::thread::sleep(std::time::Duration::from_millis(25));
+            }
+            other => break other,
+        }
+    }
+    .with_context(|| format!("{} is not installed.", program.display()))?;
     if !out.status.success() {
         bail!("{}", String::from_utf8_lossy(&out.stderr).trim());
     }

@@ -12,7 +12,7 @@ use std::time::Duration;
 const WEEK: Duration = Duration::from_secs(7 * 24 * 3600);
 
 use odoo_runtime::runtime::{
-    Edition, FoundSource, NoAccess, Runtime as OdooRuntime, SourceState, VersionInfo,
+    BrokenSource, Edition, FoundSource, NoAccess, Runtime as OdooRuntime, SourceState, VersionInfo,
 };
 use odoo_runtime::system::{self, SystemProbe, SystemReport};
 use serde::Serialize;
@@ -35,6 +35,8 @@ pub struct GithubStatus {
     pub connected: bool,
     /// It also reads Odoo Enterprise (the account has access).
     pub enterprise: bool,
+    /// GitHub did not answer (offline, or blocked by the network).
+    pub unreachable: bool,
 }
 
 /// How the setup reaches the machine; swappable in tests.
@@ -127,6 +129,8 @@ pub struct SetupStatus {
     pub versions: Vec<String>,
     /// The versions in use, with where their files are.
     pub sources: Vec<VersionInfo>,
+    /// Folders in use that were moved or deleted since.
+    pub broken: Vec<BrokenSource>,
     /// Odoo source found on the computer that is not used yet.
     pub found: Vec<FoundSource>,
     /// At least one AI assistant is installed and logged in.
@@ -193,6 +197,7 @@ pub async fn setup_status(state: State<'_, AppState>) -> Result<SetupStatus, Str
             system: system::report(&(setup.hooks.probe)()),
             versions,
             sources,
+            broken: odoo.broken_sources(),
             found,
             ai_ready: providers().iter().any(|p| p.ready()),
             tasks: setup.tasks.lock().unwrap().clone(),
@@ -291,6 +296,205 @@ pub async fn install_tools<R: Runtime>(
             update(&app, setup, "tools", finished(TaskState::Failed, e.clone()));
             Err(e)
         }
+    }
+}
+
+/// Reinstall PostgreSQL's programs and set it up again, when the usual fixes did not
+/// cure it. Its databases are kept. Progress arrives as the "tools" task.
+#[tauri::command]
+pub async fn repair_postgres<R: Runtime>(
+    app: AppHandle<R>,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let setup = state.setup.clone();
+    if setup.running("tools") {
+        return Err("The tools are already being installed.".into());
+    }
+    let user = setup.hooks.user.clone();
+    if !system::valid_user(&user) {
+        return Err(format!("Cannot set up a database user for \"{user}\"."));
+    }
+    update(
+        &app,
+        &setup,
+        "tools",
+        running(
+            None,
+            "Repairing PostgreSQL… (type your password in the window)",
+        ),
+    );
+    let script = system::repair_script(&user);
+    let check = setup.clone();
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        (check.hooks.elevate)(&script).and_then(|_| {
+            let report = system::report(&(check.hooks.probe)());
+            match report.requirements.iter().find(|r| !r.ok) {
+                None => Ok(()),
+                Some(r) => Err(r.problem.clone()),
+            }
+        })
+    })
+    .await
+    .map_err(|e| e.to_string())?;
+    match result {
+        Ok(()) => {
+            update(
+                &app,
+                &setup,
+                "tools",
+                finished(TaskState::Done, "PostgreSQL is repaired."),
+            );
+            Ok(())
+        }
+        Err(e) => {
+            update(
+                &app,
+                &setup,
+                "tools",
+                finished(TaskState::Failed, e.clone()),
+            );
+            Err(e)
+        }
+    }
+}
+
+/// Stop using a folder for a version (e.g. one that was moved); its files stay.
+#[tauri::command]
+pub fn forget_source(
+    state: State<'_, AppState>,
+    version: String,
+    edition: Edition,
+) -> Result<(), String> {
+    state
+        .odoo
+        .forget_source(&version, edition)
+        .map_err(|e| format!("{e:#}"))
+}
+
+/// Install a version's Python packages now, in the background (task "python:<version>").
+#[tauri::command]
+pub fn prepare_odoo<R: Runtime>(
+    app: AppHandle<R>,
+    state: State<'_, AppState>,
+    version: String,
+) -> Result<(), String> {
+    if state.odoo.source_state(&version, Edition::Community) == SourceState::Missing {
+        return Err(format!("Odoo {version} is not on this computer."));
+    }
+    let key = format!("python:{version}");
+    let setup = state.setup.clone();
+    if setup.running(&key) {
+        return Ok(());
+    }
+    let odoo = state.odoo.clone();
+    update(
+        &app,
+        &setup,
+        &key,
+        running(None, "Installing Odoo's Python packages… (a few minutes)"),
+    );
+    std::thread::spawn(move || {
+        let task = match odoo.ensure_venv(&version) {
+            Ok(_) => finished(TaskState::Done, "Ready."),
+            // The last line says what failed (e.g. one package that did not build).
+            Err(e) => finished(
+                TaskState::Failed,
+                format!("{e:#}")
+                    .lines()
+                    .last()
+                    .unwrap_or_default()
+                    .to_string(),
+            ),
+        };
+        update(&app, &setup, &key, task);
+    });
+    Ok(())
+}
+
+/// A plain-text report of every check, to paste to whoever helps: personal paths
+/// and the user name are hidden.
+#[tauri::command]
+pub async fn setup_report(state: State<'_, AppState>) -> Result<String, String> {
+    let (setup, odoo, providers) = (
+        state.setup.clone(),
+        state.odoo.clone(),
+        state.providers.clone(),
+    );
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut lines = vec![
+            format!("Odoo Dev Specs {}", env!("CARGO_PKG_VERSION")),
+            String::new(),
+            "Tools".into(),
+        ];
+        for r in system::report(&(setup.hooks.probe)()).requirements {
+            lines.push(match r.cause {
+                None => format!("  ok    {}", r.label),
+                Some(cause) => format!("  FAIL  {}: {} ({cause:?})", r.label, r.problem),
+            });
+        }
+        lines.push("Odoo source".into());
+        let shown = |p: &Option<PathBuf>| {
+            p.as_ref()
+                .map_or_else(|| "-".to_string(), |p| p.display().to_string())
+        };
+        for v in odoo.downloaded_versions() {
+            lines.push(format!(
+                "  {}  community {}  enterprise {}  python {}",
+                v.version,
+                shown(&v.community_path),
+                shown(&v.enterprise_path),
+                if v.python_ready { "ready" } else { "not ready" }
+            ));
+        }
+        for b in odoo.broken_sources() {
+            lines.push(format!(
+                "  MISSING {} {:?}: {}",
+                b.version,
+                b.edition,
+                b.path.display()
+            ));
+        }
+        lines.push("AI assistants".into());
+        for p in providers() {
+            let state = match (p.installed, p.logged_in) {
+                (false, _) => "not installed",
+                (true, false) => "not logged in",
+                (true, true) => "ready",
+            };
+            lines.push(format!("  {}: {state}", p.name));
+        }
+        let failed: Vec<String> = setup
+            .tasks
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|(_, t)| t.state == TaskState::Failed)
+            .map(|(k, t)| format!("  {k}: {}", t.message))
+            .collect();
+        if !failed.is_empty() {
+            lines.push("Failed steps".into());
+            lines.extend(failed);
+        }
+        redact(&lines.join("\n"), &setup.hooks.home, &setup.hooks.user)
+    })
+    .await
+    .map_err(|e| e.to_string())
+}
+
+/// Hide the home folder (shown as ~) and the user name.
+fn redact(text: &str, home: &std::path::Path, user: &str) -> String {
+    let home = home.display().to_string();
+    let text = if home.len() > 1 {
+        text.replace(&home, "~")
+    } else {
+        text.to_string()
+    };
+    // A short name ("ana") would also match inside ordinary words.
+    if user.len() > 2 {
+        text.replace(&format!("/{user}/"), "/<user>/")
+            .replace(&format!("\"{user}\""), "\"<user>\"")
+    } else {
+        text
     }
 }
 
@@ -496,5 +700,6 @@ fn github_status(odoo: &OdooRuntime) -> GithubStatus {
         installed,
         connected: access.community,
         enterprise: access.enterprise,
+        unreachable: access.unreachable,
     }
 }

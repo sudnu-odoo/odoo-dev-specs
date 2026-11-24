@@ -1535,3 +1535,45 @@ fn stale_versions_are_updated_together() {
     assert!(failed.is_empty(), "{failed:?}");
     assert_eq!(resets() - before, 2);
 }
+
+#[test]
+fn a_linked_folder_that_was_moved_is_reported_and_can_be_forgotten() {
+    let env = Env::new(&[], false);
+    let mine = env.dir.path().join("work/odoo-19");
+    fake_checkout(&mine, "19.0", true);
+    env.rt.use_source_at(&mine).unwrap();
+    assert!(env.rt.broken_sources().is_empty());
+    // The person moves the folder away.
+    fs::rename(&mine, env.dir.path().join("work/odoo-19-old")).unwrap();
+    let broken = env.rt.broken_sources();
+    assert_eq!(broken.len(), 2, "{broken:?}");
+    assert_eq!(broken[0].version, "19.0");
+    assert_eq!(broken[0].edition, Edition::Community);
+    assert_eq!(broken[0].path, mine.join("odoo"));
+    env.rt.forget_source("19.0", Edition::Community).unwrap();
+    env.rt.forget_source("19.0", Edition::Enterprise).unwrap();
+    assert!(env.rt.broken_sources().is_empty());
+}
+
+#[test]
+fn whether_a_versions_python_packages_are_ready_is_known() {
+    let env = Env::new(&[], false);
+    env.rt
+        .download_source("19.0", Edition::Community, &mut |_| {})
+        .unwrap();
+    assert!(!env.rt.python_ready("19.0"));
+    env.rt.ensure_venv("19.0").unwrap();
+    assert!(env.rt.python_ready("19.0"));
+}
+
+#[test]
+fn github_not_answering_is_told_apart_from_no_access() {
+    let env = Env::new(&[], false);
+    fs::write(env.dir.path().join("deny"), "").unwrap();
+    let denied = env.rt.github_access();
+    assert!(!denied.community && !denied.unreachable);
+    fs::remove_file(env.dir.path().join("deny")).unwrap();
+    fs::write(env.dir.path().join("slow"), "").unwrap();
+    let slow = env.rt.github_access();
+    assert!(!slow.community && slow.unreachable);
+}

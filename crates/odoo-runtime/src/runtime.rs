@@ -31,8 +31,8 @@ mod sources;
 mod ssh;
 pub use databases::{session_database, set_session_database, DatabaseInfo, NewDatabase};
 pub use sources::{
-    release_version, version_from_latest, Edition, FoundSource, GithubAccess, NoAccess,
-    SourceState, VersionInfo, ENTERPRISE_GIT_URL,
+    release_version, version_from_latest, BrokenSource, Edition, FoundSource, GithubAccess,
+    NoAccess, SourceState, VersionInfo, ENTERPRISE_GIT_URL,
 };
 
 /// Odoo's community repository, over SSH with the app's own key (Odoo's repositories
@@ -298,6 +298,11 @@ impl Runtime {
 
     pub fn data_dir(&self) -> PathBuf {
         self.root.join("data")
+    }
+
+    /// Odoo's Python packages are installed for this version.
+    pub fn python_ready(&self, version: &str) -> bool {
+        self.venv_dir(version).join(VENV_READY).is_file()
     }
 
     pub fn venv_dir(&self, version: &str) -> PathBuf {

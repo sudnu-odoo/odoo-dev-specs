@@ -16,4 +16,8 @@ sizeBytes: number,
 /**
  * Where each edition's files really are (a download or the person's folder).
  */
-communityPath: string | null, enterprisePath: string | null, };
+communityPath: string | null, enterprisePath: string | null, 
+/**
+ * Odoo's Python packages are installed for this version.
+ */
+pythonReady: boolean, };

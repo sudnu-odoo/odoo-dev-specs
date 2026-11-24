@@ -5,6 +5,7 @@ pub mod antigravity;
 pub mod attachments;
 pub mod chat;
 pub mod claude;
+pub mod errors;
 pub mod events;
 mod fsutil;
 pub mod locate;
