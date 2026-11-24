@@ -209,6 +209,8 @@ describe("SetupScreen", () => {
     expect(details).toHaveTextContent("Another program uses PostgreSQL's port.");
     expect(details).toHaveTextContent("Port 5432 is taken");
     expect(details).toHaveTextContent("You fix this one");
+    // Reinstalling cannot free a port another program holds.
+    expect(within(details).queryByRole("button", { name: "Repair PostgreSQL" })).not.toBeInTheDocument();
   });
 
   it("offers to repair PostgreSQL when installing did not cure it", async () => {

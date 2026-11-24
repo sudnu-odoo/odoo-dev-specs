@@ -256,6 +256,11 @@ function SourceRow({
   );
 }
 
+/** Help text whose `commands` show as code. */
+function withCommands(text: string): ReactNode {
+  return text.split(/`([^`]+)`/).map((part, i) => (i % 2 ? <code key={i}>{part}</code> : part));
+}
+
 /** "A, B and C" */
 function listText(items: string[]): string {
   return items.length < 2 ? items.join("") : `${items.slice(0, -1).join(", ")} and ${items.at(-1)}`;
@@ -272,10 +277,10 @@ function ToolDetails({ requirements, onRepair }: { requirements: Requirement[]; 
           {!r.ok && r.help && (
             <p className="setup-help">
               {r.fix === "manual" && <strong>You fix this one: </strong>}
-              {r.help}
+              {withCommands(r.help)}
             </p>
           )}
-          {!r.ok && r.key === "postgresql" && onRepair && (
+          {!r.ok && r.key === "postgresql" && r.fix === "automatic" && onRepair && (
             <div className="setup-help">
               <button className="btn btn-small" onClick={onRepair}>
                 Repair PostgreSQL

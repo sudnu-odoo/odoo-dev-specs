@@ -1869,3 +1869,13 @@ button.usage-line:hover {
 .setup-broken-item .btn {
   margin-left: 6px;
 }
+.setup-help code {
+  grid-column: auto;
+  word-break: normal;
+  white-space: nowrap;
+  font-family: ui-monospace, monospace;
+  font-size: 11px;
+  padding: 0 3px;
+  border-radius: 3px;
+  background: var(--surface);
+}

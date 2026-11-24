@@ -384,8 +384,11 @@ pub fn script(fixes: &[Fix], user: &str) -> String {
     }
     if fixes.contains(&Fix::RepairPostgres) {
         s.push_str(
+            // `postgresql` is only a pointer package: the server itself is in the
+            // versioned one (postgresql-16), so reinstall those too.
             "say Reinstalling PostgreSQL\napt-get update\n\
-             apt-get install --reinstall -y postgresql postgresql-common\n",
+             apt-get install --reinstall -y postgresql postgresql-common \
+             $(ls /usr/lib/postgresql 2>/dev/null | sed 's/^/postgresql-/')\n",
         );
     }
     if fixes.contains(&Fix::StartPostgres) {
