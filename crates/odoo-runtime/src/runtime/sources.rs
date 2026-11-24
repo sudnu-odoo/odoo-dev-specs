@@ -673,7 +673,7 @@ impl Runtime {
             .flat_map(|version| {
                 [Edition::Community, Edition::Enterprise]
                     .into_iter()
-                    .filter_map(move |edition| Some((version.clone(), edition)))
+                    .map(move |edition| (version.clone(), edition))
             })
             .filter_map(|(version, edition)| {
                 let link = self.source_path(&version, edition);
