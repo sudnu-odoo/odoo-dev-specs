@@ -241,6 +241,7 @@ export default function App() {
       {dialog === "new" && (
         <NewSessionDialog
           clients={app.projects}
+          current={app.selected?.project}
           onCancel={() => setDialog(null)}
           onStart={async (client, isNew) => {
             await app.newSession(client, isNew);

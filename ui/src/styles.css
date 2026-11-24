@@ -2141,10 +2141,36 @@ button.usage-line:hover {
   margin: -6px 0 12px;
   color: var(--muted);
 }
+.client-search {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 9px 12px;
+  margin-bottom: 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+}
+.client-search:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.client-empty {
+  margin: 8px 10px;
+  color: var(--muted);
+}
+.dialog-hint {
+  margin-right: auto;
+  align-self: center;
+  color: var(--muted);
+  font-size: 12px;
+}
 .client-list {
   display: grid;
+  align-content: start;
   gap: 2px;
-  max-height: 260px;
+  height: 260px;
   overflow-y: auto;
   margin-bottom: 12px;
 }
@@ -2155,9 +2181,6 @@ button.usage-line:hover {
   padding: 7px 10px;
   border-radius: 8px;
   cursor: pointer;
-}
-.client-option:hover {
-  background: var(--bg);
 }
 .client-option[aria-selected="true"] {
   background: var(--active);

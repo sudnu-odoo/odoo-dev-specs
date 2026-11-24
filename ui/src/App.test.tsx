@@ -615,8 +615,7 @@ describe("App", () => {
     render(<App />);
     await screen.findByRole("button", { name: "New spec" });
     await userEvent.keyboard("{Control>}n{/Control}");
-    await userEvent.click(await screen.findByRole("option", { name: /New client/ }));
-    await userEvent.type(screen.getByRole("textbox", { name: "Client name" }), "Umbrella{Enter}");
+    await userEvent.type(await screen.findByRole("combobox", { name: "Client" }), "Umbrella{Enter}");
     await waitFor(() => expect(mocked.createSession).toHaveBeenCalledWith("Umbrella", "New spec"));
     expect(mocked.createProject).toHaveBeenCalledWith("Umbrella");
   });
