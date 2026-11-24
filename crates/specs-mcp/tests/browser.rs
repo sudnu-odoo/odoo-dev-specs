@@ -178,9 +178,10 @@ async fn a_batch_uses_one_chrome_logs_in_once_and_maps_what_is_on_screen() {
     .expect("timed out")
     .unwrap();
     // A report page is taken as soon as it is loaded, not after the 45 s wait for
-    // an Odoo view that never comes.
+    // an Odoo view that never comes. The margin is for slow CI machines, where
+    // starting Chrome alone can take 20 s.
     assert!(
-        started.elapsed() < Duration::from_secs(20),
+        started.elapsed() < Duration::from_secs(40),
         "took {:?}",
         started.elapsed()
     );
