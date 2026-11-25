@@ -2423,3 +2423,18 @@ dialog.modal > * {
 dialog.modal:focus {
   outline: none;
 }
+/* Row menus: the ⋯ stays while its menu is open; items have their icon. */
+.side-row-action[data-open] {
+  display: inline-grid !important;
+}
+.row-menu-list .menu-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.row-menu-list .menu-item .icon {
+  color: var(--muted);
+}
+.row-menu-list .menu-item-danger .icon {
+  color: inherit;
+}

@@ -3,6 +3,7 @@ import { useClosedProjects } from "../app/useClosedProjects";
 import type { ProjectInfo, SessionMeta, SessionRef } from "../lib/types";
 import { versionLabel } from "./HostingMenu";
 import { Icon, type IconName } from "./Icon";
+import RowMenu from "./RowMenu";
 
 export interface SidebarProps {
   /** Projects; the sessions without a project come as the one named "". */
@@ -110,7 +111,8 @@ export default function Sidebar({
   // The session being dragged, and the place it would land ("" = no project).
   const [dragging, setDragging] = useState<SessionRef | null>(null);
   const [over, setOver] = useState<string | null>(null);
-  const loose = projects.find((p) => p.name === "")?.sessions ?? [];
+  // Pinned sessions are listed only in Pinned.
+  const loose = (projects.find((p) => p.name === "")?.sessions ?? []).filter((s) => !s.pinned);
   const named = projects.filter((p) => p.name !== "" && !p.pinned);
   const pinnedProjects = projects.filter((p) => p.name !== "" && p.pinned);
   const pinnedSessions = projects.flatMap((p) =>
@@ -168,6 +170,8 @@ export default function Sidebar({
   };
 
   const project = (p: ProjectInfo) => {
+    // Pinned sessions are listed only in Pinned.
+    const own = p.sessions.filter((s) => !s.pinned);
     const open = !closed.has(p.name);
     return (
       <div key={p.name} className="tree-project" data-project={p.name} {...dropInto(p.name)}>
@@ -181,23 +185,26 @@ export default function Sidebar({
             <Icon name={open ? "folder-open" : "folder"} />
             <span className="side-row-label">{p.name}</span>
           </button>
-          <button
-            className="icon-btn side-row-action"
-            aria-label={`${p.pinned ? "Unpin" : "Pin"} project ${p.name}`}
-            title={p.pinned ? "Unpin" : "Pin to the top"}
-            aria-pressed={!!p.pinned}
-            onClick={() => onPinProject(p.name, !p.pinned)}
-          >
-            <Icon name={p.pinned ? "pin-off" : "pin"} />
-          </button>
-          <button
-            className="icon-btn side-row-action"
-            aria-label={`Delete project ${p.name}`}
-            title="Delete project"
-            onClick={() => onDeleteProject(p.name)}
-          >
-            <Icon name="trash" />
-          </button>
+          <RowMenu
+            className="side-row-action"
+            label={p.name}
+            items={[
+              {
+                text: p.pinned ? "Unpin" : "Pin to the top",
+                icon: p.pinned ? "pin-off" : "pin",
+                run: () => onPinProject(p.name, !p.pinned),
+              },
+              {
+                text: "New session",
+                icon: "plus",
+                run: () => {
+                  closed.open(p.name);
+                  onCreateSession(p.name);
+                },
+              },
+              { text: "Delete project", icon: "trash", danger: true, run: () => onDeleteProject(p.name) },
+            ]}
+          />
           <button
             className="icon-btn side-row-action"
             aria-label={`New session in ${p.name}`}
@@ -210,9 +217,13 @@ export default function Sidebar({
             <Icon name="plus" />
           </button>
         </div>
-        {open && listed(p.sessions, p.name).map((s) => row(s, p.name, true))}
-        {open && more(p.sessions, p.name, true)}
-        {open && p.sessions.length === 0 && <p className="tree-empty nested">No sessions yet.</p>}
+        {open && listed(own, p.name).map((s) => row(s, p.name, true))}
+        {open && more(own, p.name, true)}
+        {open && own.length === 0 && (
+          <p className="tree-empty nested">
+            {p.sessions.length ? "All its sessions are pinned." : "No sessions yet."}
+          </p>
+        )}
       </div>
     );
   };
@@ -407,31 +418,15 @@ function SessionRow(p: SessionRowProps) {
       ) : (
         when && <small className="side-row-hint">{when}</small>
       )}
-      <button
-        className="icon-btn side-row-action"
-        aria-label={`${p.pinned ? "Unpin" : "Pin"} ${title}`}
-        title={p.pinned ? "Unpin" : "Pin to the top"}
-        aria-pressed={p.pinned}
-        onClick={p.onPin}
-      >
-        <Icon name={p.pinned ? "pin-off" : "pin"} />
-      </button>
-      <button
-        className="icon-btn side-row-action"
-        aria-label={`Rename ${title}`}
-        title="Rename"
-        onClick={startEditing}
-      >
-        <Icon name="pencil" />
-      </button>
-      <button
-        className="icon-btn side-row-action"
-        aria-label={`Delete ${title}`}
-        title="Delete"
-        onClick={onDelete}
-      >
-        <Icon name="trash" />
-      </button>
+      <RowMenu
+        className="side-row-action"
+        label={title}
+        items={[
+          { text: p.pinned ? "Unpin" : "Pin to the top", icon: p.pinned ? "pin-off" : "pin", run: p.onPin },
+          { text: "Rename", icon: "pencil", run: startEditing },
+          { text: "Delete", icon: "trash", danger: true, run: onDelete },
+        ]}
+      />
     </div>
   );
 }

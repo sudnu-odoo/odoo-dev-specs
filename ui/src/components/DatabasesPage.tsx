@@ -1,9 +1,9 @@
+import RowMenu from "./RowMenu";
 import { useState } from "react";
 import type { Databases, DatabaseBusy } from "../app/useDatabases";
 import { appsText, sizeText, usedText } from "../lib/odooApps";
 import type { DatabaseInfo } from "../lib/types";
 import NewDatabaseDialog, { Dialog } from "./NewDatabaseDialog";
-import { usePopover } from "../app/usePopover";
 
 export interface DatabasesPageProps {
   dbs: Databases;
@@ -187,56 +187,13 @@ function DatabaseRow({
         label={db.label}
         disabled={!!busy}
         items={[
-          ["Rename", onRename],
-          ["Duplicate", onDuplicate],
-          ["Reset to fresh", onReset],
-          ["Delete", onDelete],
+          { text: "Rename", run: onRename },
+          { text: "Duplicate", run: onDuplicate },
+          { text: "Reset to fresh", run: onReset },
+          { text: "Delete", run: onDelete, danger: true },
         ]}
       />
     </li>
-  );
-}
-
-function RowMenu({
-  label,
-  disabled,
-  items,
-}: {
-  label: string;
-  disabled: boolean;
-  items: [string, () => void][];
-}) {
-  const { open, setOpen, root } = usePopover();
-  return (
-    <div className="row-menu" ref={root}>
-      <button
-        className="icon-btn"
-        aria-label={`More actions for ${label}`}
-        aria-haspopup="menu"
-        aria-expanded={open}
-        disabled={disabled}
-        onClick={() => setOpen((o) => !o)}
-      >
-        ⋯
-      </button>
-      {open && (
-        <div className="menu row-menu-list" role="menu">
-          {items.map(([text, run]) => (
-            <button
-              key={text}
-              role="menuitem"
-              className={"menu-item" + (text === "Delete" ? " menu-item-danger" : "")}
-              onClick={() => {
-                setOpen(false);
-                run();
-              }}
-            >
-              {text}
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
   );
 }
 

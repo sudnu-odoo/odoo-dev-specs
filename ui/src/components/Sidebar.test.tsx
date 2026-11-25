@@ -51,6 +51,12 @@ function setup(overrides: Partial<SidebarProps> = {}) {
   return props;
 }
 
+/** Pick an action from a row's ⋯ menu. */
+async function rowAction(row: string, action: string | RegExp) {
+  await userEvent.click(screen.getAllByRole("button", { name: `More actions for ${row}` })[0]);
+  await userEvent.click(screen.getByRole("menuitem", { name: action }));
+}
+
 describe("Sidebar", () => {
   it("shows each session's client hosting and version, and a spinner while it works", () => {
     setup({ running: ["s2"] });
@@ -107,7 +113,7 @@ describe("Sidebar", () => {
 
   it("renames a session from its rename button", async () => {
     const props = setup();
-    await userEvent.click(screen.getByRole("button", { name: "Rename Invoice layout" }));
+    await rowAction("Invoice layout", "Rename");
     const field = screen.getByRole("textbox", { name: "Session name" });
     expect(field).toHaveValue("Invoice layout");
     await userEvent.clear(field);
@@ -127,9 +133,9 @@ describe("Sidebar", () => {
 
   it("does not rename to an unchanged or blank title", async () => {
     const props = setup();
-    await userEvent.click(screen.getByRole("button", { name: "Rename Invoice layout" }));
+    await rowAction("Invoice layout", "Rename");
     await userEvent.type(screen.getByRole("textbox", { name: "Session name" }), "{Enter}");
-    await userEvent.click(screen.getByRole("button", { name: "Rename Delivery window" }));
+    await rowAction("Delivery window", "Rename");
     await userEvent.clear(screen.getByRole("textbox", { name: "Session name" }));
     await userEvent.type(screen.getByRole("textbox", { name: "Session name" }), "   {Enter}");
     expect(props.onRenameSession).not.toHaveBeenCalled();
@@ -137,14 +143,14 @@ describe("Sidebar", () => {
 
   it("deletes a session", async () => {
     const props = setup();
-    await userEvent.click(screen.getByRole("button", { name: "Delete Invoice layout" }));
+    await rowAction("Invoice layout", "Delete");
     expect(props.onDeleteSession).toHaveBeenCalledWith({ project: "Acme", sessionId: "s2" });
     expect(props.onSelect).not.toHaveBeenCalled();
   });
 
   it("deletes a project from its header", async () => {
     const props = setup();
-    await userEvent.click(screen.getByRole("button", { name: "Delete project Globex" }));
+    await rowAction("Globex", "Delete project");
     expect(props.onDeleteProject).toHaveBeenCalledWith("Globex");
   });
 
@@ -229,9 +235,9 @@ describe("Sidebar", () => {
 
   it("pins a session or a project, and lists what is pinned on top", async () => {
     const props = setup();
-    await userEvent.click(screen.getByRole("button", { name: "Pin Invoice layout" }));
+    await rowAction("Invoice layout", "Pin to the top");
     expect(props.onPinSession).toHaveBeenCalledWith({ project: "Acme", sessionId: "s2" }, true);
-    await userEvent.click(screen.getByRole("button", { name: "Pin project Globex" }));
+    await rowAction("Globex", "Pin to the top");
     expect(props.onPinProject).toHaveBeenCalledWith("Globex", true);
   });
 
@@ -249,10 +255,11 @@ describe("Sidebar", () => {
     expect(within(group).getByRole("button", { name: "Invoice layout" }).parentElement).toHaveTextContent(
       "Acme",
     );
-    // A pinned project leaves Projects; a pinned session stays in its project too.
+    // Pinned projects and sessions are listed only in Pinned.
     expect(screen.getAllByRole("button", { name: "Globex" })).toHaveLength(1);
-    expect(screen.getAllByRole("button", { name: "Invoice layout" })).toHaveLength(2);
-    await userEvent.click(within(group).getByRole("button", { name: "Unpin project Globex" }));
+    expect(screen.getAllByRole("button", { name: "Invoice layout" })).toHaveLength(1);
+    await userEvent.click(within(group).getByRole("button", { name: "More actions for Globex" }));
+    await userEvent.click(screen.getByRole("menuitem", { name: "Unpin" }));
     expect(props.onPinProject).toHaveBeenCalledWith("Globex", false);
   });
 });

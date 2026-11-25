@@ -191,6 +191,12 @@ async function showSpec() {
   await userEvent.click(await screen.findByRole("button", { name: /^Spec/ }));
 }
 
+/** Pick an action from a row's ⋯ menu. */
+async function rowAction(row: string, action: string | RegExp) {
+  await userEvent.click(screen.getAllByRole("button", { name: `More actions for ${row}` })[0]);
+  await userEvent.click(screen.getByRole("menuitem", { name: action }));
+}
+
 describe("App", () => {
   it("hides the spec until asked: the Spec button and Ctrl+B show and hide it", async () => {
     await openSession("Delivery window");
@@ -368,7 +374,7 @@ describe("App", () => {
     });
     await openSession("Delivery window");
     await screen.findByText("Earlier question");
-    await userEvent.click(screen.getByRole("button", { name: "Rename Delivery window" }));
+    await rowAction("Delivery window", "Rename");
     const field = screen.getByRole("textbox", { name: "Session name" });
     await userEvent.clear(field);
     await userEvent.type(field, "Delivery slots{Enter}");
@@ -384,7 +390,7 @@ describe("App", () => {
     });
     await openSession("Delivery window");
     await screen.findByText("Earlier question");
-    await userEvent.click(screen.getByRole("button", { name: "Delete Delivery window" }));
+    await rowAction("Delivery window", "Delete");
     await waitFor(() => expect(screen.queryByText("Earlier question")).not.toBeInTheDocument());
     expect(mocked.deleteSession).toHaveBeenCalledWith({ project: "Acme", sessionId: "s1" });
     expect(message()).toBeDisabled();
@@ -396,7 +402,7 @@ describe("App", () => {
     });
     await openSession("Delivery window");
     await screen.findByText("Earlier question");
-    await userEvent.click(screen.getByRole("button", { name: "Delete project Acme" }));
+    await rowAction("Acme", "Delete project");
     await waitFor(() => expect(screen.queryByText("Earlier question")).not.toBeInTheDocument());
     expect(mocked.deleteProject).toHaveBeenCalledWith("Acme");
   });
