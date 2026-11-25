@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import Modal from "./Modal";
+import { useState } from "react";
 import { useAssistants } from "../app/useAssistants";
 import { useSettings } from "../app/useSettings";
 import VersionsPage from "./VersionsPage";
@@ -31,12 +32,6 @@ export default function SettingsPanel({ onClose, onOpenSetup }: SettingsPanelPro
   const { assistants, error: assistantsError, login } = useAssistants();
   const error = settingsError ?? assistantsError;
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
-
   // The versions on this computer (the usual ones until it has any).
   const local = newestFirst(odoo.downloaded.map((v) => v.version));
   const offered = local.length ? local : VERSIONS;
@@ -44,12 +39,7 @@ export default function SettingsPanel({ onClose, onOpenSetup }: SettingsPanelPro
     settings && !offered.includes(settings.defaultVersion) ? [settings.defaultVersion, ...offered] : offered;
 
   return (
-    <div
-      className="settings-overlay"
-      role="dialog"
-      aria-label="Settings"
-      onMouseDown={(e) => e.target === e.currentTarget && onClose()}
-    >
+    <Modal label="Settings" onClose={onClose} width="760px">
       <div className="settings-panel">
         <nav className="settings-nav" aria-label="Settings pages">
           <div className="settings-nav-title">Settings</div>
@@ -194,7 +184,7 @@ export default function SettingsPanel({ onClose, onOpenSetup }: SettingsPanelPro
           )}
         </div>
       </div>
-    </div>
+    </Modal>
   );
 }
 

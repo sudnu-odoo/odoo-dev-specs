@@ -1,16 +1,25 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
+import Modal from "./Modal";
 import { ODOO_APPS, ODOO_VERSIONS } from "../lib/odooApps";
 import type { DatabaseForm, NewDatabase } from "../lib/types";
 
 /** A small centred dialog (new database, rename, duplicate). */
-export function Dialog({ title, children }: { title: string; children: ReactNode }) {
+export function Dialog({
+  title,
+  onClose,
+  children,
+}: {
+  title: string;
+  onClose: () => void;
+  children: ReactNode;
+}) {
   return (
-    <div className="settings-overlay" role="dialog" aria-label={title}>
+    <Modal label={title} onClose={onClose}>
       <div className="dialog">
         <h2>{title}</h2>
         {children}
       </div>
-    </div>
+    </Modal>
   );
 }
 
@@ -63,7 +72,7 @@ export default function NewDatabaseDialog({
   const enterpriseOff = form !== null && !form.enterpriseAvailable;
 
   return (
-    <Dialog title="New database">
+    <Dialog title="New database" onClose={onCancel}>
       <form className="dialog-form" onSubmit={submit} onKeyDown={(e) => e.key === "Escape" && onCancel()}>
         <label className="dialog-field">
           <span>Name</span>

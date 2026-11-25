@@ -255,7 +255,7 @@ function NameDialog({
 }) {
   const [label, setLabel] = useState(initial);
   return (
-    <Dialog title={title}>
+    <Dialog title={title} onClose={onCancel}>
       <form
         className="dialog-form"
         onSubmit={(e) => {

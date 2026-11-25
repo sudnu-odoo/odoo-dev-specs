@@ -1,3 +1,4 @@
+import Modal from "./Modal";
 import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { useSessionSearch } from "../app/useSessionSearch";
 import type { SearchHit } from "../lib/bindings/SearchHit";
@@ -67,8 +68,8 @@ export default function SearchPalette({ onOpen, onClose }: SearchPaletteProps) {
   });
 
   return (
-    <div className="palette-overlay" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="palette" role="dialog" aria-label="Search sessions">
+    <Modal label="Search sessions" onClose={onClose} place="top" width="680px">
+      <div className="palette">
         <div className="palette-input">
           <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true">
             <circle cx="7" cy="7" r="4.5" fill="none" stroke="currentColor" strokeWidth="1.4" />
@@ -135,6 +136,6 @@ export default function SearchPalette({ onOpen, onClose }: SearchPaletteProps) {
           <span>Esc close</span>
         </div>
       </div>
-    </div>
+    </Modal>
   );
 }

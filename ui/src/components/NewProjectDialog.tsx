@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from "react";
+import Modal from "./Modal";
 
 export interface NewProjectDialogProps {
   /** Names already used, refused before asking the app. */
@@ -32,12 +33,7 @@ export default function NewProjectDialog({ existing, onCreate, onCancel }: NewPr
   }
 
   return (
-    <div
-      className="settings-overlay"
-      role="dialog"
-      aria-label="New project"
-      onMouseDown={(e) => e.target === e.currentTarget && onCancel()}
-    >
+    <Modal label="New project" onClose={onCancel} width="380px">
       <form
         className="dialog dialog-small"
         onSubmit={submit}
@@ -69,6 +65,6 @@ export default function NewProjectDialog({ existing, onCreate, onCancel }: NewPr
           </button>
         </div>
       </form>
-    </div>
+    </Modal>
   );
 }
