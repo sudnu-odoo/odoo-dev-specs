@@ -2374,3 +2374,47 @@ dialog.modal > * {
   width: 100%;
   max-width: none;
 }
+
+/* Long lists: the section titles and the project being scrolled stay in view. */
+.tree {
+  padding-top: 0;
+}
+.side-section {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  margin-top: 0;
+  padding-top: 8px;
+  height: 40px;
+  background: var(--surface);
+}
+.tree-project-header {
+  position: sticky;
+  top: 40px;
+  z-index: 2;
+  background: var(--surface);
+}
+.tree-project-header:hover {
+  background: var(--bg);
+}
+.side-more {
+  display: block;
+  width: 100%;
+  height: 30px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: var(--r-md);
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: var(--fs-sm);
+  text-align: left;
+  cursor: pointer;
+}
+.side-more.nested {
+  padding-left: 36px;
+}
+.side-more:hover {
+  background: var(--bg);
+  color: var(--text);
+}

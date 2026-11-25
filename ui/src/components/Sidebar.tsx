@@ -1,4 +1,4 @@
-import { useRef, useState, type DragEvent, type ReactNode } from "react";
+import { useEffect, useRef, useState, type DragEvent, type ReactNode } from "react";
 import { useClosedProjects } from "../app/useClosedProjects";
 import type { ProjectInfo, SessionMeta, SessionRef } from "../lib/types";
 import { versionLabel } from "./HostingMenu";
@@ -31,7 +31,12 @@ export interface SidebarProps {
   /** A setup download still going on; clicking it opens the setup. */
   download?: { label: string; percent: number | null } | null;
   onOpenSetup?: () => void;
+  /** A project to unfold and scroll to (picked in the search); `at` makes each pick new. */
+  reveal?: { project: string; at: number } | null;
 }
+
+/** Sessions shown per project (and without one) before "Show more". */
+export const SHOWN = 5;
 
 export default function Sidebar({
   projects,
@@ -51,8 +56,52 @@ export default function Sidebar({
   download,
   onOpenSetup,
   running = [],
+  reveal = null,
 }: SidebarProps) {
   const closed = useClosedProjects();
+  const tree = useRef<HTMLElement>(null);
+  // Projects ("" = the sessions without one) whose every session is listed.
+  const [showAll, setShowAll] = useState<Set<string>>(new Set());
+  const toggleAll = (key: string) =>
+    setShowAll((all) => {
+      const next = new Set(all);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  const { open: openProject } = closed;
+
+  // The open session is always in view: its project unfolds and the list scrolls to it.
+  const openId = selected?.sessionId;
+  const openProjectName = selected?.project;
+  useEffect(() => {
+    if (!openId) return;
+    if (openProjectName) openProject(openProjectName);
+    requestAnimationFrame(() =>
+      tree.current?.querySelector(".tree-session.active")?.scrollIntoView?.({ block: "nearest" }),
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openId, openProjectName]);
+  useEffect(() => {
+    if (!reveal) return;
+    openProject(reveal.project);
+    requestAnimationFrame(() =>
+      tree.current
+        ?.querySelector(`[data-project="${CSS.escape(reveal.project)}"]`)
+        ?.scrollIntoView?.({ block: "start" }),
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reveal]);
+
+  /** The sessions listed: the most recent ones, and the open one wherever it is. */
+  const listed = (sessions: SessionMeta[], key: string) =>
+    showAll.has(key) ? sessions : sessions.filter((s, i) => i < SHOWN || s.id === openId);
+  const more = (sessions: SessionMeta[], key: string, nested: boolean) =>
+    sessions.length > SHOWN && (
+      <button className={"side-more" + (nested ? " nested" : "")} onClick={() => toggleAll(key)}>
+        {showAll.has(key) ? "Show less" : `Show ${sessions.length - listed(sessions, key).length} more`}
+      </button>
+    );
   // The session being dragged, and the place it would land ("" = no project).
   const [dragging, setDragging] = useState<SessionRef | null>(null);
   const [over, setOver] = useState<string | null>(null);
@@ -121,7 +170,7 @@ export default function Sidebar({
           <NavRow icon="database" label="Databases" active={databasesOpen} onClick={onOpenDatabases} />
         )}
       </div>
-      <nav className="tree" aria-label="Projects">
+      <nav className="tree" aria-label="Projects" ref={tree}>
         <SectionTitle title="Projects">
           <button className="icon-btn" aria-label="New project" title="New project" onClick={onNewProject}>
             <Icon name="plus" />
@@ -131,7 +180,7 @@ export default function Sidebar({
         {named.map((p) => {
           const open = !closed.has(p.name);
           return (
-            <div key={p.name} className="tree-project" {...dropInto(p.name)}>
+            <div key={p.name} className="tree-project" data-project={p.name} {...dropInto(p.name)}>
               <div className="side-row tree-project-header">
                 <button
                   className="side-row-main"
@@ -162,14 +211,16 @@ export default function Sidebar({
                   <Icon name="plus" />
                 </button>
               </div>
-              {open && p.sessions.map((s) => row(s, p.name, true))}
+              {open && listed(p.sessions, p.name).map((s) => row(s, p.name, true))}
+              {open && more(p.sessions, p.name, true)}
               {open && p.sessions.length === 0 && <p className="tree-empty nested">No sessions yet.</p>}
             </div>
           );
         })}
         <div className="tree-loose" {...dropInto("")}>
           <SectionTitle title="Sessions" />
-          {loose.map((s) => row(s, "", false))}
+          {listed(loose, "").map((s) => row(s, "", false))}
+          {more(loose, "", false)}
           {loose.length === 0 &&
             (dragging?.project ? (
               <p className="tree-empty">Drop here to take it out of its project.</p>

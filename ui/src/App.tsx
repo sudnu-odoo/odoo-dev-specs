@@ -50,6 +50,8 @@ export default function App() {
   const startVersion = preferredVersion(localVersions) ?? "19.0";
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [view, setView] = useState<"session" | "databases">("session");
+  // A project to show in the sidebar, chosen in the search (`at` makes each pick new).
+  const [reveal, setReveal] = useState<{ project: string; at: number } | null>(null);
   // "New database…" from a session's chip: the form, then the session it is for.
   const [newDatabaseFor, setNewDatabaseFor] = useState<SessionRef | null>(null);
   const [creatingFor, setCreatingFor] = useState<SessionRef | null>(null);
@@ -148,6 +150,7 @@ export default function App() {
     <div className="app">
       <Sidebar
         projects={app.projects}
+        reveal={reveal}
         selected={app.selected}
         onSelect={(ref) => {
           setView("session");
@@ -245,7 +248,17 @@ export default function App() {
       </div>
       {dialog === "search" && (
         <SearchPalette
+          projects={app.projects}
           onClose={() => setDialog(null)}
+          onOpenProject={(name) => {
+            setDialog(null);
+            setReveal({ project: name, at: Date.now() });
+            const latest = app.projects.find((p) => p.name === name)?.sessions[0];
+            if (latest) {
+              setView("session");
+              app.open({ project: name, sessionId: latest.id });
+            }
+          }}
           onOpen={(ref) => {
             setDialog(null);
             setView("session");

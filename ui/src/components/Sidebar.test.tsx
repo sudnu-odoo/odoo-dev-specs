@@ -188,4 +188,38 @@ describe("Sidebar", () => {
     fireEvent.drop(document.querySelector(".tree-loose")!, { dataTransfer });
     expect(props.onMoveSession).toHaveBeenCalledWith({ project: "Acme", sessionId: "s2" }, "");
   });
+
+  it("lists five sessions per project, with Show more for the rest, and the open one always", async () => {
+    const many = Array.from({ length: 8 }, (_, i) => session(`m${i}`, `Spec ${i}`));
+    setup({ projects: [{ name: "Big", sessions: many }], selected: { project: "Big", sessionId: "m7" } });
+    expect(screen.getByRole("button", { name: "Spec 4" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Spec 5" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Spec 7" })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Show 2 more" }));
+    expect(screen.getByRole("button", { name: "Spec 5" })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Show less" }));
+    expect(screen.queryByRole("button", { name: "Spec 5" })).not.toBeInTheDocument();
+  });
+
+  it("unfolds a closed project when it is picked in the search", async () => {
+    const props: SidebarProps = {
+      projects,
+      selected: null,
+      onSelect: vi.fn(),
+      onNewSession: vi.fn(),
+      onSearch: vi.fn(),
+      onNewProject: vi.fn(),
+      onCreateSession: vi.fn(),
+      onDeleteSession: vi.fn(),
+      onDeleteProject: vi.fn(),
+      onMoveSession: vi.fn(),
+      onRenameSession: vi.fn(),
+      onOpenSettings: vi.fn(),
+    };
+    const { rerender } = render(<Sidebar {...props} />);
+    await userEvent.click(screen.getByRole("button", { name: "Acme" }));
+    expect(screen.queryByRole("button", { name: "Invoice layout" })).not.toBeInTheDocument();
+    rerender(<Sidebar {...props} reveal={{ project: "Acme", at: 1 }} />);
+    expect(await screen.findByRole("button", { name: "Invoice layout" })).toBeInTheDocument();
+  });
 });
