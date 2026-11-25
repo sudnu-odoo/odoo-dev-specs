@@ -467,6 +467,7 @@ pub fn build(
     for id in b.made.clone() {
         b.scene.tag(&id, TAG)?;
     }
+    b.check_layout();
     for id in &b.made {
         let hits = b.scene.overlapping(id);
         if !hits.is_empty() {
@@ -998,6 +999,97 @@ impl Builder<'_> {
         self.made.push(arrow);
         self.made.extend(label);
         Ok(())
+    }
+
+    /// What a reader would trip over, as warnings to fix: a note covering a
+    /// screenshot, an arrow crossing a screenshot it does not point into.
+    fn check_layout(&mut self) {
+        let doc: serde_json::Value =
+            serde_json::from_str(&self.scene.to_json()).unwrap_or_default();
+        let els: Vec<&serde_json::Value> = doc["elements"]
+            .as_array()
+            .map(|a| {
+                a.iter()
+                    .filter(|e| {
+                        e["isDeleted"] != true && self.made.iter().any(|m| e["id"] == m.as_str())
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        let num = |e: &serde_json::Value, k: &str| e[k].as_f64().unwrap_or(0.0);
+        let screens: Vec<(String, (f64, f64, f64, f64))> = self
+            .images
+            .iter()
+            .filter_map(|(name, id)| {
+                Some((name.clone(), self.scene.bounds(std::slice::from_ref(id))?))
+            })
+            .collect();
+        let inside = |(x, y): (f64, f64), r: &(f64, f64, f64, f64)| {
+            x > r.0 + 2.0 && x < r.0 + r.2 - 2.0 && y > r.1 + 2.0 && y < r.1 + r.3 - 2.0
+        };
+        let mut found = Vec::new();
+        for e in &els {
+            match e["type"].as_str() {
+                Some("text") => {
+                    let text = e["text"].as_str().unwrap_or_default();
+                    // Numbers on a screenshot are put there on purpose.
+                    if text.len() <= 3 && text.chars().all(|c| c.is_ascii_digit()) {
+                        continue;
+                    }
+                    let (x, y, w, h) =
+                        (num(e, "x"), num(e, "y"), num(e, "width"), num(e, "height"));
+                    for (name, r) in &screens {
+                        if x < r.0 + r.2 && x + w > r.0 && y < r.1 + r.3 && y + h > r.1 {
+                            let start: String = text.chars().take(30).collect();
+                            found.push(format!("The text \"{start}\" covers screenshot {name}: shorten it, or put the note on the other `side`."));
+                        }
+                    }
+                }
+                Some("arrow") => {
+                    let (x0, y0) = (num(e, "x"), num(e, "y"));
+                    let points: Vec<(f64, f64)> = e["points"]
+                        .as_array()
+                        .map(|p| {
+                            p.iter()
+                                .map(|q| {
+                                    (
+                                        x0 + q[0].as_f64().unwrap_or(0.0),
+                                        y0 + q[1].as_f64().unwrap_or(0.0),
+                                    )
+                                })
+                                .collect()
+                        })
+                        .unwrap_or_default();
+                    let (Some(first), Some(last)) = (points.first(), points.last()) else {
+                        continue;
+                    };
+                    for (name, r) in &screens {
+                        if inside(*first, r) || inside(*last, r) {
+                            continue;
+                        }
+                        let crosses = points.windows(2).any(|w| {
+                            (1..20).any(|i| {
+                                let t = i as f64 / 20.0;
+                                inside(
+                                    (
+                                        w[0].0 + (w[1].0 - w[0].0) * t,
+                                        w[0].1 + (w[1].1 - w[0].1) * t,
+                                    ),
+                                    r,
+                                )
+                            })
+                        });
+                        if crosses {
+                            found.push(format!("An arrow crosses screenshot {name}: link from a button with `from_anchor`, or put the screens in another order."));
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+        found.sort();
+        found.dedup();
+        self.warnings.extend(found);
     }
 
     fn on_image(&self, image: &str, x: f64, y: f64) -> Result<(f64, f64)> {

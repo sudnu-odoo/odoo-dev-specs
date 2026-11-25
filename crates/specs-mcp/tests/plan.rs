@@ -664,3 +664,34 @@ fn a_flow_arrow_goes_around_a_screenshot_in_its_way() {
         .fold(f64::MIN, f64::max);
     assert!(lowest > bottom, "passes below the middle screenshot");
 }
+
+#[test]
+fn the_build_reports_arrows_that_cross_a_screenshot() {
+    // A plain link from the first to the third screen of a row is drawn straight: it
+    // crosses the middle screenshot, and the build says so, to be fixed.
+    let p = plan(json!({
+        "title": "T", "need": "N", "version": "19.0",
+        "sections": [{"title": "R", "horizontal": true, "screens": [
+            {"name": "a", "page": "/odoo/sales/1"},
+            {"name": "b", "page": "/odoo/sales/1"},
+            {"name": "c", "page": "/odoo/sales/1"}]}],
+        "links": [{"from": "a", "to": "c", "label": "rule"}]
+    }));
+    let mut scene = Scene::parse(EMPTY).unwrap();
+    let report = build(&mut scene, &p, &shots(&["a", "b", "c"])).unwrap();
+    assert!(
+        report
+            .warnings
+            .iter()
+            .any(|w| w.contains("crosses screenshot b")),
+        "{:?}",
+        report.warnings
+    );
+}
+
+#[test]
+fn a_clean_spec_has_no_layout_warning() {
+    let mut scene = Scene::parse(EMPTY).unwrap();
+    let report = build(&mut scene, &sample(), &shots(&["today", "expected"])).unwrap();
+    assert!(report.warnings.is_empty(), "{:?}", report.warnings);
+}

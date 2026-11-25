@@ -15,8 +15,9 @@ use serde_json::Value;
 
 const ASK: &str = "You judge an Odoo functional specification drawn on a canvas, against a \
 rubric written from a reference spec. Below are the rubric, then the spec's outline \
-(frames, notes, screenshots, arrows). Score each rubric point 0 (missing or wrong), 1 \
-(partly) or 2 (as the reference). Judge the decisions and the layout, not the wording. \
+(frames, notes, screenshots, arrows) with the layout problems a reader would see. Score \
+each rubric point 0 (missing or wrong), 1 (partly) or 2 (as the reference). Judge the \
+decisions and the layout, not the wording; count layout problems against the layout points. \
 Answer with JSON only: {\"items\":[{\"point\":\"…\",\"score\":0,\"why\":\"…\"}],\"summary\":\"one sentence\"}";
 
 fn main() -> Result<()> {
@@ -120,8 +121,69 @@ fn outline(scene: &Value) -> String {
             && y <= num(s, "y") + num(s, "height")
     };
     let section_of = |e: &Value| sections.iter().rposition(|s| inside(e, s));
+    // What a reader trips over: texts covering a screenshot, arrows crossing one.
+    let images: Vec<(f64, f64, f64, f64)> = els
+        .iter()
+        .filter(|e| e["type"] == "image")
+        .map(|e| (num(e, "x"), num(e, "y"), num(e, "width"), num(e, "height")))
+        .collect();
+    let inside = |(x, y): (f64, f64), r: &(f64, f64, f64, f64)| {
+        x > r.0 + 2.0 && x < r.0 + r.2 - 2.0 && y > r.1 + 2.0 && y < r.1 + r.3 - 2.0
+    };
+    let covering = els
+        .iter()
+        .filter(|e| e["type"] == "text" && e["text"].as_str().is_some_and(|t| t.len() > 3))
+        .filter(|e| {
+            images.iter().any(|r| {
+                num(e, "x") < r.0 + r.2
+                    && num(e, "x") + num(e, "width") > r.0
+                    && num(e, "y") < r.1 + r.3
+                    && num(e, "y") + num(e, "height") > r.1
+            })
+        })
+        .count();
+    let crossing = els
+        .iter()
+        .filter(|e| e["type"] == "arrow")
+        .filter(|e| {
+            let (x0, y0) = (num(e, "x"), num(e, "y"));
+            let pts: Vec<(f64, f64)> = e["points"]
+                .as_array()
+                .map(|p| {
+                    p.iter()
+                        .map(|q| {
+                            (
+                                x0 + q[0].as_f64().unwrap_or(0.0),
+                                y0 + q[1].as_f64().unwrap_or(0.0),
+                            )
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+            let (Some(a), Some(b)) = (pts.first(), pts.last()) else {
+                return false;
+            };
+            images
+                .iter()
+                .filter(|r| !inside(*a, r) && !inside(*b, r))
+                .any(|r| {
+                    pts.windows(2).any(|w| {
+                        (1..20).any(|i| {
+                            let t = i as f64 / 20.0;
+                            inside(
+                                (
+                                    w[0].0 + (w[1].0 - w[0].0) * t,
+                                    w[0].1 + (w[1].1 - w[0].1) * t,
+                                ),
+                                r,
+                            )
+                        })
+                    })
+                })
+        })
+        .count();
     let mut out = format!(
-        "Totals: screenshots {}, arrows {}, red outlines {}, sections (boxes or frames) {}\n",
+        "Totals: screenshots {}, arrows {}, red outlines {}, sections (boxes or frames) {}\nLayout problems: {covering} texts covering a screenshot, {crossing} arrows crossing a screenshot\n",
         count("image"),
         count("arrow"),
         red,

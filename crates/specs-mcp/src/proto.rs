@@ -283,6 +283,7 @@ const SETUP_JS: &str = r#"(async () => {
       undo.views.push(await rpc('ir.ui.view', 'create', [{ name: 'prototype ' + f.name, model: f.model,
         inherit_id: parent, mode: 'extension', priority: 99,
         arch: '<xpath expr="//field[@name=\'' + after + '\']" position="after"><field name="' + f.name + '"' +
+          (f.type === 'many2many' ? ' widget="many2many_tags"' : '') +
           (type === 'list' ? ' optional="show"' : '') + '/></xpath>' }]));
     };
     for (const f of P.fields.filter((f) => !isNew(f.model))) {
@@ -314,8 +315,9 @@ const SETUP_JS: &str = r#"(async () => {
         inherit_id: await parentOf(b.model, 'form', 'the button ' + b.label), mode: 'extension', priority: 99, arch }]));
     }
     for (const m of P.models) {
-      const fields = ['x_name', ...P.fields.filter((f) => f.model === m.model).map((f) => f.name)];
-      const tags = fields.map((n) => '<field name="' + n + '"/>').join('');
+      const fields = [{name: 'x_name'}, ...P.fields.filter((f) => f.model === m.model)];
+      const tags = fields.map((f) => '<field name="' + f.name + '"' +
+        (f.type === 'many2many' ? ' widget="many2many_tags"' : '') + '/>').join('');
       undo.views.push(await view({ name: 'prototype ' + m.model + ' list', model: m.model, type: 'list',
         arch: '<list>' + tags + '</list>' }));
       undo.views.push(await view({ name: 'prototype ' + m.model + ' form', model: m.model, type: 'form',
@@ -376,6 +378,12 @@ mod tests {
             after: Some("validity_date".into()),
             list_after: None,
         }
+    }
+
+    #[test]
+    fn a_many2many_is_shown_as_tags() {
+        let js = setup_js(&Prototype::default());
+        assert!(js.contains("f.type === 'many2many' ? ' widget=\"many2many_tags\"'"));
     }
 
     #[test]
