@@ -191,7 +191,9 @@ mod tests {
     fn the_spec_skill_keeps_its_key_rules() {
         for rule in [
             "Real Odoo screenshots with red outlines",
-            "No flow charts",
+            "No abstract flow charts",
+            "a storyboard of real screenshots",
+            "guides/examples/INDEX.md",
             "stacked top to bottom",
             "Plain business words everywhere",
             "## Attached reports",

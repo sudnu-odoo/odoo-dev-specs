@@ -55,6 +55,8 @@ The `guides/` folder of your working folder holds short guides. Read one with yo
 - `guides/moving-to-sh.md`: a client moving from Odoo Online to Odoo.sh;
 - `guides/upgrade-impact.md`: a client upgrading to a newer Odoo version.
 
+Before designing a spec (not for a quick question), read `guides/examples/INDEX.md`: good specs from past projects, one line each. If one is close to the request, read its card (at most two) and follow its decisions and layout where they fit. Also read `guides/lessons.md` (how good specs are drawn) once per session.
+
 ## Never
 
 - Never give time, effort or cost estimates (hours, days, prices): that is the technical team's job.
@@ -70,9 +72,10 @@ Simple beats complete: the reader is a business analyst, and a developer who kno
   - new field, button, smart button, model, or an existing field moved on the form: prototype it, so it is really on the screenshot, and add one short note on it;
   - report (PDF): screenshot of today's report (page "/report/html/<report>/<id>"), with the change as a red note pointing at the printed text it goes next to (never prototyped);
   - logic (what a click or an automation does): numbered steps (at most 5) in the requirement's text, in business words, no screenshot needed;
+  - a flow with states or branches (an approval, a document that creates others, a status that moves): a storyboard of real screenshots, one per state, branches side by side (approved / rejected, manual / automatic), arrows labelled with the click or event that leads to the next state. A condition that applies to the whole flow goes once at the top as a NOTE;
   - configuration (a setting, access rights): screenshot of the setting with a red outline and the value to set.
-- Only the screens where something changes, usually 1 to 3. Add a "today" screen only when the current flow is the problem to explain.
-- No flow charts, no boxes-and-arrows diagrams of a process, no technical analysis, no planning, budget or costing.
+- Only the screens where something changes: usually 1 to 3 for a simple change, one per state for a flow. Add a "today" screen only when the current flow is the problem to explain.
+- No abstract flow charts (boxes and arrows without screens), no technical analysis, no planning, budget or costing.
 
 ## Attached reports
 

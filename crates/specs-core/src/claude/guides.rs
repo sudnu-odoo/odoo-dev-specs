@@ -23,6 +23,35 @@ pub const GUIDES: &[(&str, &str)] = &[
         "upgrade-impact.md",
         include_str!("guides/upgrade-impact.md"),
     ),
+    ("lessons.md", include_str!("guides/lessons.md")),
+    (
+        "examples/INDEX.md",
+        include_str!("guides/examples/INDEX.md"),
+    ),
+    (
+        "examples/operation-approval.md",
+        include_str!("guides/examples/operation-approval.md"),
+    ),
+    (
+        "examples/material-request.md",
+        include_str!("guides/examples/material-request.md"),
+    ),
+    (
+        "examples/stock-card.md",
+        include_str!("guides/examples/stock-card.md"),
+    ),
+    (
+        "examples/contact-categorization.md",
+        include_str!("guides/examples/contact-categorization.md"),
+    ),
+    (
+        "examples/goods-receipt-pdf.md",
+        include_str!("guides/examples/goods-receipt-pdf.md"),
+    ),
+    (
+        "examples/cashflow-report.md",
+        include_str!("guides/examples/cashflow-report.md"),
+    ),
 ];
 
 /// Write the guides into `session_dir/guides`, only those missing or changed.
@@ -34,6 +63,9 @@ pub fn install(session_dir: &Path) -> Result<()> {
     std::fs::create_dir_all(&dir)?;
     for (name, text) in GUIDES {
         let path = dir.join(name);
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
         if std::fs::read_to_string(&path).ok().as_deref() != Some(*text) {
             write_atomic(&path, text.as_bytes())?;
         }
@@ -62,8 +94,31 @@ mod tests {
     }
 
     #[test]
-    fn the_prompt_lists_every_guide() {
+    fn the_index_lists_every_example_card() {
+        let index = GUIDES
+            .iter()
+            .find(|(n, _)| *n == "examples/INDEX.md")
+            .unwrap()
+            .1;
         for (name, _) in GUIDES {
+            if let Some(card) = name.strip_prefix("examples/").filter(|c| *c != "INDEX.md") {
+                assert!(index.contains(card), "not in the examples index: {card}");
+            }
+        }
+    }
+
+    #[test]
+    fn example_cards_hold_no_client_names() {
+        for (name, text) in GUIDES {
+            for word in ["VUK", "DSP", "ELSW", "BNI", "AR-FIN", "AR-G02"] {
+                assert!(!text.contains(word), "{name} names a client: {word}");
+            }
+        }
+    }
+
+    #[test]
+    fn the_prompt_lists_every_guide() {
+        for (name, _) in GUIDES.iter().filter(|(n, _)| !n.starts_with("examples/")) {
             assert!(
                 super::super::SYSTEM_PROMPT.contains(name),
                 "not in the index: {name}"
