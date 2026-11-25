@@ -393,3 +393,46 @@ fn a_long_note_pushes_the_next_screen_of_a_row_to_the_right() {
     let second = all.iter().filter(|e| e["type"] == "image").nth(1).unwrap();
     assert!(second["x"].as_f64().unwrap() > note_right);
 }
+
+#[test]
+fn a_section_can_show_a_mock_up_table_of_the_expected_result() {
+    let p = plan(json!({
+        "title": "Stock card", "need": "N", "version": "19.0",
+        "sections": [{"title": "Expected report", "text": ["Grouped by product"],
+            "table": {"caption": "Stock card (expected)",
+                "columns": [
+                    {"name": "Product", "source": "product_id"},
+                    {"name": "Opening", "source": "stock at the start date"},
+                    {"name": "Closing", "source": "Opening + In - Out"}],
+                "rows": [["Desk", "10", "12"], ["Chair", "4", "1"]]},
+            "screens": [{"name": "a", "page": "/odoo/inventory"}]}]
+    }));
+    let mut scene = Scene::parse(EMPTY).unwrap();
+    let report = build(&mut scene, &p, &shots(&["a"])).unwrap();
+    assert!(report.warnings.is_empty(), "{:?}", report.warnings);
+    let all = live(&scene);
+    for t in [
+        "Stock card (expected)",
+        "Product",
+        "Opening + In - Out",
+        "Desk",
+        "12",
+    ] {
+        find_text(&all, t);
+    }
+    // The table sits above the screen, and its cells are drawn as a grid.
+    let header = find_text(&all, "Product");
+    let image = all.iter().find(|e| e["type"] == "image").unwrap();
+    assert!(header["y"].as_f64() < image["y"].as_f64());
+    let cells = all.iter().filter(|e| e["type"] == "rectangle").count();
+    assert!(cells >= 9, "{cells} rectangles");
+}
+
+#[test]
+fn a_table_row_must_have_one_value_per_column() {
+    let p = plan(json!({
+        "title": "T", "need": "N", "version": "19.0",
+        "sections": [{"title": "R", "table": {"columns": [{"name": "A"}, {"name": "B"}], "rows": [["only one"]]}}]
+    }));
+    assert!(validate(&p).unwrap_err().to_string().contains("column"));
+}

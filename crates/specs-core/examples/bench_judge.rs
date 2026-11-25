@@ -39,6 +39,10 @@ fn main() -> Result<()> {
         let scene: Value = serde_json::from_str(&std::fs::read_to_string(
             Path::new(run).join(format!("{name}.excalidraw")),
         )?)?;
+        if std::env::var_os("BENCH_OUTLINE").is_some() {
+            println!("{}", outline(&scene));
+            continue;
+        }
         let prompt = format!(
             "{ASK}\n\n# Rubric\n{rubric}\n\n# Spec outline\n{}",
             outline(&scene)
@@ -85,55 +89,87 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-/// What is on the canvas, in reading order: frames, then each text with its frame;
-/// and how many screenshots, arrows and red outlines there are.
+/// What is on the canvas, in reading order: each section (a big box or a frame) with
+/// its texts and how many screenshots and arrows it holds; and the totals.
 fn outline(scene: &Value) -> String {
     let els: Vec<&Value> = scene["elements"]
         .as_array()
         .map(|a| a.iter().filter(|e| e["isDeleted"] != true).collect())
         .unwrap_or_default();
+    let num = |e: &Value, k: &str| e[k].as_f64().unwrap_or(0.0);
     let count = |t: &str| els.iter().filter(|e| e["type"] == t).count();
     let red = els
         .iter()
-        .filter(|e| {
-            e["type"] == "rectangle"
-                && e["strokeColor"].as_str().is_some_and(|c| {
-                    c.starts_with("#e0")
-                        || c == "#ff0000"
-                        || c.starts_with("#c92a2a")
-                        || c.starts_with("#e03131")
-                })
-        })
+        .filter(|e| e["type"] == "rectangle" && e["strokeColor"].as_str().is_some_and(is_red))
         .count();
-    let frame_name = |id: &Value| {
-        els.iter()
-            .find(|f| f["type"] == "frame" && f["id"] == *id)
-            .and_then(|f| f["name"].as_str())
-            .unwrap_or("")
-            .to_string()
+    // Sections: frames, or the big boxes the spec tool draws around a requirement.
+    let mut sections: Vec<&Value> = els
+        .iter()
+        .copied()
+        .filter(|e| {
+            e["type"] == "frame"
+                || (e["type"] == "rectangle" && num(e, "width") > 600.0 && num(e, "height") > 250.0)
+        })
+        .collect();
+    sections.sort_by(|a, b| num(a, "y").total_cmp(&num(b, "y")));
+    let inside = |e: &Value, s: &Value| {
+        let (x, y) = (num(e, "x"), num(e, "y"));
+        x >= num(s, "x")
+            && y >= num(s, "y")
+            && x <= num(s, "x") + num(s, "width")
+            && y <= num(s, "y") + num(s, "height")
     };
-    let mut texts: Vec<(String, f64, f64, String)> = els
+    let section_of = |e: &Value| sections.iter().rposition(|s| inside(e, s));
+    let mut out = format!(
+        "Totals: screenshots {}, arrows {}, red outlines {}, sections (boxes or frames) {}\n",
+        count("image"),
+        count("arrow"),
+        red,
+        sections.len()
+    );
+    let mut texts: Vec<(Option<usize>, f64, f64, String)> = els
         .iter()
         .filter(|e| e["type"] == "text")
         .map(|e| {
             (
-                frame_name(&e["frameId"]),
-                e["y"].as_f64().unwrap_or(0.0),
-                e["x"].as_f64().unwrap_or(0.0),
+                section_of(e),
+                num(e, "y"),
+                num(e, "x"),
                 e["text"].as_str().unwrap_or("").replace('\n', " / "),
             )
         })
         .collect();
     texts.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-    let mut s = format!(
-        "Screenshots: {}, arrows: {}, red outlines: {}, frames: {}\n",
-        count("image"),
-        count("arrow"),
-        red,
-        count("frame")
-    );
-    for (frame, _, _, text) in texts {
-        s.push_str(&format!("[{frame}] {text}\n"));
+    let mut current: Option<Option<usize>> = None;
+    for (section, _, _, text) in texts {
+        if current != Some(section) {
+            current = Some(section);
+            if let Some(i) = section {
+                let holds = |t: &str| {
+                    els.iter()
+                        .filter(|e| e["type"] == t && section_of(e) == Some(i))
+                        .count()
+                };
+                out.push_str(&format!(
+                    "\n## Section box {} ({} screenshots, {} arrows)\n",
+                    i + 1,
+                    holds("image"),
+                    holds("arrow")
+                ));
+            } else {
+                out.push_str("\n## Outside the boxes\n");
+            }
+        }
+        out.push_str(&format!("{text}\n"));
     }
-    s
+    out
+}
+
+fn is_red(c: &str) -> bool {
+    let c = c.to_lowercase();
+    [
+        "#e03131", "#c92a2a", "#ff0000", "#fa5252", "#e8590c", "#f03e3e", "#d00000", "#e00", "red",
+    ]
+    .iter()
+    .any(|r| c.starts_with(r))
 }

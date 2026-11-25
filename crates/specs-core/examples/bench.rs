@@ -4,7 +4,7 @@
 //!
 //! ```text
 //! cargo build -p specs-mcp
-//! cargo run -p specs-core --example bench -- ~/odoo-specs-bench/cases ~/odoo-specs-bench/runs/<name>
+//! cargo run -p specs-core --example bench -- ~/odoo-specs-bench/cases ~/odoo-specs-bench/runs/<name> [one case]
 //! ```
 //! Each case is a folder holding `case.json`:
 //! `{"prompt": "…", "hosting": "sh" | "online", "version": "19.0"}`
@@ -36,8 +36,10 @@ const GO_AHEAD: &str = "Go ahead with your recommendation and draw the spec.";
 #[tokio::main]
 async fn main() -> Result<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    let [cases, out] = args.as_slice() else {
-        bail!("usage: bench <cases folder> <output folder>");
+    let (cases, out, only) = match args.as_slice() {
+        [cases, out] => (cases, out, None),
+        [cases, out, only] => (cases, out, Some(only.as_str())),
+        _ => bail!("usage: bench <cases folder> <output folder> [one case]"),
     };
     let out = PathBuf::from(out);
     std::fs::create_dir_all(&out)?;
@@ -55,6 +57,7 @@ async fn main() -> Result<()> {
     let mut names: Vec<_> = std::fs::read_dir(cases)?
         .filter_map(|e| e.ok())
         .filter(|e| e.path().join("case.json").is_file())
+        .filter(|e| only.is_none_or(|o| e.file_name() == o))
         .map(|e| e.file_name().to_string_lossy().into_owned())
         .collect();
     names.sort();

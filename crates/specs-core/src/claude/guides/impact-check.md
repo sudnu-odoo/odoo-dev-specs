@@ -26,7 +26,7 @@ For each step: say what the change alters there, in plain words.
 
 ## 3. Who else uses the same thing
 - Other screens, reports, automations and modules that read the same field, button or rule.
-- Other ways the same records are made: import, the customer portal, email, scheduled actions, other apps.
+- Other ways the same records are made or moved on: import, duplicating a record, the customer portal (signing, paying online), e-commerce, email, scheduled actions, other apps. A rule that blocks a button must also hold on those paths.
 - Edge cases: several records at once, archived or cancelled records, zero quantities, several companies.
 
 ## 4. What only the client's database knows

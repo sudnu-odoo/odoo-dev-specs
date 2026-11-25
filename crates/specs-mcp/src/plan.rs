@@ -70,6 +70,31 @@ pub struct Section {
     /// Put the screens next to each other, when that reads better (e.g. before / after).
     #[serde(default, alias = "side_by_side")]
     pub horizontal: bool,
+    /// A mock-up of the expected result of a new report or list: its columns, where
+    /// each comes from (a field or a formula), and two or three made-up rows. Drawn
+    /// as a table above the screens.
+    #[serde(default)]
+    pub table: Option<Table>,
+}
+
+#[derive(Debug, Clone, Deserialize, JsonSchema)]
+pub struct Table {
+    /// e.g. "Stock card (expected)".
+    #[serde(default)]
+    pub caption: Option<String>,
+    pub columns: Vec<Column>,
+    /// Made-up example rows, one value per column; never client data.
+    #[serde(default)]
+    pub rows: Vec<Vec<String>>,
+}
+
+#[derive(Debug, Clone, Deserialize, JsonSchema)]
+pub struct Column {
+    pub name: String,
+    /// Where the value comes from: a field, or a formula in words
+    /// ("Opening + Received - Delivered").
+    #[serde(default)]
+    pub source: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, JsonSchema)]
@@ -201,6 +226,22 @@ pub fn validate(plan: &SpecPlan) -> Result<()> {
             section.text.len()
         );
         plain(&section.text)?;
+        if let Some(t) = &section.table {
+            ensure!(
+                !t.columns.is_empty(),
+                "The table of \"{}\" has no column.",
+                section.title
+            );
+            for row in &t.rows {
+                ensure!(
+                    row.len() == t.columns.len(),
+                    "A row of the table of \"{}\" has {} values for {} columns: give one per column.",
+                    section.title,
+                    row.len(),
+                    t.columns.len()
+                );
+            }
+        }
         for screen in &section.screens {
             for note in &screen.notes {
                 ensure!(
@@ -356,6 +397,9 @@ impl Builder<'_> {
         if !section.text.is_empty() {
             y = self.text(&section.text.join("\n"), 0.0, y, BODY, None) + 12.0;
         }
+        if let Some(table) = &section.table {
+            y = self.table(table, 0.0, y) + BLOCK_GAP;
+        }
         y += 20.0;
         let mut x = 0.0;
         let mut bottom = y;
@@ -390,6 +434,79 @@ impl Builder<'_> {
         ));
         self.made.push(panel);
         Ok(by + bh + PANEL_PADDING)
+    }
+
+    /// A mock-up table at (x, y): the caption, a header row with each column's name
+    /// and source, then the rows, as a grid. Returns the y below it.
+    fn table(&mut self, table: &Table, x: f64, mut y: f64) -> f64 {
+        const PAD: f64 = 12.0;
+        let chars = |t: &str, size: f64| {
+            t.lines().map(|l| l.chars().count()).max().unwrap_or(0) as f64 * size * 0.55
+        };
+        if let Some(caption) = &table.caption {
+            y = self.text(caption, x, y, BODY, None) + 10.0;
+        }
+        let widths: Vec<f64> = table
+            .columns
+            .iter()
+            .enumerate()
+            .map(|(i, c)| {
+                let cells = table
+                    .rows
+                    .iter()
+                    .map(|r| chars(&r[i], BODY))
+                    .fold(0.0, f64::max);
+                let source = c.source.as_deref().map_or(0.0, |s| chars(s, SMALL));
+                (chars(&c.name, BODY).max(cells).max(source) + 2.0 * PAD).clamp(110.0, 320.0)
+            })
+            .collect();
+        let has_source = table.columns.iter().any(|c| c.source.is_some());
+        let source_lines = table
+            .columns
+            .iter()
+            .zip(&widths)
+            .filter_map(|(c, w)| {
+                let fits = (((w - 2.0 * PAD) / (SMALL * 0.55)) as usize).max(8);
+                c.source.as_deref().map(|s| wrap(s, fits).lines().count())
+            })
+            .max()
+            .unwrap_or(0) as f64;
+        let header = LINE
+            + 2.0 * PAD
+            + if has_source {
+                4.0 + source_lines * SMALL * 1.3
+            } else {
+                0.0
+            };
+        let mut cx = x;
+        for (c, w) in table.columns.iter().zip(&widths) {
+            let cell = self.scene.add_outline((cx, y, *w, header));
+            self.made.push(cell);
+            self.text(&c.name, cx + PAD, y + PAD, BODY, None);
+            if let Some(source) = &c.source {
+                let fits = (((w - 2.0 * PAD) / (SMALL * 0.55)) as usize).max(8);
+                let id = self.scene.add_text(
+                    &wrap(source, fits),
+                    at(cx + PAD, y + PAD + LINE + 4.0),
+                    Some(SMALL),
+                    Some(Color::Blue),
+                );
+                self.made.push(id);
+            }
+            cx += w;
+        }
+        y += header;
+        for row in &table.rows {
+            let mut cx = x;
+            for (value, w) in row.iter().zip(&widths) {
+                let cell = self.scene.add_outline((cx, y, *w, LINE + 2.0 * PAD));
+                self.made.push(cell);
+                self.text(value, cx + PAD, y + PAD, BODY, None);
+                cx += w;
+            }
+            y += LINE + 2.0 * PAD;
+        }
+        y
     }
 
     /// One screenshot with its caption, model, new fields and notes at (x, y).
@@ -611,6 +728,21 @@ impl Builder<'_> {
 
 /// "New field: Delivery Deadline (x_delivery_deadline, date)" and, if given, one
 /// more short line. The example value is on the screenshot, not repeated here.
+/// Break `text` into lines of at most `width` characters, at spaces.
+fn wrap(text: &str, width: usize) -> String {
+    let mut lines: Vec<String> = Vec::new();
+    for word in text.split_whitespace() {
+        match lines.last_mut() {
+            Some(line) if line.chars().count() + 1 + word.chars().count() <= width => {
+                line.push(' ');
+                line.push_str(word);
+            }
+            _ => lines.push(word.to_string()),
+        }
+    }
+    lines.join("\n")
+}
+
 fn field_note(f: &NewField) -> String {
     let mut lines = vec![format!(
         "New field: {} ({}, {})",
