@@ -76,7 +76,7 @@ describe("Sidebar", () => {
     expect(acme).toHaveAttribute("aria-expanded", "false");
     expect(screen.queryByRole("button", { name: "Delivery window" })).not.toBeInTheDocument();
     // Still possible to start a session in a closed project.
-    expect(screen.getByRole("button", { name: "New session in Acme" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "More actions for Acme" })).toBeInTheDocument();
     await userEvent.click(acme);
     expect(screen.getByRole("button", { name: "Delivery window" })).toBeInTheDocument();
   });
@@ -107,7 +107,7 @@ describe("Sidebar", () => {
 
   it("starts a new session in a project", async () => {
     const props = setup();
-    await userEvent.click(screen.getByRole("button", { name: "New session in Globex" }));
+    await rowAction("Globex", "New session");
     expect(props.onCreateSession).toHaveBeenCalledWith("Globex");
   });
 
@@ -261,5 +261,24 @@ describe("Sidebar", () => {
     await userEvent.click(within(group).getByRole("button", { name: "More actions for Globex" }));
     await userEvent.click(screen.getByRole("menuitem", { name: "Unpin" }));
     expect(props.onPinProject).toHaveBeenCalledWith("Globex", false);
+  });
+
+  it("folds a section from its title, and remembers it", async () => {
+    setup();
+    await userEvent.click(screen.getByRole("button", { name: "Projects" }));
+    expect(screen.queryByRole("button", { name: "Acme" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Projects" })).toHaveAttribute("aria-expanded", "false");
+    await userEvent.click(screen.getByRole("button", { name: "Projects" }));
+    expect(screen.getByRole("button", { name: "Acme" })).toBeInTheDocument();
+  });
+
+  it("draws a row's menu over the whole window, so nothing in the list covers it", async () => {
+    setup();
+    await userEvent.click(screen.getByRole("button", { name: "More actions for Acme" }));
+    const menu = screen.getByRole("menu", { name: "Acme" });
+    expect(menu.parentElement).toBe(document.body);
+    expect(menu).toHaveStyle({ position: "fixed" });
+    await userEvent.keyboard("{Escape}");
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
   });
 });

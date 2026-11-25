@@ -39,6 +39,10 @@ export interface SidebarProps {
   reveal?: { project: string; at: number } | null;
 }
 
+const PINNED = "\u0000pinned";
+const PROJECTS = "\u0000projects";
+const SESSIONS = "\u0000sessions";
+
 /** Sessions shown per project (and without one) before "Show more". */
 export const SHOWN = 5;
 
@@ -65,6 +69,8 @@ export default function Sidebar({
   onPinProject,
 }: SidebarProps) {
   const closed = useClosedProjects();
+  // Folded sections share that memory, under names no project can have.
+  const fold = closed;
   const tree = useRef<HTMLElement>(null);
   // Projects ("" = the sessions without one) whose every session is listed.
   const [showAll, setShowAll] = useState<Set<string>>(new Set());
@@ -205,17 +211,6 @@ export default function Sidebar({
               { text: "Delete project", icon: "trash", danger: true, run: () => onDeleteProject(p.name) },
             ]}
           />
-          <button
-            className="icon-btn side-row-action"
-            aria-label={`New session in ${p.name}`}
-            title="New session in this project"
-            onClick={() => {
-              closed.open(p.name);
-              onCreateSession(p.name);
-            }}
-          >
-            <Icon name="plus" />
-          </button>
         </div>
         {open && listed(own, p.name).map((s) => row(s, p.name, true))}
         {open && more(own, p.name, true)}
@@ -246,28 +241,42 @@ export default function Sidebar({
       <nav className="tree" aria-label="Projects" ref={tree}>
         {(pinnedProjects.length > 0 || pinnedSessions.length > 0) && (
           <div className="tree-pinned" role="group" aria-label="Pinned">
-            <SectionTitle title="Pinned" />
-            {pinnedProjects.map(project)}
-            {pinnedSessions.map(({ session, project: name }) => row(session, name, false, name || undefined))}
+            <SectionTitle title="Pinned" folded={fold.has(PINNED)} onToggle={() => fold.toggle(PINNED)} />
+            {!fold.has(PINNED) && (
+              <>
+                {pinnedProjects.map(project)}
+                {pinnedSessions.map(({ session, project: name }) =>
+                  row(session, name, false, name || undefined),
+                )}
+              </>
+            )}
           </div>
         )}
-        <SectionTitle title="Projects">
-          <button className="icon-btn" aria-label="New project" title="New project" onClick={onNewProject}>
+        <SectionTitle title="Projects" folded={fold.has(PROJECTS)} onToggle={() => fold.toggle(PROJECTS)}>
+          <button className="icon-btn" aria-label="New project" onClick={onNewProject}>
             <Icon name="plus" />
           </button>
         </SectionTitle>
-        {named.length === 0 && <p className="tree-empty">Group a client's sessions in a project.</p>}
-        {named.map(project)}
+        {!fold.has(PROJECTS) && (
+          <>
+            {named.length === 0 && <p className="tree-empty">Group a client's sessions in a project.</p>}
+            {named.map(project)}
+          </>
+        )}
         <div className="tree-loose" {...dropInto("")}>
-          <SectionTitle title="Sessions" />
-          {listed(loose, "").map((s) => row(s, "", false))}
-          {more(loose, "", false)}
-          {loose.length === 0 &&
-            (dragging?.project ? (
-              <p className="tree-empty">Drop here to take it out of its project.</p>
-            ) : named.length === 0 ? (
-              <p className="tree-empty">Start with New session, then describe what the client needs.</p>
-            ) : null)}
+          <SectionTitle title="Sessions" folded={fold.has(SESSIONS)} onToggle={() => fold.toggle(SESSIONS)} />
+          {!fold.has(SESSIONS) && (
+            <>
+              {listed(loose, "").map((s) => row(s, "", false))}
+              {more(loose, "", false)}
+              {loose.length === 0 &&
+                (dragging?.project ? (
+                  <p className="tree-empty">Drop here to take it out of its project.</p>
+                ) : named.length === 0 ? (
+                  <p className="tree-empty">Start with New session, then describe what the client needs.</p>
+                ) : null)}
+            </>
+          )}
         </div>
       </nav>
       {download && (
@@ -317,10 +326,26 @@ function NavRow(props: {
   );
 }
 
-function SectionTitle({ title, children }: { title: string; children?: ReactNode }) {
+/** A section's title: click it to fold the section away (remembered). */
+function SectionTitle({
+  title,
+  folded,
+  onToggle,
+  children,
+}: {
+  title: string;
+  folded: boolean;
+  onToggle: () => void;
+  children?: ReactNode;
+}) {
   return (
     <div className="side-section">
-      <span>{title}</span>
+      <button className="side-section-toggle" aria-expanded={!folded} onClick={onToggle}>
+        {title}
+        <span className="side-section-chevron" data-folded={folded || undefined}>
+          <Icon name="chevron" size={14} />
+        </span>
+      </button>
       {children}
     </div>
   );

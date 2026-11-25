@@ -360,7 +360,8 @@ describe("App", () => {
       return meta("s3", "New spec");
     });
     render(<App />);
-    await userEvent.click(await screen.findByRole("button", { name: "New session in Acme" }));
+    await screen.findByRole("button", { name: "Acme" });
+    await rowAction("Acme", "New session");
     expect(mocked.createSession).toHaveBeenCalledWith("Acme", "New spec");
     await waitFor(() =>
       expect(mocked.loadSession).toHaveBeenCalledWith({ project: "Acme", sessionId: "s3" }),

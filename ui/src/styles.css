@@ -1150,9 +1150,7 @@ dialog.modal .settings-panel {
   position: relative;
 }
 .row-menu-list {
-  right: 0;
-  top: calc(100% + 4px);
-  min-width: 170px;
+  min-width: 0;
 }
 .row-menu-list .menu-item {
   width: 100%;
@@ -2437,4 +2435,33 @@ dialog.modal:focus {
 }
 .row-menu-list .menu-item-danger .icon {
   color: inherit;
+}
+
+/* Section titles fold their section; the chevron shows on hover or when folded. */
+.side-section-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.side-section-toggle:hover {
+  color: var(--text);
+}
+.side-section-chevron {
+  display: inline-grid;
+  opacity: 0;
+  transition: transform 0.15s;
+}
+.side-section:hover .side-section-chevron,
+.side-section-toggle:focus-visible .side-section-chevron,
+.side-section-chevron[data-folded] {
+  opacity: 1;
+}
+.side-section-chevron[data-folded] {
+  transform: rotate(-90deg);
 }
