@@ -1,5 +1,6 @@
 import { appsText } from "../lib/odooApps";
 import type { DatabaseInfo } from "../lib/types";
+import { useState } from "react";
 import { usePopover } from "../app/usePopover";
 
 export interface DatabaseMenuProps {
@@ -19,6 +20,9 @@ export interface DatabaseMenuProps {
   opening?: boolean;
 }
 
+/** Databases listed before "Show all". */
+const SHOWN = 5;
+
 const DbIcon = () => (
   <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true">
     <ellipse cx="8" cy="3.5" rx="5.5" ry="2" fill="none" stroke="currentColor" strokeWidth="1.3" />
@@ -33,7 +37,9 @@ const DbIcon = () => (
 
 /**
  * The session's database, as a quiet chip next to the model: "Automatic" until the
- * first screenshots (or the user) pick one. The menu lists every database.
+ * first screenshots (or the user) pick one. The menu lists the databases given (the
+ * session's version), most recently used first: five, then "Show all", and a search
+ * once there are more. Automatic stays on top and the actions at the bottom.
  */
 export default function DatabaseMenu({
   databases,
@@ -58,10 +64,18 @@ export default function DatabaseMenu({
     setOpen(false);
     if (name !== selected) onChange(name);
   };
-  const groups: [string, DatabaseInfo[]][] = [
-    ["Your databases", databases.filter((d) => !d.auto)],
-    ["Made by the assistant", databases.filter((d) => d.auto)],
-  ];
+  const [query, setQuery] = useState("");
+  const [all, setAll] = useState(false);
+  const words = query.toLowerCase().split(/\s+/).filter(Boolean);
+  const found = [...databases]
+    .sort((a, b) => b.lastUsed - a.lastUsed)
+    .filter((d) => {
+      const text = `${d.label} ${d.version} ${appsText(d.modules)}`.toLowerCase();
+      return words.every((w) => text.includes(w));
+    });
+  // Searching shows every match; otherwise the five most recent, and the chosen one.
+  const shown = all || words.length ? found : found.filter((d, i) => i < SHOWN || d.name === selected);
+  const hidden = found.length - shown.length;
 
   return (
     <div className="model-menu db-chip-group" ref={root}>
@@ -117,14 +131,26 @@ export default function DatabaseMenu({
               detail="Any database of the Odoo version; a new one if there is none"
             />
           </div>
-          {groups
-            .filter(([, list]) => list.length > 0)
-            .map(([name, list]) => (
-              <div key={name} role="group" aria-label={name} className="menu-group">
-                <div className="menu-head" aria-hidden="true">
-                  {name}
-                </div>
-                {list.map((d) => (
+          {databases.length > 0 && (
+            <div role="group" aria-label="Your databases" className="menu-group">
+              <div className="menu-head" aria-hidden="true">
+                Your databases
+              </div>
+              {databases.length > SHOWN && (
+                <input
+                  autoFocus
+                  className="menu-search"
+                  aria-label="Search databases"
+                  placeholder="Search by name or app…"
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && found[0]) pick(found[0].name);
+                  }}
+                />
+              )}
+              <div className="menu-scroll">
+                {shown.map((d) => (
                   <Choice
                     key={d.name}
                     checked={d.name === selected}
@@ -133,8 +159,15 @@ export default function DatabaseMenu({
                     detail={`${d.version} · ${appsText(d.modules)}`}
                   />
                 ))}
+                {words.length > 0 && found.length === 0 && <p className="menu-empty">No database matches.</p>}
               </div>
-            ))}
+              {hidden > 0 && (
+                <button type="button" className="menu-item menu-link" onClick={() => setAll(true)}>
+                  Show all ({databases.length})
+                </button>
+              )}
+            </div>
+          )}
           <div className="menu-group">
             {onCreate && (
               <button

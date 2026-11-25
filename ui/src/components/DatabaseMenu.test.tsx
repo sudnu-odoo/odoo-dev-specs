@@ -31,12 +31,12 @@ describe("DatabaseMenu", () => {
     expect(chip()).toHaveTextContent("Automatic");
   });
 
-  it("shows the chosen database and offers every database, the user's first", async () => {
+  it("shows the chosen database and lists every database in one list, made by hand or not", async () => {
     const props = setup("specs_19_0_stock_demo");
     expect(chip()).toHaveTextContent("Auto 19.0: stock");
     await userEvent.click(chip());
     const groups = screen.getAllByRole("group").map((g) => g.getAttribute("aria-label"));
-    expect(groups).toEqual([null, "Your databases", "Made by the assistant"]);
+    expect(groups).toEqual([null, "Your databases"]);
     expect(screen.getByRole("menuitemradio", { name: "Auto 19.0: stock" })).toHaveAttribute(
       "aria-checked",
       "true",
@@ -87,5 +87,25 @@ describe("DatabaseMenu", () => {
     );
     expect(chip()).toHaveTextContent("Creating database…");
     expect(chip()).toBeDisabled();
+  });
+
+  it("with many databases: the five most recent, Show all, and a search", async () => {
+    const many: DatabaseInfo[] = Array.from({ length: 9 }, (_, i) => ({
+      ...base,
+      name: `specs_db_${i}`,
+      label: `db-19-${i}`,
+      modules: i === 3 ? ["crm"] : ["sale_management"],
+      auto: false,
+      lastUsed: i,
+    }));
+    const onChange = vi.fn();
+    render(<DatabaseMenu databases={many} selected={null} onChange={onChange} onManage={vi.fn()} />);
+    await userEvent.click(chip());
+    const names = () => screen.getAllByRole("menuitemradio").map((o) => o.getAttribute("aria-label"));
+    expect(names()).toEqual(["Automatic", "db-19-8", "db-19-7", "db-19-6", "db-19-5", "db-19-4"]);
+    await userEvent.click(screen.getByRole("button", { name: "Show all (9)" }));
+    expect(names()).toHaveLength(10);
+    await userEvent.type(screen.getByRole("textbox", { name: "Search databases" }), "crm{Enter}");
+    expect(onChange).toHaveBeenCalledWith("specs_db_3");
   });
 });

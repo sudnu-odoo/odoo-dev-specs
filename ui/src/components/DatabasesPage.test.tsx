@@ -57,10 +57,10 @@ function setup(over: Partial<Databases> = {}, usage: Record<string, number> = {}
 }
 
 describe("DatabasesPage", () => {
-  it("lists the user's databases first, then the assistant's, with their details", () => {
+  it("lists every database in one list, with their details", () => {
     setup({}, { specs_db_sales: 2 });
     const headings = screen.getAllByRole("heading", { level: 3 }).map((h) => h.textContent);
-    expect(headings).toEqual(["Your databases", "Made by the assistant"]);
+    expect(headings).toEqual(["Your databases"]);
     const row = screen.getByRole("listitem", { name: "Sales demo" });
     expect(row).toHaveTextContent("19.0 · Sales, CRM · Community · demo data");
     expect(row).toHaveTextContent(/Running · 420 MB · used today · 2 sessions/);
@@ -168,7 +168,7 @@ describe("DatabasesPage", () => {
   });
 
   it("invites to create a first database", () => {
-    setup({ databases: [AUTO] });
+    setup({ databases: [] });
     expect(screen.getByText(/None yet/)).toBeInTheDocument();
   });
 

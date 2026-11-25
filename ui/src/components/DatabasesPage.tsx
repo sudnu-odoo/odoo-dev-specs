@@ -23,15 +23,14 @@ const BUSY_TEXT: Record<DatabaseBusy, string> = {
 };
 
 /**
- * The local Odoo databases: the user's own on top, those the assistant made for
- * screenshots below. Each can be opened in the browser, stopped, renamed, copied,
+ * The local Odoo databases, most recently used first (also the ones the assistant
+ * made for screenshots: they are databases like any other). Each can be opened in the browser, stopped, renamed, copied,
  * reset or deleted; new ones are made fresh with the chosen apps.
  */
 export default function DatabasesPage({ dbs, usage, defaultVersion = "19.0", versions }: DatabasesPageProps) {
   const [creatingForm, setCreatingForm] = useState(false);
   const [asking, setAsking] = useState<{ kind: "rename" | "duplicate"; db: DatabaseInfo } | null>(null);
-  const mine = dbs.databases.filter((d) => !d.auto);
-  const auto = dbs.databases.filter((d) => d.auto);
+  const all = [...dbs.databases].sort((a, b) => b.lastUsed - a.lastUsed);
 
   return (
     <section className="databases" aria-labelledby="databases-title">
@@ -63,19 +62,12 @@ export default function DatabasesPage({ dbs, usage, defaultVersion = "19.0", ver
       )}
 
       <h3>Your databases</h3>
-      {mine.length === 0 ? (
+      {all.length === 0 ? (
         <p className="settings-muted databases-empty">
           None yet. Create one to set Odoo up like your client, then pick it in a session.
         </p>
       ) : (
-        renderList(mine)
-      )}
-
-      {auto.length > 0 && (
-        <>
-          <h3>Made by the assistant</h3>
-          {renderList(auto)}
-        </>
+        renderList(all)
       )}
 
       {creatingForm && (
