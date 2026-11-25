@@ -9,7 +9,7 @@ use excalidraw::{Color, Placement, Scene, Target};
 use schemars::JsonSchema;
 use serde::Deserialize;
 
-use crate::anchors::{self, Area};
+use crate::anchors;
 use crate::browser::Element;
 
 /// Elements made by the builder carry this tag, so a new plan replaces them.
@@ -259,6 +259,17 @@ pub fn validate(plan: &SpecPlan) -> Result<()> {
 }
 
 const MAX_NOTE_LINES: usize = 3;
+/// A note pushed further than this below what it points at counts as crowded.
+const CROWDED: f64 = 40.0;
+
+/// The screenshot's height in its own pixels (the PNG header), to map map points.
+fn shot_height(shot: &ShotData) -> f64 {
+    shot.png
+        .get(20..24)
+        .map(|b| u32::from_be_bytes([b[0], b[1], b[2], b[3]]) as f64)
+        .filter(|h| *h > 0.0)
+        .unwrap_or(1.0)
+}
 const MAX_TEXT_LINES: usize = 5;
 
 /// Business words, not code: the reader is a business analyst and a developer who
@@ -278,6 +289,73 @@ fn plain(lines: &[String]) -> Result<()> {
 }
 
 /// Every screen of the plan, in order.
+/// New fields the plan lists on a screen but did not prototype are prototyped all the
+/// same, so they are really on the screenshot (never text written over it). Only for
+/// a screen whose model is known, and types that can be made as data.
+pub fn auto_prototype(plan: &mut SpecPlan) {
+    let mut added = Vec::new();
+    for screen in plan.sections.iter().flat_map(|s| &s.screens) {
+        let Some(model) = screen.model.as_deref().filter(|m| !m.is_empty()) else {
+            continue;
+        };
+        for f in &screen.new_fields {
+            let mut words = f
+                .field_type
+                .split([' ', '(', ')'])
+                .filter(|w| !w.is_empty());
+            let kind = words.next().unwrap_or_default().to_lowercase();
+            let relation = words.next().map(String::from);
+            if !crate::proto::can_make(&kind) || (kind.starts_with("many2") && relation.is_none()) {
+                continue;
+            }
+            added.push(crate::proto::ProtoField {
+                model: model.to_string(),
+                name: proto_name(&f.technical),
+                label: f.label.clone(),
+                selection: if kind == "selection" {
+                    vec![f.value.clone().unwrap_or_else(|| "Value".into())]
+                } else {
+                    vec![]
+                },
+                field_type: kind,
+                relation,
+                after: Some(f.near.clone()),
+                list_after: None,
+            });
+        }
+    }
+    let proto = plan.prototype.get_or_insert_with(Default::default);
+    for f in added {
+        if !proto
+            .fields
+            .iter()
+            .any(|p| p.name == f.name && p.model == f.model)
+        {
+            proto.fields.push(f);
+        }
+    }
+}
+
+/// The prototype's name for a new field: Studio-like data fields start with x_.
+fn proto_name(technical: &str) -> String {
+    let clean: String = technical
+        .to_lowercase()
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    if clean.starts_with("x_") {
+        clean
+    } else {
+        format!("x_{clean}")
+    }
+}
+
 pub fn screens(plan: &SpecPlan) -> Vec<&Screen> {
     plan.sections.iter().flat_map(|s| &s.screens).collect()
 }
@@ -554,62 +632,138 @@ impl Builder<'_> {
             }))
             .collect();
         items.sort_by(|a, b| a.0.total_cmp(&b.0));
-        for (_, item) in items {
-            let note = match item {
-                Item::Field(field) => {
-                    match self.new_field(&image, shot, field, notes_x, free) {
-                        Ok(end) => free = end + 16.0,
-                        Err(e) => self.warnings.push(format!(
-                            "{}: new field {}: {e:#}",
-                            screen.name, field.technical
-                        )),
-                    }
-                    continue;
+        // When notes would have to be pushed far below what they point at (several
+        // things on one line, e.g. header buttons), long arrows would cross each other:
+        // number them on the screenshot instead, with no arrows.
+        let numbered = {
+            let mut next = iy;
+            items.iter().any(|(at, item)| {
+                if !at.is_finite() {
+                    return false;
                 }
-                Item::Note(note) => note,
-            };
-            let area = match &note.anchor {
-                Some(anchor) => match anchors::locate(&shot.map, anchor) {
-                    Ok(a) => Some(a),
-                    Err(e) => {
-                        self.warnings.push(format!("{}: {e:#}", screen.name));
-                        None
+                let want = iy + at * (ih / shot_height(shot)) - LINE / 2.0;
+                let crowded = next - want > CROWDED;
+                let lines = match item {
+                    Item::Field(f) => field_note(f).lines().count(),
+                    Item::Note(n) => n.lines.len(),
+                };
+                next = want.max(next) + lines as f64 * LINE + 16.0;
+                crowded
+            })
+        };
+        let mut number = 0;
+        for (_, item) in items {
+            let (lines, area, outline) = match item {
+                Item::Field(field) => {
+                    let found = anchors::locate(&shot.map, &format!("row:{}", field.technical))
+                        .or_else(|_| {
+                            anchors::locate(&shot.map, &format!("column:{}", field.technical))
+                        })
+                        .or_else(|_| {
+                            anchors::locate(
+                                &shot.map,
+                                &format!("row:{}", proto_name(&field.technical)),
+                            )
+                        })
+                        .or_else(|_| {
+                            anchors::locate(
+                                &shot.map,
+                                &format!("column:{}", proto_name(&field.technical)),
+                            )
+                        });
+                    let area = match found {
+                        Ok(real) => Some(real),
+                        // Not prototyped: point at the field it goes next to.
+                        Err(_) => {
+                            match anchors::locate(&shot.map, &format!("field:{}", field.near))
+                                .or_else(|_| {
+                                    anchors::locate(&shot.map, &format!("label:{}", field.near))
+                                })
+                                .or_else(|_| anchors::locate(&shot.map, &field.near))
+                            {
+                                Ok(near) => Some(near),
+                                Err(e) => {
+                                    self.warnings.push(format!(
+                                        "{}: new field {}: {e:#}",
+                                        screen.name, field.technical
+                                    ));
+                                    None
+                                }
+                            }
+                        }
+                    };
+                    let mut text = field_note(field);
+                    if found.is_err() && area.is_some() {
+                        let side = if field.place.as_deref() == Some("right") {
+                            "right of"
+                        } else {
+                            "below"
+                        };
+                        text.push_str(&format!("\n(goes {side} this field)"));
                     }
-                },
-                None => None,
+                    (text, area, true)
+                }
+                Item::Note(note) => {
+                    let area = match &note.anchor {
+                        Some(anchor) => match anchors::locate(&shot.map, anchor) {
+                            Ok(a) => Some(a),
+                            Err(e) => {
+                                self.warnings.push(format!("{}: {e:#}", screen.name));
+                                None
+                            }
+                        },
+                        None => None,
+                    };
+                    (note.lines.join("\n"), area, note.outline.unwrap_or(true))
+                }
             };
             let want = match area {
                 Some(a) => self.on_image(&image, a.x, a.y + a.h / 2.0)?.1 - LINE / 2.0,
                 None => free,
             };
-            let ny = want.max(free);
+            let text = match area {
+                Some(_) if numbered => {
+                    number += 1;
+                    format!("{number}. {lines}")
+                }
+                _ => lines,
+            };
             let id = self.scene.add_text(
-                &note.lines.join("\n"),
-                at(notes_x, ny),
+                &text,
+                at(notes_x, want.max(free)),
                 Some(BODY),
                 Some(Color::Red),
             );
             self.made.push(id.clone());
             free = self.bottom(&id) + 16.0;
-            if let Some(a) = area {
+            let Some(a) = area else { continue };
+            if numbered {
+                let (mx, my) = self.on_image(&image, a.x + a.w + 6.0, a.y - 6.0)?;
+                let marker = self.scene.add_text(
+                    &number.to_string(),
+                    at(mx, my - LINE / 2.0),
+                    Some(BODY),
+                    Some(Color::Red),
+                );
+                self.made.push(marker);
+            } else {
                 let tip = Target::OnImage {
                     image: image.clone(),
                     x: a.x + a.w,
                     y: a.y + a.h / 2.0,
                 };
                 self.made.push(self.scene.add_pointer(&id, &tip, None)?);
-                if note.outline.unwrap_or(true) {
-                    let corner = Target::OnImage {
-                        image: image.clone(),
-                        x: a.x - 4.0,
-                        y: a.y - 4.0,
-                    };
-                    self.made.push(self.scene.add_highlight(
-                        &corner,
-                        (a.w + 8.0, a.h + 8.0),
-                        None,
-                    )?);
-                }
+            }
+            if outline {
+                let corner = Target::OnImage {
+                    image: image.clone(),
+                    x: a.x - 4.0,
+                    y: a.y - 4.0,
+                };
+                self.made.push(
+                    self.scene
+                        .add_highlight(&corner, (a.w + 8.0, a.h + 8.0), None)?,
+                );
             }
         }
         bottom = bottom.max(free);
@@ -621,85 +775,6 @@ impl Builder<'_> {
             .map_or(0.0, |(bx, _, bw, _)| bx + bw)
             .max(notes_x + NOTES_WIDTH);
         Ok((right, bottom))
-    }
-
-    /// The new field's label and example value written on the screenshot, and its red
-    /// note in the notes column with an arrow from the value. Returns the note's bottom.
-    fn new_field(
-        &mut self,
-        image: &str,
-        shot: &ShotData,
-        f: &NewField,
-        notes_x: f64,
-        free: f64,
-    ) -> Result<f64> {
-        let note_lines = || field_note(f);
-        // Prototyped: the field is really on the screen; outline it and point at it.
-        if let Ok(real) = anchors::locate(&shot.map, &format!("row:{}", f.technical))
-            .or_else(|_| anchors::locate(&shot.map, &format!("column:{}", f.technical)))
-        {
-            let (_, my) = self.on_image(image, real.x, real.y + real.h / 2.0)?;
-            let note = self.scene.add_text(
-                &note_lines(),
-                at(notes_x, (my - LINE / 2.0).max(free)),
-                Some(BODY),
-                Some(Color::Red),
-            );
-            self.made.push(note.clone());
-            let tip = Target::OnImage {
-                image: image.to_string(),
-                x: real.x + real.w,
-                y: real.y + real.h / 2.0,
-            };
-            self.made.push(self.scene.add_pointer(&note, &tip, None)?);
-            let corner = Target::OnImage {
-                image: image.to_string(),
-                x: real.x - 4.0,
-                y: real.y - 4.0,
-            };
-            self.made.push(self.scene.add_highlight(
-                &corner,
-                (real.w + 8.0, real.h + 8.0),
-                None,
-            )?);
-            return Ok(self.bottom(&note));
-        }
-        let label_area = anchors::locate(&shot.map, &format!("label:{}", f.near))
-            .or_else(|_| anchors::locate(&shot.map, &f.near))?;
-        let field_area =
-            anchors::locate(&shot.map, &format!("field:{}", f.near)).unwrap_or(label_area);
-        let right = f.place.as_deref() == Some("right");
-        let spot = |a: Area| {
-            if right {
-                (a.x + a.w + 12.0, a.y)
-            } else {
-                (a.x, a.y + a.h + 8.0)
-            }
-        };
-        let (lx, ly) = spot(label_area);
-        let (lx, ly) = self.on_image(image, lx, ly)?;
-        let label = self.scene.add_text(&f.label, at(lx, ly), Some(SMALL), None);
-        self.made.push(label.clone());
-        let mut from = label;
-        if let Some(value) = &f.value {
-            let (vx, vy) = spot(field_area);
-            let (vx, vy) = self.on_image(image, vx, vy)?;
-            let v = self.scene.add_text(value, at(vx, vy), Some(SMALL), None);
-            self.made.push(v.clone());
-            from = v;
-        }
-        let ny = (ly - LINE / 2.0).max(free);
-        let note = self.scene.add_text(
-            &field_note(f),
-            at(notes_x, ny),
-            Some(BODY),
-            Some(Color::Red),
-        );
-        self.made.push(note.clone());
-        let arrow = self.scene.add_arrow(&from, &note, None)?;
-        self.scene.style_line(&arrow, Color::Red, false)?;
-        self.made.push(arrow);
-        Ok(self.bottom(&note))
     }
 
     fn link(&mut self, link: &Link) -> Result<()> {

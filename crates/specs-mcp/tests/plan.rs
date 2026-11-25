@@ -132,8 +132,6 @@ fn builds_the_whole_spec_in_one_go_without_overlaps() {
         "Model: sale.order",
         "CURRENT",
         "Test cases",
-        "Delivery Deadline",
-        "12/20/2026",
     ] {
         assert!(t.iter().any(|x| x == want), "missing {want} in {t:?}");
     }
@@ -142,7 +140,11 @@ fn builds_the_whole_spec_in_one_go_without_overlaps() {
         .any(|x| x.contains("[ ] 1. Salesperson") && x.contains("[ ] 2. Manager")));
     assert!(t
         .iter()
-        .any(|x| x == "New field: Delivery Deadline (x_delivery_deadline, date)"));
+        .any(|x| x.starts_with("New field: Delivery Deadline (x_delivery_deadline, date)")));
+    // Nothing is written over the screenshot: a field not prototyped is pointed at.
+    assert!(!t
+        .iter()
+        .any(|x| x == "Delivery Deadline" || x == "12/20/2026"));
     // Every readable text stands alone.
     for e in live(&scene)
         .iter()
@@ -435,4 +437,97 @@ fn a_table_row_must_have_one_value_per_column() {
         "sections": [{"title": "R", "table": {"columns": [{"name": "A"}, {"name": "B"}], "rows": [["only one"]]}}]
     }));
     assert!(validate(&p).unwrap_err().to_string().contains("column"));
+}
+
+#[test]
+fn new_fields_left_out_of_the_prototype_are_prototyped_for_real() {
+    let mut p = plan(json!({
+        "title": "T", "need": "N", "version": "19.0",
+        "sections": [{"title": "Limit", "screens": [{"name": "team", "page": "/odoo/action-sales_team.crm_team_action_config/1",
+            "model": "crm.team",
+            "new_fields": [
+                {"near": "user_id", "label": "Max. Discount (%)", "technical": "max_discount", "type": "float"},
+                {"near": "user_id", "label": "Approver", "technical": "x_approver_id", "type": "many2one (res.users)"},
+                {"near": "user_id", "label": "Lines", "technical": "line_ids", "type": "one2many"}]}]}]
+    }));
+    specs_mcp::plan::auto_prototype(&mut p);
+    let fields = &p.prototype.as_ref().unwrap().fields;
+    let names: Vec<_> = fields
+        .iter()
+        .map(|f| {
+            (
+                f.name.as_str(),
+                f.field_type.as_str(),
+                f.relation.as_deref(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        names,
+        [
+            ("x_max_discount", "float", None),
+            ("x_approver_id", "many2one", Some("res.users"))
+        ],
+        "a one2many cannot be made as data: it keeps its note"
+    );
+    assert!(fields
+        .iter()
+        .all(|f| f.model == "crm.team" && f.after.as_deref() == Some("user_id")));
+}
+
+#[test]
+fn a_new_field_that_could_not_be_prototyped_writes_nothing_on_the_screenshot() {
+    let p = plan(json!({
+        "title": "T", "need": "N", "version": "19.0",
+        "sections": [{"title": "R", "screens": [{"name": "a", "page": "/odoo/sales/1",
+            "new_fields": [{"near": "validity_date", "label": "Deadline", "value": "12/20", "technical": "x_deadline", "type": "date"}]}]}]
+    }));
+    let mut scene = Scene::parse(EMPTY).unwrap();
+    build(&mut scene, &p, &shots(&["a"])).unwrap();
+    let all = texts(&scene);
+    assert!(
+        !all.iter().any(|t| t == "Deadline" || t == "12/20"),
+        "{all:?}"
+    );
+    assert!(
+        all.iter().any(|t| t.starts_with("New field: Deadline")),
+        "{all:?}"
+    );
+}
+
+#[test]
+fn crowded_notes_get_numbers_instead_of_crossing_arrows() {
+    // Three things on the same line (e.g. header buttons): their notes cannot all be
+    // level with them, so each gets a number on the screenshot and in its note.
+    let mut shot = quotation();
+    shot.map
+        .push(el("button", "action_a", "Ask", 140.0, 120.0, 60.0, 30.0));
+    shot.map
+        .push(el("button", "action_b", "Reject", 210.0, 120.0, 60.0, 30.0));
+    let p = plan(json!({
+        "title": "T", "need": "N", "version": "19.0",
+        "sections": [{"title": "R", "screens": [{"name": "a", "page": "/odoo/sales/1", "notes": [
+            {"lines": ["Confirm hidden while waiting"], "anchor": "action_confirm"},
+            {"lines": ["New: Ask Approval"], "anchor": "action_a"},
+            {"lines": ["New: Reject"], "anchor": "action_b"}]}]}]
+    }));
+    let mut scene = Scene::parse(EMPTY).unwrap();
+    let report = build(
+        &mut scene,
+        &p,
+        &[("a".to_string(), shot)].into_iter().collect(),
+    )
+    .unwrap();
+    assert!(report.warnings.is_empty(), "{:?}", report.warnings);
+    let all = texts(&scene);
+    assert!(all.iter().any(|t| t.starts_with("1. ")), "{all:?}");
+    assert!(
+        all.iter().any(|t| t.starts_with("3. New: Reject")),
+        "{all:?}"
+    );
+    let arrows = live(&scene).iter().filter(|e| e["type"] == "arrow").count();
+    assert!(
+        arrows <= 1,
+        "{arrows} arrows: crowded notes must not get arrows"
+    );
 }

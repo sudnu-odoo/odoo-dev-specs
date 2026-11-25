@@ -95,6 +95,11 @@ pub struct ProtoField {
     pub list_after: Option<String>,
 }
 
+/// A field type that can be made as data.
+pub fn can_make(kind: &str) -> bool {
+    TYPES.contains(&kind)
+}
+
 impl Prototype {
     pub fn is_empty(&self) -> bool {
         self.models.is_empty()

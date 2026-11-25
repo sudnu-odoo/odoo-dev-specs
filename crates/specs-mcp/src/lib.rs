@@ -545,7 +545,8 @@ impl DiagramServer {
     }
 
     /// Take every screen of the plan in one go, then lay the whole spec out.
-    async fn build_spec(&self, p: plan::SpecPlan) -> Result<String> {
+    async fn build_spec(&self, mut p: plan::SpecPlan) -> Result<String> {
+        plan::auto_prototype(&mut p);
         plan::validate(&p)?;
         let screens = plan::screens(&p);
         let mut stems = Vec::new();
