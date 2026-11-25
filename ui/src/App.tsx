@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import type { Attachment } from "./lib/bindings/Attachment";
 import { useAppTheme } from "./lib/canvasTheme";
 import { Panel, PanelGroup, PanelResizeHandle } from "react-resizable-panels";
 import { useDatabases } from "./app/useDatabases";
@@ -55,6 +56,20 @@ export default function App() {
   // "New database…" from a session's chip: the form, then the session it is for.
   const [newDatabaseFor, setNewDatabaseFor] = useState<SessionRef | null>(null);
   const [creatingFor, setCreatingFor] = useState<SessionRef | null>(null);
+  // A database being made for a session: a message sent there waits for it, so the
+  // assistant does not pick or make another one meanwhile.
+  const creations = useRef(new Map<string, Promise<void>>());
+  const [waitingFor, setWaitingFor] = useState<string | null>(null);
+  const send = async (text: string, attachments?: Attachment[]) => {
+    const id = app.selected?.sessionId;
+    const pending = id ? creations.current.get(id) : undefined;
+    if (pending) {
+      setWaitingFor(id!);
+      await pending.catch(() => {});
+      setWaitingFor(null);
+    }
+    await app.send(text, attachments);
+  };
 
   // Which database each session uses, from the session list (refreshed after each
   // answer, when the assistant may have picked one).
@@ -95,7 +110,12 @@ export default function App() {
       items={app.chat.items}
       running={app.chat.running}
       hasSession={!!app.session}
-      onSend={app.send}
+      onSend={send}
+      notice={
+        waitingFor && waitingFor === app.selected?.sessionId
+          ? "Your message will be sent as soon as the new database is ready."
+          : undefined
+      }
       onAttach={app.attach}
       onOpenSpec={() => (app.diagramDetached ? app.dockDiagram() : spec.setOpen(true))}
       onStop={app.stop}
@@ -287,11 +307,20 @@ export default function App() {
           onCreate={async (db) => {
             const session = newDatabaseFor;
             setNewDatabaseFor(null);
-            setCreatingFor(session);
-            const made = await dbs.create(db);
-            setCreatingFor(null);
-            // Made for this session, even if another one is open by now.
-            if (made) await app.setSessionDatabase(made.name, session);
+            if (!session) return;
+            const making = (async () => {
+              setCreatingFor(session);
+              try {
+                const made = await dbs.create(db);
+                // Made for this session, even if another one is open by now.
+                if (made) await app.setSessionDatabase(made.name, session);
+              } finally {
+                setCreatingFor(null);
+                creations.current.delete(session.sessionId);
+              }
+            })();
+            creations.current.set(session.sessionId, making);
+            await making;
           }}
         />
       )}

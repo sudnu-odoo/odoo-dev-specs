@@ -33,6 +33,8 @@ export interface ChatPanelProps {
   composerExtras?: ReactNode;
   /** Pick and prepare a file to attach; null when the person cancels. */
   onAttach?: () => Promise<Attachment | null>;
+  /** A line above the composer, e.g. that the message waits for a database. */
+  notice?: string;
   /** Show the spec panel (offered once the assistant has drawn the spec). */
   onOpenSpec?: () => void;
 }
@@ -60,6 +62,7 @@ export default function ChatPanel({
   showUsage = true,
   onAttach,
   onOpenSpec,
+  notice,
 }: ChatPanelProps) {
   const [draft, setDraft] = useState("");
   const [attached, setAttached] = useState<Attachment[]>([]);
@@ -144,6 +147,11 @@ export default function ChatPanel({
         )}
         <div ref={bottom} />
       </div>
+      {notice && (
+        <div role="status" className="chat-notice">
+          <span className="spinner spinner-small" aria-hidden="true" /> {notice}
+        </div>
+      )}
       <form className="composer" onSubmit={send}>
         {attached.length > 0 && (
           <div className="attachments" role="group" aria-label="Attached">

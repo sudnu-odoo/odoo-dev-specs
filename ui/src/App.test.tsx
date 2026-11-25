@@ -563,6 +563,42 @@ describe("App", () => {
     );
   });
 
+  it("a message sent while the session's database is being made waits for it", async () => {
+    mocked.databaseForm.mockResolvedValue({ suggestedLabel: "db-19-4", enterpriseAvailable: false });
+    let finish: (db: unknown) => void = () => {};
+    mocked.createDatabase.mockImplementation(() => new Promise((resolve) => (finish = resolve)) as never);
+    await openSession("Delivery window");
+    await userEvent.click(await screen.findByRole("button", { name: "Database: Automatic" }));
+    await userEvent.click(screen.getByRole("menuitem", { name: "New database…" }));
+    const dialog = await screen.findByRole("dialog", { name: "New database" });
+    await within(dialog).findByDisplayValue("db-19-4");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Create" }));
+
+    await userEvent.type(message(), "Map the approval flow{Enter}");
+    expect(await screen.findByText(/sent as soon as the new database is ready/)).toBeInTheDocument();
+    expect(mocked.sendMessage).not.toHaveBeenCalled();
+
+    finish({
+      name: "specs_db_19_4",
+      label: "db-19-4",
+      version: "19.0",
+      modules: [],
+      demoData: true,
+      enterprise: false,
+      auto: false,
+      createdAt: 0,
+      lastUsed: 0,
+      sizeBytes: 0,
+      running: false,
+    });
+    await waitFor(() => expect(mocked.sendMessage).toHaveBeenCalled());
+    expect(mocked.setSessionDatabase).toHaveBeenCalledWith(
+      { project: "Acme", sessionId: "s1" },
+      "specs_db_19_4",
+    );
+    expect(mocked.sendMessage.mock.calls[0][1]).toBe("Map the approval flow");
+  });
+
   it("choosing Odoo Online sets the newest SaaS version on this computer", async () => {
     const here = (version: string) => ({
       version,
