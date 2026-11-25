@@ -12,6 +12,8 @@ vi.mock("../lib/api", () => ({
     checkEnvironment: vi.fn(),
     providerStatus: vi.fn(),
     loginProvider: vi.fn(),
+    odooVersions: vi.fn(),
+    odooPublishedVersions: vi.fn(),
   },
 }));
 
@@ -34,9 +36,20 @@ beforeEach(() => {
     { provider: "antigravity", name: "Antigravity", installed: true, loggedIn: false },
   ]);
   mocked.loginProvider.mockResolvedValue(undefined);
+  mocked.odooVersions.mockResolvedValue({ downloaded: [], downloadsFolder: "/home/me/odoo-versions" });
+  mocked.odooPublishedVersions.mockResolvedValue({
+    available: ["saas-20.1", "20.0", "19.0"],
+    latestSaas: "saas-20.1",
+  });
 });
 
 describe("SettingsPanel", () => {
+  it("offers the versions Odoo publishes on GitHub while none is downloaded", async () => {
+    render(<SettingsPanel onClose={() => {}} />);
+    expect(await screen.findByRole("option", { name: "saas-20.1" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "20.0" })).toBeInTheDocument();
+  });
+
   it("makes the text bigger or smaller, and back to 100%", async () => {
     localStorage.removeItem("textSize");
     render(<SettingsPanel onClose={() => {}} />);
@@ -58,12 +71,13 @@ describe("SettingsPanel", () => {
 
   it("saves each change at once, without a Save button", async () => {
     render(<SettingsPanel onClose={vi.fn()} />);
-    await userEvent.selectOptions(await screen.findByLabelText("Odoo version"), "18.0");
-    expect(mocked.saveSettings).toHaveBeenLastCalledWith({ ...settings, defaultVersion: "18.0" });
+    await screen.findByRole("option", { name: "20.0" });
+    await userEvent.selectOptions(screen.getByLabelText("Odoo version"), "20.0");
+    expect(mocked.saveSettings).toHaveBeenLastCalledWith({ ...settings, defaultVersion: "20.0" });
     await userEvent.click(screen.getByRole("radio", { name: "Off" }));
     expect(mocked.saveSettings).toHaveBeenLastCalledWith({
       ...settings,
-      defaultVersion: "18.0",
+      defaultVersion: "20.0",
       demoData: false,
     });
     expect(screen.queryByRole("button", { name: "Save" })).not.toBeInTheDocument();

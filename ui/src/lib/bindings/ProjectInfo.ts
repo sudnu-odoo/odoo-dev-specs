@@ -3,6 +3,10 @@ import type { SessionMeta } from "./SessionMeta";
 
 export type ProjectInfo = { name: string, 
 /**
+ * Pinned at the top of the sidebar.
+ */
+pinned?: boolean, 
+/**
  * Most recently updated first.
  */
 sessions: Array<SessionMeta>, };

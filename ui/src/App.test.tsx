@@ -14,6 +14,8 @@ vi.mock("./lib/api", () => ({
     deleteSession: vi.fn(),
     deleteProject: vi.fn(),
     moveSession: vi.fn(),
+    pinSession: vi.fn(),
+    pinProject: vi.fn(),
     loadSession: vi.fn(),
     saveScene: vi.fn(),
     sendMessage: vi.fn(),

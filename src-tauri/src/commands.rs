@@ -189,6 +189,24 @@ pub fn move_session(
         .map_err(user_error)
 }
 
+/// Pin a session at the top of the sidebar, or unpin it.
+#[tauri::command]
+pub fn pin_session(state: State<'_, AppState>, session_id: String, pinned: bool) -> CmdResult<()> {
+    state
+        .workspace
+        .pin_session(&session_id, pinned)
+        .map_err(user_error)
+}
+
+/// Pin a project at the top of the sidebar, or unpin it.
+#[tauri::command]
+pub fn pin_project(state: State<'_, AppState>, project: String, pinned: bool) -> CmdResult<()> {
+    state
+        .workspace
+        .pin_project(&project, pinned)
+        .map_err(user_error)
+}
+
 #[tauri::command]
 pub fn rename_session(
     state: State<'_, AppState>,
@@ -647,6 +665,8 @@ pub fn register<R: Runtime>(builder: tauri::Builder<R>, state: AppState) -> taur
             delete_session,
             delete_project,
             move_session,
+            pin_session,
+            pin_project,
             load_session,
             load_scene,
             save_scene,

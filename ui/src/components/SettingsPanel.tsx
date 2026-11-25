@@ -15,7 +15,8 @@ export interface SettingsPanelProps {
   onOpenSetup?: () => void;
 }
 
-const VERSIONS = ["19.0", "18.0", "17.0"];
+/** Only when nothing is downloaded and GitHub cannot be reached. */
+const OFFLINE_VERSIONS = ["19.0", "18.0", "17.0"];
 
 type Page = "general" | "versions" | "ai";
 
@@ -32,9 +33,9 @@ export default function SettingsPanel({ onClose, onOpenSetup }: SettingsPanelPro
   const { assistants, error: assistantsError, login } = useAssistants();
   const error = settingsError ?? assistantsError;
 
-  // The versions on this computer (the usual ones until it has any).
+  // The versions on this computer; until it has any, the ones Odoo publishes on GitHub.
   const local = newestFirst(odoo.downloaded.map((v) => v.version));
-  const offered = local.length ? local : VERSIONS;
+  const offered = local.length ? local : odoo.available.length ? odoo.available : OFFLINE_VERSIONS;
   const versions =
     settings && !offered.includes(settings.defaultVersion) ? [settings.defaultVersion, ...offered] : offered;
 

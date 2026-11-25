@@ -192,6 +192,32 @@ fn deleting_a_project_keeps_sessions_moved_out_of_it() {
 }
 
 #[test]
+fn sessions_and_projects_can_be_pinned_without_reordering() {
+    let (ws, _d) = workspace();
+    ws.create_project("P").unwrap();
+    let s = ws.create_session("P", "s", "claude").unwrap();
+    ws.pin_session(&s.id, true).unwrap();
+    ws.pin_project("P", true).unwrap();
+    let p = &ws.list().unwrap()[0];
+    assert_eq!(p.pinned, Some(true));
+    assert_eq!(p.sessions[0].pinned, Some(true));
+    assert_eq!(
+        p.sessions[0].updated_at, s.updated_at,
+        "pinning is not working on it"
+    );
+
+    // A pinned session keeps its pin when moved; unpinning clears it.
+    ws.move_session(&s.id, "").unwrap();
+    assert_eq!(ws.session("", &s.id).unwrap().pinned, Some(true));
+    ws.pin_session(&s.id, false).unwrap();
+    ws.pin_project("P", false).unwrap();
+    let all = ws.list().unwrap();
+    assert!(all.iter().all(|p| p.pinned != Some(true)));
+    assert_ne!(ws.session("", &s.id).unwrap().pinned, Some(true));
+    assert!(ws.pin_project("Nope", true).is_err());
+}
+
+#[test]
 fn paths_cannot_escape_the_workspace() {
     let (ws, d) = workspace();
     ws.create_project("P").unwrap();

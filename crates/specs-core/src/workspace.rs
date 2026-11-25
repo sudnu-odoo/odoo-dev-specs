@@ -35,6 +35,8 @@ const LOOSE: &str = ".sessions";
 const MEMBER: &str = "project";
 /// In a project folder: the project was deleted (its folder only holds others' sessions).
 const REMOVED: &str = ".removed";
+/// In a project folder: the project is pinned.
+const PINNED: &str = ".pinned";
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ts_rs::TS)]
 #[ts(export)]
@@ -62,6 +64,10 @@ pub struct SessionMeta {
     /// The client's Odoo version: an Odoo branch, e.g. "19.0" or "saas-19.2".
     #[serde(default)]
     pub version: Option<String>,
+    /// Pinned at the top of the sidebar.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub pinned: Option<bool>,
 }
 
 /// The hostings a session can be for.
@@ -71,6 +77,9 @@ pub const HOSTINGS: [&str; 2] = ["online", "sh"];
 #[ts(export)]
 pub struct ProjectInfo {
     pub name: String,
+    /// Pinned at the top of the sidebar.
+    #[ts(optional)]
+    pub pinned: Option<bool>,
     /// Most recently updated first.
     pub sessions: Vec<SessionMeta>,
 }
@@ -107,6 +116,7 @@ impl Workspace {
                 && !entry.path().join(REMOVED).exists()
             {
                 projects.push(ProjectInfo {
+                    pinned: entry.path().join(PINNED).exists().then_some(true),
                     name,
                     sessions: vec![],
                 });
@@ -129,6 +139,7 @@ impl Workspace {
             projects.insert(
                 0,
                 ProjectInfo {
+                    pinned: None,
                     name: String::new(),
                     sessions: loose,
                 },
@@ -155,6 +166,27 @@ impl Workspace {
             }
         }
         Ok(found)
+    }
+
+    /// Pin a session at the top of the sidebar, or unpin it. Not a change to the
+    /// session: its place among the recent ones stays.
+    pub fn pin_session(&self, id: &str, pinned: bool) -> Result<()> {
+        let dir = self.session_dir("", id)?;
+        let mut meta = read_meta(&dir)?;
+        meta.pinned = pinned.then_some(true);
+        write_meta(&dir, &meta)
+    }
+
+    /// Pin a project at the top of the sidebar, or unpin it.
+    pub fn pin_project(&self, project: &str, pinned: bool) -> Result<()> {
+        let mark = self.project_dir(project)?.join(PINNED);
+        if pinned {
+            write_atomic(&mark, b"")
+        } else if mark.exists() {
+            fs::remove_file(&mark).context("unpinning the project")
+        } else {
+            Ok(())
+        }
     }
 
     /// Put a session in another project ("" = none). Its folder stays where it is.
@@ -186,6 +218,7 @@ impl Workspace {
             .filter_map(Result::ok)
             .any(|e| e.path().join(META).is_file());
         if others {
+            let _ = fs::remove_file(dir.join(PINNED));
             write_atomic(&dir.join(REMOVED), b"")
         } else {
             fs::remove_dir_all(&dir).with_context(|| format!("deleting {}", dir.display()))
@@ -228,6 +261,7 @@ impl Workspace {
             // every new session with it, while older specs keep theirs.
             hosting: latest.as_ref().and_then(|m| m.hosting.clone()),
             version: latest.and_then(|m| m.version),
+            pinned: None,
         };
         let dir = project_dir.join(&meta.id);
         fs::create_dir_all(dir.join(SCREENSHOTS))?;

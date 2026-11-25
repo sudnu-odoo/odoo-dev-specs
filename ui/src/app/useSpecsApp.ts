@@ -159,6 +159,30 @@ export function useSpecsApp() {
   /** A new session without a project (Ctrl+N). */
   const newSession = useCallback(() => createSession(""), [createSession]);
 
+  /** Pin a session or a project at the top of the sidebar, or unpin it. */
+  const pinSession = useCallback(
+    async (ref: SessionRef, pinned: boolean) => {
+      try {
+        await api.pinSession(ref.sessionId, pinned);
+        await refresh();
+      } catch (e) {
+        setError(String(e));
+      }
+    },
+    [refresh],
+  );
+  const pinProject = useCallback(
+    async (project: string, pinned: boolean) => {
+      try {
+        await api.pinProject(project, pinned);
+        await refresh();
+      } catch (e) {
+        setError(String(e));
+      }
+    },
+    [refresh],
+  );
+
   /** Put a session in a project ("" = none); its files stay where they are. */
   const moveSession = useCallback(
     async (ref: SessionRef, project: string) => {
@@ -322,6 +346,8 @@ export function useSpecsApp() {
     createProject,
     newSession,
     moveSession,
+    pinSession,
+    pinProject,
     createSession,
     deleteSession,
     deleteProject,

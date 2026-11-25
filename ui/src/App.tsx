@@ -167,6 +167,8 @@ export default function App() {
         }}
         onNewProject={() => setDialog("project")}
         onMoveSession={app.moveSession}
+        onPinSession={app.pinSession}
+        onPinProject={app.pinProject}
         onSearch={() => setDialog("search")}
         onCreateSession={(project) => {
           setView("session");

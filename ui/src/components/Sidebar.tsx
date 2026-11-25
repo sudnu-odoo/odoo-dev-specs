@@ -31,6 +31,9 @@ export interface SidebarProps {
   /** A setup download still going on; clicking it opens the setup. */
   download?: { label: string; percent: number | null } | null;
   onOpenSetup?: () => void;
+  /** Pin a session or a project at the top of the list, or unpin it. */
+  onPinSession: (ref: SessionRef, pinned: boolean) => void;
+  onPinProject: (project: string, pinned: boolean) => void;
   /** A project to unfold and scroll to (picked in the search); `at` makes each pick new. */
   reveal?: { project: string; at: number } | null;
 }
@@ -57,6 +60,8 @@ export default function Sidebar({
   onOpenSetup,
   running = [],
   reveal = null,
+  onPinSession,
+  onPinProject,
 }: SidebarProps) {
   const closed = useClosedProjects();
   const tree = useRef<HTMLElement>(null);
@@ -106,7 +111,11 @@ export default function Sidebar({
   const [dragging, setDragging] = useState<SessionRef | null>(null);
   const [over, setOver] = useState<string | null>(null);
   const loose = projects.find((p) => p.name === "")?.sessions ?? [];
-  const named = projects.filter((p) => p.name !== "");
+  const named = projects.filter((p) => p.name !== "" && !p.pinned);
+  const pinnedProjects = projects.filter((p) => p.name !== "" && p.pinned);
+  const pinnedSessions = projects.flatMap((p) =>
+    p.sessions.filter((s) => s.pinned).map((s) => ({ session: s, project: p.name })),
+  );
 
   /** Props that make an element a place to drop a session into `project`. */
   const dropInto = (project: string) => ({
@@ -132,15 +141,18 @@ export default function Sidebar({
     },
   });
 
-  const row = (s: SessionMeta, project: string, nested: boolean) => {
+  /** `place`: shown instead of the time, for a pinned session (its project). */
+  const row = (s: SessionMeta, project: string, nested: boolean, place?: string) => {
     const ref = { project, sessionId: s.id };
     return (
       <SessionRow
         key={s.id}
         title={s.title}
         meta={sessionMeta(s)}
-        when={ago(s.updated_at)}
+        when={place ?? ago(s.updated_at)}
         nested={nested}
+        pinned={!!s.pinned}
+        onPin={() => onPinSession(ref, !s.pinned)}
         working={running.includes(s.id)}
         active={!databasesOpen && selected?.sessionId === s.id}
         onSelect={() => onSelect(ref)}
@@ -152,6 +164,56 @@ export default function Sidebar({
           setOver(null);
         }}
       />
+    );
+  };
+
+  const project = (p: ProjectInfo) => {
+    const open = !closed.has(p.name);
+    return (
+      <div key={p.name} className="tree-project" data-project={p.name} {...dropInto(p.name)}>
+        <div className="side-row tree-project-header">
+          <button
+            className="side-row-main"
+            aria-expanded={open}
+            title={open ? "Hide sessions" : "Show sessions"}
+            onClick={() => closed.toggle(p.name)}
+          >
+            <Icon name={open ? "folder-open" : "folder"} />
+            <span className="side-row-label">{p.name}</span>
+          </button>
+          <button
+            className="icon-btn side-row-action"
+            aria-label={`${p.pinned ? "Unpin" : "Pin"} project ${p.name}`}
+            title={p.pinned ? "Unpin" : "Pin to the top"}
+            aria-pressed={!!p.pinned}
+            onClick={() => onPinProject(p.name, !p.pinned)}
+          >
+            <Icon name={p.pinned ? "pin-off" : "pin"} />
+          </button>
+          <button
+            className="icon-btn side-row-action"
+            aria-label={`Delete project ${p.name}`}
+            title="Delete project"
+            onClick={() => onDeleteProject(p.name)}
+          >
+            <Icon name="trash" />
+          </button>
+          <button
+            className="icon-btn side-row-action"
+            aria-label={`New session in ${p.name}`}
+            title="New session in this project"
+            onClick={() => {
+              closed.open(p.name);
+              onCreateSession(p.name);
+            }}
+          >
+            <Icon name="plus" />
+          </button>
+        </div>
+        {open && listed(p.sessions, p.name).map((s) => row(s, p.name, true))}
+        {open && more(p.sessions, p.name, true)}
+        {open && p.sessions.length === 0 && <p className="tree-empty nested">No sessions yet.</p>}
+      </div>
     );
   };
 
@@ -171,52 +233,20 @@ export default function Sidebar({
         )}
       </div>
       <nav className="tree" aria-label="Projects" ref={tree}>
+        {(pinnedProjects.length > 0 || pinnedSessions.length > 0) && (
+          <div className="tree-pinned" role="group" aria-label="Pinned">
+            <SectionTitle title="Pinned" />
+            {pinnedProjects.map(project)}
+            {pinnedSessions.map(({ session, project: name }) => row(session, name, false, name || undefined))}
+          </div>
+        )}
         <SectionTitle title="Projects">
           <button className="icon-btn" aria-label="New project" title="New project" onClick={onNewProject}>
             <Icon name="plus" />
           </button>
         </SectionTitle>
         {named.length === 0 && <p className="tree-empty">Group a client's sessions in a project.</p>}
-        {named.map((p) => {
-          const open = !closed.has(p.name);
-          return (
-            <div key={p.name} className="tree-project" data-project={p.name} {...dropInto(p.name)}>
-              <div className="side-row tree-project-header">
-                <button
-                  className="side-row-main"
-                  aria-expanded={open}
-                  title={open ? "Hide sessions" : "Show sessions"}
-                  onClick={() => closed.toggle(p.name)}
-                >
-                  <Icon name={open ? "folder-open" : "folder"} />
-                  <span className="side-row-label">{p.name}</span>
-                </button>
-                <button
-                  className="icon-btn side-row-action"
-                  aria-label={`Delete project ${p.name}`}
-                  title="Delete project"
-                  onClick={() => onDeleteProject(p.name)}
-                >
-                  <Icon name="trash" />
-                </button>
-                <button
-                  className="icon-btn side-row-action"
-                  aria-label={`New session in ${p.name}`}
-                  title="New session in this project"
-                  onClick={() => {
-                    closed.open(p.name);
-                    onCreateSession(p.name);
-                  }}
-                >
-                  <Icon name="plus" />
-                </button>
-              </div>
-              {open && listed(p.sessions, p.name).map((s) => row(s, p.name, true))}
-              {open && more(p.sessions, p.name, true)}
-              {open && p.sessions.length === 0 && <p className="tree-empty nested">No sessions yet.</p>}
-            </div>
-          );
-        })}
+        {named.map(project)}
         <div className="tree-loose" {...dropInto("")}>
           <SectionTitle title="Sessions" />
           {listed(loose, "").map((s) => row(s, "", false))}
@@ -293,6 +323,8 @@ interface SessionRowProps {
   when: string | null;
   /** Inside a project: indented under its name. */
   nested: boolean;
+  pinned: boolean;
+  onPin: () => void;
   working: boolean;
   active: boolean;
   onSelect: () => void;
@@ -375,6 +407,15 @@ function SessionRow(p: SessionRowProps) {
       ) : (
         when && <small className="side-row-hint">{when}</small>
       )}
+      <button
+        className="icon-btn side-row-action"
+        aria-label={`${p.pinned ? "Unpin" : "Pin"} ${title}`}
+        title={p.pinned ? "Unpin" : "Pin to the top"}
+        aria-pressed={p.pinned}
+        onClick={p.onPin}
+      >
+        <Icon name={p.pinned ? "pin-off" : "pin"} />
+      </button>
       <button
         className="icon-btn side-row-action"
         aria-label={`Rename ${title}`}

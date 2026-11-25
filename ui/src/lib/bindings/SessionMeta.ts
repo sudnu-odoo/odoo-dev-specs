@@ -26,4 +26,8 @@ hosting: "online" | "sh" | null,
 /**
  * The client's Odoo version: an Odoo branch, e.g. "19.0" or "saas-19.2".
  */
-version: string | null, };
+version: string | null, 
+/**
+ * Pinned at the top of the sidebar.
+ */
+pinned?: boolean, };

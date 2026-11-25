@@ -41,6 +41,8 @@ function setup(overrides: Partial<SidebarProps> = {}) {
     onDeleteProject: vi.fn(),
     onNewProject: vi.fn(),
     onMoveSession: vi.fn(),
+    onPinSession: vi.fn(),
+    onPinProject: vi.fn(),
     onRenameSession: vi.fn().mockResolvedValue(undefined),
     onOpenSettings: vi.fn(),
     ...overrides,
@@ -213,6 +215,8 @@ describe("Sidebar", () => {
       onDeleteSession: vi.fn(),
       onDeleteProject: vi.fn(),
       onMoveSession: vi.fn(),
+      onPinSession: vi.fn(),
+      onPinProject: vi.fn(),
       onRenameSession: vi.fn(),
       onOpenSettings: vi.fn(),
     };
@@ -221,5 +225,34 @@ describe("Sidebar", () => {
     expect(screen.queryByRole("button", { name: "Invoice layout" })).not.toBeInTheDocument();
     rerender(<Sidebar {...props} reveal={{ project: "Acme", at: 1 }} />);
     expect(await screen.findByRole("button", { name: "Invoice layout" })).toBeInTheDocument();
+  });
+
+  it("pins a session or a project, and lists what is pinned on top", async () => {
+    const props = setup();
+    await userEvent.click(screen.getByRole("button", { name: "Pin Invoice layout" }));
+    expect(props.onPinSession).toHaveBeenCalledWith({ project: "Acme", sessionId: "s2" }, true);
+    await userEvent.click(screen.getByRole("button", { name: "Pin project Globex" }));
+    expect(props.onPinProject).toHaveBeenCalledWith("Globex", true);
+  });
+
+  it("shows pinned projects and sessions in Pinned, and unpins them there", async () => {
+    const pinned: ProjectInfo[] = [
+      {
+        name: "Acme",
+        sessions: [session("s1", "Delivery window"), { ...session("s2", "Invoice layout"), pinned: true }],
+      },
+      { name: "Globex", pinned: true, sessions: [session("g1", "Lots")] },
+    ];
+    const props = setup({ projects: pinned });
+    const group = screen.getByRole("group", { name: "Pinned" });
+    expect(within(group).getByRole("button", { name: "Globex" })).toBeInTheDocument();
+    expect(within(group).getByRole("button", { name: "Invoice layout" }).parentElement).toHaveTextContent(
+      "Acme",
+    );
+    // A pinned project leaves Projects; a pinned session stays in its project too.
+    expect(screen.getAllByRole("button", { name: "Globex" })).toHaveLength(1);
+    expect(screen.getAllByRole("button", { name: "Invoice layout" })).toHaveLength(2);
+    await userEvent.click(within(group).getByRole("button", { name: "Unpin project Globex" }));
+    expect(props.onPinProject).toHaveBeenCalledWith("Globex", false);
   });
 });
