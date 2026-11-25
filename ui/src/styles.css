@@ -35,8 +35,8 @@
   --border: #2e2e36;
   --text: #ececf1;
   --muted: #9a9aa6;
-  --accent: #a07a98;
-  --accent-text: #16161a; /* white on this mauve is too faint */
+  --accent: #8b6383; /* deep enough for white text (5:1) */
+  --accent-text: #ffffff;
   --active: #2c2530;
   --danger: #f97066;
   --success: #51cf66;
@@ -2417,4 +2417,9 @@ dialog.modal > * {
 .side-more:hover {
   background: var(--bg);
   color: var(--text);
+}
+
+/* A dialog without a field takes focus itself: no ring until Tab is pressed. */
+dialog.modal:focus {
+  outline: none;
 }

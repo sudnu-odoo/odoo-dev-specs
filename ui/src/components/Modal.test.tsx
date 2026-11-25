@@ -42,4 +42,21 @@ describe("Modal", () => {
     await userEvent.click(screen.getByRole("button", { name: "Done" }));
     expect(screen.getByRole("button", { name: "Open" })).toHaveFocus();
   });
+
+  it("starts in its field, or on itself when it has none (no focus ring on a button)", () => {
+    const { unmount } = render(
+      <Modal label="With field" onClose={vi.fn()}>
+        <button>First</button>
+        <input aria-label="Name" />
+      </Modal>,
+    );
+    expect(screen.getByRole("textbox", { name: "Name" })).toHaveFocus();
+    unmount();
+    render(
+      <Modal label="Buttons only" onClose={vi.fn()}>
+        <button>General</button>
+      </Modal>,
+    );
+    expect(screen.getByRole("dialog", { name: "Buttons only" })).toHaveFocus();
+  });
 });

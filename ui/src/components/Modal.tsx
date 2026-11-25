@@ -27,6 +27,13 @@ export default function Modal({ label, onClose, place = "center", width = "460px
         // Without showModal (tests, very old engines) it still shows, just not modal.
         dialog.setAttribute("open", "");
       }
+      // The browser focuses the first button, which then shows a focus ring. Start
+      // typing at once when there is a field; otherwise start on the dialog itself.
+      const field = dialog.querySelector<HTMLElement>(
+        "input:not([type=checkbox]):not([type=radio]), textarea, select",
+      );
+      if (field) field.focus();
+      else dialog.focus();
     }
     return () => {
       if (dialog?.open) dialog.close?.();
@@ -36,6 +43,7 @@ export default function Modal({ label, onClose, place = "center", width = "460px
   return (
     <dialog
       ref={ref}
+      tabIndex={-1}
       className="modal"
       data-place={place}
       aria-label={label}
