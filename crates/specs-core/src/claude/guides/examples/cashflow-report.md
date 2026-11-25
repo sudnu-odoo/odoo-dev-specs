@@ -11,11 +11,11 @@ it paid, split into tax base, VAT and withholding tax, with the cost center.
   **in proportion** (also with partial payments and write-offs); items paid directly on a
   bank statement without a payment are recorded as they are.
 - Each report line: date, bank journal, payment number, related invoice/bill and line,
-  analytic (cost center), currency, tax base, VAT, WHT, amount.
+  analytic (cost center), **currency**, tax base, VAT, WHT, amount.
 
 **How it was drawn** — numbered parts (01 setup field, 02 logic for invoice/bill
-payments, 03 logic for direct bank statements), each case a worked example: the journal
-items of invoice → payment → bank, the matching drawn with arrows, the computation step by
+payments, 03 logic for direct bank statements), each case a worked example: the **journal
+items** of invoice → payment → bank as `table`s (account, debit, credit, matching), the computation step by
 step with real-looking amounts, and the expected report as a table. Obsolete approaches
 kept but marked OBSOLETE.
 

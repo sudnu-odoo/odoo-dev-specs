@@ -29,3 +29,11 @@ Short rules learned when the app's specs were compared with the ones the team ma
 - Prefer configuration over hard-coding: a field on the operation type, tax group or
   category that the client can set, instead of naming specific records.
 - Reuse standard features (activities, approvals, stock at date) and say so.
+- When a close example card gives a decision (statuses, a default, a field), follow it
+  unless the request says otherwise; if you choose differently, say why in one line.
+- A mapping or a list of values (type → field shown, status → buttons) goes in a `table`,
+  not in a note.
+- For accounting logic, the worked example shows the journal items themselves (account,
+  debit, credit, matching) as a `table`, then the result.
+- A report described in parts (setup, menu, rules, filters, columns, defaults) gets one
+  section per part.

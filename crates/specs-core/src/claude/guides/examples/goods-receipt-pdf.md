@@ -7,7 +7,7 @@
 - Every part of the page is mapped to its source: company name/logo/address, the
   purchase order and its approval date, the purchase request (date, description, cost
   center), the warehouse, a new document number with its own prefix, a delivery note
-  number (new text field), remarks.
+  number (new text field), **remarks (a new field, not the standard Note)**.
 - Lines from `stock.move`: product code and name, ordered quantity, received before
   (cumulative for the same PO), received now, returned, **remaining = ordered − received
   before − received now − returned**, internal notes.
@@ -16,9 +16,9 @@
 - Footer with page number and print date; a field removed from the old layout is crossed
   out.
 
-**How it was drawn** — the client's sample document (as-is) beside the Odoo record; arrows
-from each part of the document to the field it comes from, with "new field" marked;
-formulas written next to the computed columns.
+**How it was drawn** — the expected page: today's report screenshot with a note on each
+part, plus a `table` mock-up of the new lines (each column with its source or formula);
+arrows from each part to the field it comes from, with "new field" marked.
 
 **Traps**: cumulative quantities across several receipts of the same PO; returns; where
 the approvers come from.

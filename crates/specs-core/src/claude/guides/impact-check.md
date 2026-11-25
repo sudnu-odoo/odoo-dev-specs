@@ -25,6 +25,10 @@ Odoo documents chain: one action writes the next document. Trace what the change
 For each step: say what the change alters there, in plain words.
 
 ## 3. Who else uses the same thing
+Checklist for a rule that blocks or changes a step (go through every line):
+customer portal (signing, paying online) · e-commerce orders · duplicating a record ·
+import · list / batch actions · mobile and barcode apps · scheduled actions · API.
+
 - Other screens, reports, automations and modules that read the same field, button or rule.
 - Other ways the same records are made or moved on: import, duplicating a record, the customer portal (signing, paying online), e-commerce, email, scheduled actions, other apps. A rule that blocks a button must also hold on those paths.
 - Edge cases: several records at once, archived or cancelled records, zero quantities, several companies.

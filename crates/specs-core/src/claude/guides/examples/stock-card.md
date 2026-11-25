@@ -17,9 +17,10 @@ Excel. Odoo.sh.
 - Filters: dates (start 00:00, end 23:59), locations including their children, product
   categories, products, lot/serial "contains"; filters can be saved.
 - Grouped by product; folded rows already show the totals per category, unfolded shows the
-  moves. Default when opened: today, grouped by product. Button to export to XLSX.
+  moves. Default when opened: **today** (00:00–23:59, not the current month), grouped by
+  product. Button to export to XLSX.
 
-**How it was drawn** — one frame in numbered parts: 1 setup field, 2 menu, PART 1 RULES,
+**How it was drawn** — numbered parts, **each its own section**: 1 setup field, 2 menu, PART 1 RULES,
 PART 2 FILTERS, PART 3 FIELDS & BUTTONS, DEFAULTS. A mock-up of the expected report (a
 table with the columns) next to the real screens, each column labelled with its source
 and formula.
