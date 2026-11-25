@@ -6,6 +6,7 @@ pub mod browser;
 mod options;
 pub mod plan;
 pub mod proto;
+pub mod scenario;
 
 pub use options::{parse_args, Options};
 
@@ -169,6 +170,10 @@ pub struct PageShot {
     pub width: Option<u32>,
     /// Browser height in pixels (default 900).
     pub height: Option<u32>,
+    /// Set by spec_build from a screen's scenario; not part of the tool's input.
+    #[serde(skip)]
+    #[schemars(skip)]
+    pub scenario: Option<browser::ShotScenario>,
 }
 
 #[derive(Debug, Clone)]
@@ -520,6 +525,7 @@ impl DiagramServer {
                     height: page.height.unwrap_or(900).clamp(240, 2160),
                 },
                 out: self.session_dir.join(format!("screenshots/{stem}.png")),
+                scenario: page.scenario.clone(),
             })
             .collect();
         let maps = browser::screenshots_prepared(&running.url(), &shots, prepare).await?;
@@ -566,6 +572,13 @@ impl DiagramServer {
                 name: s.name.clone(),
                 width: s.width,
                 height: s.height,
+                scenario: s.scenario.as_ref().map(|sc| browser::ShotScenario {
+                    model: s.model.clone().unwrap_or_default(),
+                    setup: (!sc.steps.is_empty()).then(|| {
+                        scenario::script(s.model.as_deref().unwrap_or_default(), &s.page, sc)
+                    }),
+                    click: sc.click.clone(),
+                }),
             })
             .collect();
         let mut shots = std::collections::HashMap::new();

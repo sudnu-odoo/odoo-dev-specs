@@ -64,6 +64,10 @@ pub struct Section {
     /// Up to 5 short lines under the heading, in business words; numbered steps are fine.
     #[serde(default)]
     pub text: Vec<String>,
+    /// A condition for the whole section, shown in orange at its top, e.g. "NOTE: only
+    /// for transfers whose operation type has an approver".
+    #[serde(default)]
+    pub note: Option<String>,
     /// Real Odoo screens of this requirement, top to bottom.
     #[serde(default)]
     pub screens: Vec<Screen>,
@@ -99,6 +103,15 @@ pub struct Column {
 
 #[derive(Debug, Clone, Deserialize, JsonSchema)]
 pub struct Screen {
+    /// The case or condition this screen shows, in orange above it, e.g. "IF APPROVED",
+    /// "CASE 2: created from a purchase order", "IF Unlock = TRUE".
+    #[serde(default)]
+    pub condition: Option<String>,
+    /// Put a copy of the record in the state this screen shows before taking it (the
+    /// original demo record is never changed): call its buttons, set values, schedule
+    /// activities, open a pop-up. Needs `model` and a page ending with the record id.
+    #[serde(default)]
+    pub scenario: Option<crate::scenario::Scenario>,
     /// Short unique name, e.g. "quotation_form"; also the screenshot's file name.
     pub name: String,
     /// Path on the local Odoo, e.g. "/odoo/sales/3" or "/report/html/sale.report_saleorder/3";
@@ -121,6 +134,15 @@ pub struct Screen {
 
 #[derive(Debug, Clone, Deserialize, JsonSchema)]
 pub struct Note {
+    /// What the note says, which sets its colour: "new" (a new or changed thing, red,
+    /// the default), "action" (what the user does, or a status, green), "result" (what
+    /// the system does, blue), "condition" (orange).
+    #[serde(default)]
+    pub kind: Option<String>,
+    /// "left" or "right" (default) of the screenshot: put a note on the side of what it
+    /// points at, so arrows stay short.
+    #[serde(default)]
+    pub side: Option<String>,
     /// The note, one short idea per line.
     pub lines: Vec<String>,
     /// What it is about on the screenshot (e.g. "button:action_confirm", "row:validity_date",
@@ -157,6 +179,16 @@ pub struct Link {
     pub to: String,
     /// The rule it carries, e.g. "partner_id = the user's partner".
     pub label: Option<String>,
+    /// Start the arrow on this element of the `from` screen (e.g. the button that is
+    /// clicked) instead of the screen's edge.
+    #[serde(default)]
+    pub from_anchor: Option<String>,
+    /// End the arrow on this element of the `to` screen.
+    #[serde(default)]
+    pub to_anchor: Option<String>,
+    /// "action" (green, default for a click), "result" (blue), "new" (red), "condition".
+    #[serde(default)]
+    pub kind: Option<String>,
 }
 
 /// A screenshot ready to place: its file (inside the session), the PNG and its map.
@@ -193,6 +225,9 @@ pub fn validate(plan: &SpecPlan) -> Result<()> {
             screen.name
         );
         names.push(screen.name.clone());
+        if let Some(sc) = &screen.scenario {
+            crate::scenario::validate(screen.model.as_deref(), &screen.page, sc)?;
+        }
         if let Some(model) = screen.page.strip_prefix("model:") {
             let model = model.strip_suffix("/new").unwrap_or(model);
             ensure!(
@@ -211,6 +246,12 @@ pub fn validate(plan: &SpecPlan) -> Result<()> {
         }
     }
     for link in &plan.links {
+        if let Some(k) = link.kind.as_deref() {
+            ensure!(
+                kind_color(k).is_some(),
+                "A link has kind \"{k}\": use new, action, result or condition."
+            );
+        }
         for end in [&link.from, &link.to] {
             ensure!(
                 names.contains(end),
@@ -244,6 +285,16 @@ pub fn validate(plan: &SpecPlan) -> Result<()> {
         }
         for screen in &section.screens {
             for note in &screen.notes {
+                if let Some(k) = note.kind.as_deref() {
+                    ensure!(kind_color(k).is_some(), "A note on screen \"{}\" has kind \"{k}\": use new, action, result or condition.", screen.name);
+                }
+                if let Some(side) = note.side.as_deref() {
+                    ensure!(
+                        side == "left" || side == "right",
+                        "A note on screen \"{}\" has side \"{side}\": use left or right.",
+                        screen.name
+                    );
+                }
                 ensure!(
                     note.lines.len() <= MAX_NOTE_LINES,
                     "A note on screen \"{}\" has {} lines: keep each note to {MAX_NOTE_LINES} lines (split it or shorten it).",
@@ -261,6 +312,17 @@ pub fn validate(plan: &SpecPlan) -> Result<()> {
 const MAX_NOTE_LINES: usize = 3;
 /// A note pushed further than this below what it points at counts as crowded.
 const CROWDED: f64 = 40.0;
+
+/// The colour of a note or arrow of this kind.
+pub fn kind_color(kind: &str) -> Option<Color> {
+    match kind {
+        "new" => Some(Color::Red),
+        "action" | "status" => Some(Color::Green),
+        "result" => Some(Color::Blue),
+        "condition" | "case" => Some(Color::Yellow),
+        _ => None,
+    }
+}
 
 /// The screenshot's height in its own pixels (the PNG header), to map map points.
 fn shot_height(shot: &ShotData) -> f64 {
@@ -390,7 +452,7 @@ pub fn build(
         y = b.section(n + 1, section, y + SECTION_GAP, shots, framed)?;
     }
     for link in &plan.links {
-        b.link(link)?;
+        b.link(link, shots)?;
     }
     if !plan.tests.is_empty() {
         y = b.text("Test cases", 0.0, y + SECTION_GAP, HEADING, None) + 12.0;
@@ -472,6 +534,9 @@ impl Builder<'_> {
     ) -> Result<f64> {
         let first = self.made.len();
         let mut y = self.text(&format!("{n}. {}", section.title), 0.0, top, HEADING, None) + 12.0;
+        if let Some(note) = &section.note {
+            y = self.text(note, 0.0, y, BODY, Some(Color::Yellow)) + 12.0;
+        }
         if !section.text.is_empty() {
             y = self.text(&section.text.join("\n"), 0.0, y, BODY, None) + 12.0;
         }
@@ -587,8 +652,9 @@ impl Builder<'_> {
         y
     }
 
-    /// One screenshot with its caption, model, new fields and notes at (x, y).
-    /// Returns the right edge of its notes and the bottom of the block.
+    /// One screenshot with its condition, caption, model, new fields and notes at
+    /// (x, y): notes in a column on its right, and on its left for those asked there.
+    /// Returns the right edge of what it drew and the bottom of the block.
     fn screen(
         &mut self,
         screen: &Screen,
@@ -598,13 +664,29 @@ impl Builder<'_> {
         width: f64,
     ) -> Result<(f64, f64)> {
         let first = self.made.len();
+        let on_left =
+            |item: &Item| matches!(item, Item::Note(n) if n.side.as_deref() == Some("left"));
+        let left_width = screen
+            .notes
+            .iter()
+            .filter(|n| n.side.as_deref() == Some("left"))
+            .map(|n| text_width(&n.lines.join("\n"), BODY))
+            .fold(0.0, f64::max);
+        let ix = if left_width > 0.0 {
+            x + left_width + NOTES_GAP
+        } else {
+            x
+        };
+        if let Some(condition) = &screen.condition {
+            y = self.text(condition, ix, y, BODY, Some(Color::Yellow)) + 6.0;
+        }
         if let Some(caption) = &screen.caption {
-            y = self.text(caption, x, y, BODY, None) + 4.0;
+            y = self.text(caption, ix, y, BODY, None) + 4.0;
         }
         if let Some(model) = &screen.model {
-            y = self.text(&format!("Model: {model}"), x, y, SMALL, Some(Color::Blue)) + 6.0;
+            y = self.text(&format!("Model: {model}"), ix, y, SMALL, Some(Color::Blue)) + 6.0;
         }
-        let image = self.scene.add_image(&shot.png, at(x, y), Some(width))?;
+        let image = self.scene.add_image(&shot.png, at(ix, y), Some(width))?;
         self.scene.set_source(&image, &shot.path)?;
         self.made.push(image.clone());
         self.images.insert(screen.name.clone(), image.clone());
@@ -612,9 +694,8 @@ impl Builder<'_> {
             .scene
             .bounds(std::slice::from_ref(&image))
             .expect("just added");
-        let notes_x = x + iw + NOTES_GAP;
-        // Notes go top to bottom in their column, each level with what it is about.
-        let mut free = iy;
+        let right_x = ix + iw + NOTES_GAP;
+        let mut free = [iy, iy]; // [right column, left column]
         let mut bottom = iy + ih;
 
         // Top to bottom in the order of what they point at, so arrows do not cross.
@@ -634,26 +715,32 @@ impl Builder<'_> {
         items.sort_by(|a, b| a.0.total_cmp(&b.0));
         // When notes would have to be pushed far below what they point at (several
         // things on one line, e.g. header buttons), long arrows would cross each other:
-        // number them on the screenshot instead, with no arrows.
-        let numbered = {
+        // number them on the screenshot instead, with no arrows. Each side on its own.
+        let crowded = |left: bool| {
             let mut next = iy;
-            items.iter().any(|(at, item)| {
-                if !at.is_finite() {
-                    return false;
-                }
-                let want = iy + at * (ih / shot_height(shot)) - LINE / 2.0;
-                let crowded = next - want > CROWDED;
-                let lines = match item {
-                    Item::Field(f) => field_note(f).lines().count(),
-                    Item::Note(n) => n.lines.len(),
-                };
-                next = want.max(next) + lines as f64 * LINE + 16.0;
-                crowded
-            })
+            items
+                .iter()
+                .filter(|(_, i)| on_left(i) == left)
+                .any(|(at, item)| {
+                    if !at.is_finite() {
+                        return false;
+                    }
+                    let want = iy + at * (ih / shot_height(shot)) - LINE / 2.0;
+                    let pushed = next - want > CROWDED;
+                    let lines = match item {
+                        Item::Field(f) => field_note(f).lines().count() + 1,
+                        Item::Note(n) => n.lines.len(),
+                    };
+                    next = want.max(next) + lines as f64 * LINE + 16.0;
+                    pushed
+                })
         };
+        let numbered = [crowded(false), crowded(true)];
         let mut number = 0;
-        for (_, item) in items {
-            let (lines, area, outline) = match item {
+        for (_, item) in &items {
+            let left = on_left(item);
+            let side = usize::from(left);
+            let (lines, area, outline, color) = match item {
                 Item::Field(field) => {
                     let found = anchors::locate(&shot.map, &format!("row:{}", field.technical))
                         .or_else(|_| {
@@ -694,14 +781,14 @@ impl Builder<'_> {
                     };
                     let mut text = field_note(field);
                     if found.is_err() && area.is_some() {
-                        let side = if field.place.as_deref() == Some("right") {
+                        let place = if field.place.as_deref() == Some("right") {
                             "right of"
                         } else {
                             "below"
                         };
-                        text.push_str(&format!("\n(goes {side} this field)"));
+                        text.push_str(&format!("\n(goes {place} this field)"));
                     }
-                    (text, area, true)
+                    (text, area, true, Color::Red)
                 }
                 Item::Note(note) => {
                     let area = match &note.anchor {
@@ -714,45 +801,59 @@ impl Builder<'_> {
                         },
                         None => None,
                     };
-                    (note.lines.join("\n"), area, note.outline.unwrap_or(true))
+                    let color = note
+                        .kind
+                        .as_deref()
+                        .and_then(kind_color)
+                        .unwrap_or(Color::Red);
+                    (
+                        note.lines.join("\n"),
+                        area,
+                        note.outline.unwrap_or(true),
+                        color,
+                    )
                 }
             };
             let want = match area {
                 Some(a) => self.on_image(&image, a.x, a.y + a.h / 2.0)?.1 - LINE / 2.0,
-                None => free,
+                None => free[side],
             };
             let text = match area {
-                Some(_) if numbered => {
+                Some(_) if numbered[side] => {
                     number += 1;
                     format!("{number}. {lines}")
                 }
                 _ => lines,
             };
-            let id = self.scene.add_text(
-                &text,
-                at(notes_x, want.max(free)),
-                Some(BODY),
-                Some(Color::Red),
-            );
+            let nx = if left {
+                ix - NOTES_GAP - text_width(&text, BODY)
+            } else {
+                right_x
+            };
+            let id =
+                self.scene
+                    .add_text(&text, at(nx, want.max(free[side])), Some(BODY), Some(color));
             self.made.push(id.clone());
-            free = self.bottom(&id) + 16.0;
+            free[side] = self.bottom(&id) + 16.0;
             let Some(a) = area else { continue };
-            if numbered {
-                let (mx, my) = self.on_image(&image, a.x + a.w + 6.0, a.y - 6.0)?;
+            if numbered[side] {
+                let mark_x = if left { a.x - 26.0 } else { a.x + a.w + 6.0 };
+                let (mx, my) = self.on_image(&image, mark_x, a.y - 6.0)?;
                 let marker = self.scene.add_text(
                     &number.to_string(),
                     at(mx, my - LINE / 2.0),
                     Some(BODY),
-                    Some(Color::Red),
+                    Some(color),
                 );
                 self.made.push(marker);
             } else {
                 let tip = Target::OnImage {
                     image: image.clone(),
-                    x: a.x + a.w,
+                    x: if left { a.x } else { a.x + a.w },
                     y: a.y + a.h / 2.0,
                 };
-                self.made.push(self.scene.add_pointer(&id, &tip, None)?);
+                self.made
+                    .push(self.scene.add_pointer(&id, &tip, Some(color))?);
             }
             if outline {
                 let corner = Target::OnImage {
@@ -760,35 +861,142 @@ impl Builder<'_> {
                     x: a.x - 4.0,
                     y: a.y - 4.0,
                 };
-                self.made.push(
-                    self.scene
-                        .add_highlight(&corner, (a.w + 8.0, a.h + 8.0), None)?,
-                );
+                self.made.push(self.scene.add_highlight(
+                    &corner,
+                    (a.w + 8.0, a.h + 8.0),
+                    Some(color),
+                )?);
             }
         }
-        bottom = bottom.max(free);
+        bottom = bottom.max(free[0]).max(free[1]);
         // The right edge of what this screen drew: a long note may be wider than
         // the notes column, and the next screen of a row must clear it.
         let right = self
             .scene
             .bounds(&self.made[first..])
             .map_or(0.0, |(bx, _, bw, _)| bx + bw)
-            .max(notes_x + NOTES_WIDTH);
+            .max(right_x + NOTES_WIDTH);
         Ok((right, bottom))
     }
 
-    fn link(&mut self, link: &Link) -> Result<()> {
-        let (Some(from), Some(to)) = (self.images.get(&link.from), self.images.get(&link.to))
-        else {
+    fn link(&mut self, link: &Link, shots: &HashMap<String, ShotData>) -> Result<()> {
+        let (Some(from), Some(to)) = (
+            self.images.get(&link.from).cloned(),
+            self.images.get(&link.to).cloned(),
+        ) else {
             bail!(
                 "The link from \"{}\" to \"{}\" names an unknown screen.",
                 link.from,
                 link.to
             );
         };
-        let arrow = self.scene.add_arrow(from, to, link.label.as_deref())?;
-        self.scene.style_line(&arrow, Color::Red, true)?;
+        let color = link.kind.as_deref().and_then(kind_color);
+        if link.from_anchor.is_none() && link.to_anchor.is_none() {
+            let arrow = self.scene.add_arrow(&from, &to, link.label.as_deref())?;
+            self.scene
+                .style_line(&arrow, color.unwrap_or(Color::Red), true)?;
+            self.made.push(arrow);
+            return Ok(());
+        }
+        // From an element of one screen (the button clicked) to the next screen: the
+        // element is outlined, and the arrow runs from the screenshot's edge level with
+        // it to the next screenshot's edge, so it never crosses a screenshot.
+        let color = color.unwrap_or(Color::Green);
+        let rect =
+            |this: &Self, image: &str| this.scene.bounds(&[image.to_string()]).unwrap_or_default();
+        let (fx, fy, fw, fh) = rect(self, &from);
+        let (tx, ty, tw, th) = rect(self, &to);
+        let spot = |this: &mut Self,
+                    image: &str,
+                    screen: &str,
+                    anchor: Option<&str>|
+         -> Result<Option<(f64, f64)>> {
+            let Some(name) = anchor else { return Ok(None) };
+            let Some(a) = shots
+                .get(screen)
+                .and_then(|s| anchors::locate(&s.map, name).ok())
+            else {
+                this.warnings.push(format!(
+                    "link {} -> {}: \"{name}\" is not on screen {screen}.",
+                    link.from, link.to
+                ));
+                return Ok(None);
+            };
+            let corner = Target::OnImage {
+                image: image.to_string(),
+                x: a.x - 4.0,
+                y: a.y - 4.0,
+            };
+            let outline = this
+                .scene
+                .add_highlight(&corner, (a.w + 8.0, a.h + 8.0), Some(color))?;
+            this.made.push(outline);
+            Ok(Some(this.on_image(
+                image,
+                a.x + a.w / 2.0,
+                a.y + a.h / 2.0,
+            )?))
+        };
+        let start_at = spot(self, &from, &link.from, link.from_anchor.as_deref())?;
+        let end_at = spot(self, &to, &link.to, link.to_anchor.as_deref())?;
+        let beside = tx >= fx + fw;
+        let (start, end) = if beside {
+            // Side by side: right edge of the first, left edge of the next.
+            let sy = start_at.map_or(fy + fh / 2.0, |p| p.1);
+            let ey = end_at.map_or(sy.clamp(ty, ty + th), |p| p.1);
+            (
+                Target::Point(fx + fw + 6.0, sy),
+                Target::Point(tx - 6.0, ey),
+            )
+        } else {
+            // One below the other: bottom edge of the first, top edge of the next.
+            let sx = start_at.map_or(fx + fw / 2.0, |p| p.0);
+            let ex = end_at.map_or(sx.clamp(tx, tx + tw), |p| p.0);
+            (
+                Target::Point(sx, fy + fh + 6.0),
+                Target::Point(ex, ty - 6.0),
+            )
+        };
+        // A screenshot between the two would be crossed: go around, below them all.
+        let resolve = |t: &Target| match t {
+            Target::Point(x, y) => (*x, *y),
+            Target::OnImage { .. } => (0.0, 0.0),
+        };
+        let (p, q) = (resolve(&start), resolve(&end));
+        let others: Vec<(f64, f64, f64, f64)> = self
+            .images
+            .values()
+            .filter(|id| **id != from && **id != to)
+            .filter_map(|id| self.scene.bounds(std::slice::from_ref(id)))
+            .collect();
+        let crosses = |r: &(f64, f64, f64, f64)| {
+            let (x0, x1) = (p.0.min(q.0), p.0.max(q.0));
+            let (y0, y1) = (p.1.min(q.1), p.1.max(q.1));
+            r.0 < x1 && r.0 + r.2 > x0 && r.1 < y1.max(y0 + 1.0) && r.1 + r.3 > y0
+        };
+        let blocked: Vec<_> = others.iter().filter(|r| crosses(r)).collect();
+        let (arrow, label) = if blocked.is_empty() {
+            self.scene
+                .add_flow(&start, &end, color, link.label.as_deref())?
+        } else {
+            let below = blocked
+                .iter()
+                .map(|r| r.1 + r.3)
+                .chain([fy + fh, ty + th])
+                .fold(f64::MIN, f64::max)
+                + 40.0;
+            let sx = start_at.map_or(fx + fw / 2.0, |p| p.0);
+            let ex = end_at.map_or(tx + tw / 2.0, |p| p.0);
+            self.scene.add_flow_via(
+                &Target::Point(sx, fy + fh + 6.0),
+                &[(sx, below), (ex, below)],
+                &Target::Point(ex, ty + th + 6.0),
+                color,
+                link.label.as_deref(),
+            )?
+        };
         self.made.push(arrow);
+        self.made.extend(label);
         Ok(())
     }
 
@@ -803,6 +1011,11 @@ impl Builder<'_> {
 
 /// "New field: Delivery Deadline (x_delivery_deadline, date)" and, if given, one
 /// more short line. The example value is on the screenshot, not repeated here.
+/// About how wide a text is drawn at this size.
+fn text_width(text: &str, size: f64) -> f64 {
+    text.lines().map(|l| l.chars().count()).max().unwrap_or(0) as f64 * size * 0.55
+}
+
 /// Break `text` into lines of at most `width` characters, at spaces.
 fn wrap(text: &str, width: usize) -> String {
     let mut lines: Vec<String> = Vec::new();

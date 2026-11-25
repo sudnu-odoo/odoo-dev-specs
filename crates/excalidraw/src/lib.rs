@@ -346,6 +346,79 @@ impl Scene {
         Ok(id)
     }
 
+    /// A flow arrow between two spots (e.g. a button on one screenshot and the next
+    /// screenshot), with an optional label at its middle.
+    /// Returns the arrow id and the label's.
+    pub fn add_flow(
+        &mut self,
+        from: &Target,
+        to: &Target,
+        color: Color,
+        label: Option<&str>,
+    ) -> Result<(String, Option<String>)> {
+        self.add_flow_via(from, &[], to, color, label)
+    }
+
+    /// Like [`Scene::add_flow`], through these corners on the way (canvas points).
+    pub fn add_flow_via(
+        &mut self,
+        from: &Target,
+        via: &[(f64, f64)],
+        to: &Target,
+        color: Color,
+        label: Option<&str>,
+    ) -> Result<(String, Option<String>)> {
+        let (sx, sy) = self.resolve(from)?;
+        let (tx, ty) = self.resolve(to)?;
+        let path: Vec<(f64, f64)> = std::iter::once((sx, sy))
+            .chain(via.iter().copied())
+            .chain(std::iter::once((tx, ty)))
+            .collect();
+        let (minx, maxx) = path
+            .iter()
+            .fold((f64::MAX, f64::MIN), |(a, b), p| (a.min(p.0), b.max(p.0)));
+        let (miny, maxy) = path
+            .iter()
+            .fold((f64::MAX, f64::MIN), |(a, b), p| (a.min(p.1), b.max(p.1)));
+        let mut arrow = base("arrow", sx, sy, maxx - minx, maxy - miny);
+        arrow["points"] = json!(path
+            .iter()
+            .map(|(x, y)| [x - sx, y - sy])
+            .collect::<Vec<_>>());
+        arrow["strokeColor"] = json!(color.stroke());
+        arrow["roundness"] = Value::Null;
+        arrow["startBinding"] = Value::Null;
+        arrow["endBinding"] = Value::Null;
+        arrow["startArrowhead"] = Value::Null;
+        arrow["endArrowhead"] = json!("arrow");
+        arrow["lastCommittedPoint"] = Value::Null;
+        arrow["elbowed"] = json!(false);
+        let id = str_of(&arrow, "id").to_string();
+        self.push(arrow);
+        let label = label.filter(|l| !l.trim().is_empty()).map(|label| {
+            // At the middle of the longest leg.
+            let (a, b) = path
+                .windows(2)
+                .map(|w| (w[0], w[1]))
+                .max_by(|p, q| {
+                    let len = |(a, b): &((f64, f64), (f64, f64))| (b.0 - a.0).hypot(b.1 - a.1);
+                    len(p).total_cmp(&len(q))
+                })
+                .unwrap_or(((sx, sy), (tx, ty)));
+            let mid = ((a.0 + b.0) / 2.0 + 8.0, (a.1 + b.1) / 2.0 - 22.0);
+            self.add_text(
+                label,
+                Placement {
+                    x: Some(mid.0),
+                    y: Some(mid.1),
+                },
+                Some(16.0),
+                Some(color),
+            )
+        });
+        Ok((id, label))
+    }
+
     /// Outline (no fill, no label) around part of the canvas or of a screenshot, to
     /// mark what is new or changes. `size` is in the same units as `top_left`.
     /// Red unless another colour is given. Returns its id.

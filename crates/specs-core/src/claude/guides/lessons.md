@@ -7,7 +7,15 @@ Short rules learned when the app's specs were compared with the ones the team ma
   to Draft), branches side by side (approved / rejected, manual / automatic), arrows
   labelled with the click or event that causes the next state.
 - When a rule applies only under a condition (e.g. "only when an approver is set"), say
-  it once at the top of the frame as a NOTE.
+  it once at the top of the section as an orange NOTE (the section's `note`).
+- Colours mean the same in every spec: red = new or changed, green = what the user does
+  or a status, blue = what the system does as a result, orange = a condition or a case.
+- A condition with two outcomes gets one screenshot per outcome, each labelled with its
+  `condition` ("IF Unlock = FALSE" / "IF Unlock = TRUE"), side by side or one below
+  the other.
+- In a storyboard, each state is a real screen (a `scenario` puts a copy of the record
+  in it): the status bar outlined, the chatter showing the activities, the pop-up a click
+  opens. Flow arrows go from the button clicked to what changed on the next screen.
 - For a new model or app: write each new field next to the form with its type and its
   visible/read-only rule (often "by status"), and list each button with when it shows.
 - For a new report or list: the section's `table` (a mock-up of the expected result),

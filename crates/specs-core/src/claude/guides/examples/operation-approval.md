@@ -19,16 +19,26 @@ warehouse users on all transfers. Odoo.sh (custom module).
   visible to Inventory Administrators only, unticked by default, read-only when
   Done/Cancelled. Unticked = both location fields read-only.
 
-**How it was drawn** — four frames, each a storyboard of real screens:
-1. Setup: operation type form with the new field outlined in red; the transfer in Draft
-   with Validate crossed out; the Ready transfer with Validate/Reject for approvers.
-2. Activity creation: two cases side by side (manual vs from SO/PO), each a chain of
-   screenshots (Draft → activity pop-up → transfer with the activities in the chatter),
-   arrows from the click to its result, the due-date rule written next to the activity.
-3. Approve vs reject: two branches from the same Ready transfer, one screenshot per state
-   (Ready → Done, or back to Draft), the chatter showing which activities closed.
-4. Location lock: the transfer with the checkbox unticked (locations read-only, outlined)
-   and ticked (editable).
+**How it was drawn** — four frames, each a storyboard of real screens, colours with one
+meaning (red new, green user action / status, blue system result, orange condition):
+1. Setup: the operation type form with the new Approvers field outlined in red; an
+   orange NOTE (only when an approver is set); the transfer in Draft with Validate crossed
+   out and the status bar outlined in green; the Ready transfer with Validate (approvers
+   only) and the new Reject button.
+2. Location lock: the transfer with the new checkbox (red note: administrators only,
+   unticked by default, read-only when Done/Cancelled), then "IF Unlock = FALSE" (both
+   locations outlined in blue: read-only) and "IF Unlock = TRUE" (outlined in green:
+   editable), one screenshot each.
+3. Activity creation: orange NOTE on top; "CASE 1: manual" — the Draft transfer (green:
+   user clicks Mark as To Do) → the Ready transfer with two "Grant Approval" activities in
+   the chatter (blue: created for each approver) and the Schedule Activity pop-up showing
+   the due date (red: 2 days after Mark as To Do); "CASE 2: from a sales/purchase order"
+   — the transfer with its activities already there (green: due on the scheduled date,
+   also for backorders). Flow arrows from the clicked button to what it causes.
+4. Approve / reject: from Draft (Mark as To Do), "IF APPROVED" → Ready (status bar
+   outlined) → Done with the chatter showing the approver's activity done and the
+   other's cancelled; "IF REJECTED" → Reject clicked → back to Draft with all activities
+   closed. Each state a screenshot, arrows between them labelled with the click.
 
 **Traps**: backorders and automatic transfers also need the request; closing the other
 approvers' activities; standard behaviour unchanged when no approver is set.

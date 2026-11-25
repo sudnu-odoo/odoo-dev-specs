@@ -94,6 +94,19 @@ pub struct Shot {
     pub page: String,
     pub viewport: Viewport,
     pub out: PathBuf,
+    /// Put a copy of the record in a state first, and/or click a button once open.
+    pub scenario: Option<ShotScenario>,
+}
+
+/// What to do around one screenshot (see [`crate::scenario`]).
+#[derive(Debug, Clone, Default)]
+pub struct ShotScenario {
+    /// The record's model, for removing the copy afterwards.
+    pub model: String,
+    /// Script making the copy; answers {"page", "copy"} or {"error"}.
+    pub setup: Option<String>,
+    /// Button text to click once the page is open.
+    pub click: Option<String>,
 }
 
 /// Something visible on a screenshot, in the screenshot's own pixels: a field, its
@@ -120,6 +133,7 @@ pub async fn screenshot(base_url: &str, page: &str, viewport: Viewport, out: &Pa
             page: page.into(),
             viewport,
             out: out.into(),
+            scenario: None,
         }],
     )
     .await
@@ -298,6 +312,23 @@ async fn capture_one(
         ))
         .await
         .context("Could not size the browser window.")?;
+        let mut page = page.to_string();
+        let mut made = None;
+        if let Some(setup) = shot.scenario.as_ref().and_then(|s| s.setup.as_deref()) {
+            let answer: String = evaluate_settled(tab, setup)
+                .await
+                .context("Could not prepare the record for this screen.")?
+                .into_value()
+                .unwrap_or_default();
+            let parsed: serde_json::Value = serde_json::from_str(&answer).unwrap_or_default();
+            if let Some(error) = parsed["error"].as_str() {
+                bail!("{}: the scenario could not run: {error}", shot.page);
+            }
+            if let Some(copy) = parsed["page"].as_str() {
+                page = copy.to_string();
+            }
+            made = Some(answer);
+        }
         tab.goto(format!("{base_url}{page}"))
             .await
             .with_context(|| format!("Could not open {} in Chrome.", shot.page))?;
@@ -305,6 +336,20 @@ async fn capture_one(
         // The session may have expired: then this page is the login form.
         log_in_if_asked(tab).await?;
         wait_until_drawn(tab).await;
+        if let Some(text) = shot.scenario.as_ref().and_then(|s| s.click.as_deref()) {
+            let clicked: String = evaluate_settled(tab, &crate::scenario::click_script(text))
+                .await
+                .ok()
+                .and_then(|r| r.into_value().ok())
+                .unwrap_or_default();
+            ensure!(
+                clicked == "ok",
+                "{}: there is no button \"{text}\" to click.",
+                shot.page
+            );
+            tokio::time::sleep(Duration::from_millis(800)).await;
+            wait_until_drawn(tab).await;
+        }
 
         let png = tab
             .screenshot(
@@ -321,6 +366,9 @@ async fn capture_one(
             .ok()
             .and_then(|r| r.into_value().ok())
             .unwrap_or_default();
+        if let (Some(answer), Some(sc)) = (made, &shot.scenario) {
+            let _ = evaluate_settled(tab, &crate::scenario::undo_script(&sc.model, &answer)).await;
+        }
         Ok(serde_json::from_str(&found).unwrap_or_default())
     }
 }

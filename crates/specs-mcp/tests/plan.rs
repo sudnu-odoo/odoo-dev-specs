@@ -531,3 +531,136 @@ fn crowded_notes_get_numbers_instead_of_crossing_arrows() {
         "{arrows} arrows: crowded notes must not get arrows"
     );
 }
+
+fn stroke_of<'a>(all: &'a [Value], starts: &str) -> &'a str {
+    find_text(all, starts)["strokeColor"].as_str().unwrap()
+}
+
+#[test]
+fn notes_are_coloured_by_kind_and_conditions_are_orange() {
+    let p = plan(json!({
+        "title": "T", "need": "N", "version": "19.0",
+        "sections": [{"title": "Approve", "note": "NOTE: only when an approver is set",
+            "screens": [{"name": "a", "page": "/odoo/sales/1", "condition": "IF APPROVED", "notes": [
+                {"lines": ["New: Expiration rule"], "anchor": "validity_date", "kind": "new"},
+                {"lines": ["User clicks Confirm"], "anchor": "action_confirm", "kind": "action"}]},
+              {"name": "b", "page": "/odoo/sales/1", "notes": [
+                {"lines": ["Status becomes Ready"], "anchor": "validity_date", "kind": "result"}]}]}]
+    }));
+    let mut scene = Scene::parse(EMPTY).unwrap();
+    build(&mut scene, &p, &shots(&["a", "b"])).unwrap();
+    let all = live(&scene);
+    assert_eq!(stroke_of(&all, "New: Expiration"), "#e03131");
+    assert_eq!(stroke_of(&all, "User clicks"), "#2f9e44");
+    assert_eq!(stroke_of(&all, "Status becomes"), "#1971c2");
+    assert_eq!(stroke_of(&all, "IF APPROVED"), "#f08c00");
+    assert_eq!(stroke_of(&all, "NOTE: only when"), "#f08c00");
+    // The outline around what a result note points at is blue too.
+    assert!(all
+        .iter()
+        .any(|e| e["type"] == "rectangle" && e["strokeColor"] == "#1971c2"));
+}
+
+#[test]
+fn a_note_can_sit_left_of_the_screenshot() {
+    let p = plan(json!({
+        "title": "T", "need": "N", "version": "19.0",
+        "sections": [{"title": "R", "screens": [{"name": "a", "page": "/odoo/sales/1", "notes": [
+            {"lines": ["User clicks Confirm"], "anchor": "action_confirm", "side": "left"},
+            {"lines": ["Expiration rule"], "anchor": "validity_date"}]}]}]
+    }));
+    let mut scene = Scene::parse(EMPTY).unwrap();
+    let report = build(&mut scene, &p, &shots(&["a"])).unwrap();
+    assert!(report.warnings.is_empty(), "{:?}", report.warnings);
+    let all = live(&scene);
+    let image = all.iter().find(|e| e["type"] == "image").unwrap();
+    let ix = image["x"].as_f64().unwrap();
+    let left = find_text(&all, "User clicks");
+    let right = find_text(&all, "Expiration rule");
+    assert!(
+        left["x"].as_f64().unwrap() + left["width"].as_f64().unwrap() < ix,
+        "left note left of the image"
+    );
+    assert!(right["x"].as_f64().unwrap() > ix);
+}
+
+#[test]
+fn a_flow_arrow_goes_from_a_button_on_one_screen_to_the_next_screen() {
+    let p = plan(json!({
+        "title": "T", "need": "N", "version": "19.0",
+        "sections": [{"title": "R", "screens": [
+            {"name": "draft", "page": "/odoo/sales/1"},
+            {"name": "ready", "page": "/odoo/sales/1"}]}],
+        "links": [{"from": "draft", "from_anchor": "action_confirm", "to": "ready", "label": "Mark as To Do", "kind": "action"}]
+    }));
+    let mut scene = Scene::parse(EMPTY).unwrap();
+    let report = build(&mut scene, &p, &shots(&["draft", "ready"])).unwrap();
+    assert!(report.warnings.is_empty(), "{:?}", report.warnings);
+    let all = live(&scene);
+    let images: Vec<&Value> = all.iter().filter(|e| e["type"] == "image").collect();
+    let arrow = all
+        .iter()
+        .find(|e| e["type"] == "arrow" && e["strokeColor"] == "#2f9e44")
+        .expect("a green flow arrow");
+    let (ax, ay) = (arrow["x"].as_f64().unwrap(), arrow["y"].as_f64().unwrap());
+    // It leaves the first screenshot at its bottom edge, level with the clicked
+    // button (outlined in green), so it never crosses a screenshot.
+    let first = images
+        .iter()
+        .min_by(|a, b| a["y"].as_f64().partial_cmp(&b["y"].as_f64()).unwrap())
+        .unwrap();
+    let (fx, fw) = (
+        first["x"].as_f64().unwrap(),
+        first["width"].as_f64().unwrap(),
+    );
+    assert!(ay >= first["y"].as_f64().unwrap() + first["height"].as_f64().unwrap());
+    assert!(
+        ax > fx && ax < fx + fw / 2.0,
+        "level with the Confirm button, on the left"
+    );
+    assert!(all
+        .iter()
+        .any(|e| e["type"] == "rectangle" && e["strokeColor"] == "#2f9e44"));
+    find_text(&all, "Mark as To Do");
+}
+
+#[test]
+fn note_kinds_and_sides_must_be_known_words() {
+    let p = plan(json!({
+        "title": "T", "need": "N", "version": "19.0",
+        "sections": [{"title": "R", "screens": [{"name": "a", "page": "/odoo/sales/1", "notes": [
+            {"lines": ["x"], "kind": "important"}]}]}]
+    }));
+    assert!(validate(&p).unwrap_err().to_string().contains("kind"));
+}
+
+#[test]
+fn a_flow_arrow_goes_around_a_screenshot_in_its_way() {
+    // Three screens side by side; an arrow from the first to the third must not cross
+    // the second: it goes below them.
+    let p = plan(json!({
+        "title": "T", "need": "N", "version": "19.0",
+        "sections": [{"title": "R", "horizontal": true, "screens": [
+            {"name": "ready", "page": "/odoo/sales/1"},
+            {"name": "done", "page": "/odoo/sales/1"},
+            {"name": "draft", "page": "/odoo/sales/1"}]}],
+        "links": [{"from": "ready", "from_anchor": "action_confirm", "to": "draft", "label": "Reject", "kind": "action"}]
+    }));
+    let mut scene = Scene::parse(EMPTY).unwrap();
+    build(&mut scene, &p, &shots(&["ready", "done", "draft"])).unwrap();
+    let all = live(&scene);
+    let middle = all.iter().filter(|e| e["type"] == "image").nth(1).unwrap();
+    let bottom = middle["y"].as_f64().unwrap() + middle["height"].as_f64().unwrap();
+    let arrow = all
+        .iter()
+        .find(|e| e["type"] == "arrow" && e["strokeColor"] == "#2f9e44")
+        .unwrap();
+    let points = arrow["points"].as_array().unwrap();
+    assert!(points.len() >= 4, "goes around");
+    let y0 = arrow["y"].as_f64().unwrap();
+    let lowest = points
+        .iter()
+        .map(|p| y0 + p[1].as_f64().unwrap())
+        .fold(f64::MIN, f64::max);
+    assert!(lowest > bottom, "passes below the middle screenshot");
+}

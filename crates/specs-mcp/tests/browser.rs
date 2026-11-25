@@ -162,6 +162,7 @@ async fn a_batch_uses_one_chrome_logs_in_once_and_maps_what_is_on_screen() {
             height: 700,
         },
         out: out.path().join(name),
+        scenario: None,
     };
     let started = std::time::Instant::now();
     let maps = tokio::time::timeout(
@@ -241,6 +242,7 @@ async fn a_page_that_never_loads_fails_instead_of_hanging() {
         page: page.into(),
         viewport: Viewport::default(),
         out: out.path().join(name),
+        scenario: None,
     };
     let started = std::time::Instant::now();
     let result = tokio::time::timeout(
@@ -262,6 +264,7 @@ async fn a_dialog_on_the_page_does_not_block_the_screenshots() {
         page: page.into(),
         viewport: Viewport::default(),
         out: out.path().join(name),
+        scenario: None,
     };
     tokio::time::timeout(
         Duration::from_secs(60),
