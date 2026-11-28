@@ -118,6 +118,15 @@ async fn main() -> Result<()> {
             }
         }
         let scene = workspace.read_scene("bench", &session.id)?;
+        // How many steps of each kind it took: every step resends the conversation.
+        let mut tools = std::collections::BTreeMap::<String, u32>::new();
+        for e in workspace.read_transcript("bench", &session.id)? {
+            if let specs_core::transcript::TranscriptEntry::Tool { name, .. } = e {
+                *tools
+                    .entry(name.rsplit("__").next().unwrap_or(&name).to_string())
+                    .or_default() += 1;
+            }
+        }
         std::fs::write(out.join(format!("{name}.excalidraw")), &scene)?;
         let result = json!({
             "case": name,
@@ -126,6 +135,8 @@ async fn main() -> Result<()> {
             "input_tokens": input,
             "output_tokens": output,
             "drawn": drawn(&scene),
+            "steps": tools.values().sum::<u32>(),
+            "tools": tools,
             "error": failed,
         });
         println!("{result}");

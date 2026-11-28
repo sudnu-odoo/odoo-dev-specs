@@ -63,15 +63,15 @@ pub fn locate(elements: &[Element], anchor: &str) -> Result<Area> {
                 .collect();
             parts.into_iter().reduce(Area::union)
         }
-        Some("text") => by_text(elements, wanted, None),
-        Some(kind) => by_name(kind)
-            .map(Area::of)
-            .or_else(|| by_text(elements, wanted, Some(kind))),
-        None => NAME_ORDER
-            .iter()
-            .find_map(|k| by_name(k))
-            .map(Area::of)
-            .or_else(|| by_text(elements, wanted, None)),
+        Some("text") => by_text(elements, wanted, None)?,
+        Some(kind) => match by_name(kind) {
+            Some(e) => Some(Area::of(e)),
+            None => by_text(elements, wanted, Some(kind))?,
+        },
+        None => match NAME_ORDER.iter().find_map(|k| by_name(k)) {
+            Some(e) => Some(Area::of(e)),
+            None => by_text(elements, wanted, None)?,
+        },
     };
     match found {
         Some(area) => Ok(area),
@@ -90,20 +90,55 @@ fn is_kind(k: &str) -> bool {
 }
 
 /// Visible text, exact (ignoring case) first, then contained.
-fn by_text(elements: &[Element], wanted: &str, kind: Option<&str>) -> Option<Area> {
-    let wanted = wanted.to_lowercase();
+/// The element showing `wanted`: an exact text before one that only contains it, and a
+/// real element (button, field, label…) before loose text such as a chatter line. Two
+/// equally good candidates are refused, naming them, rather than guessed between.
+fn by_text(elements: &[Element], wanted: &str, kind: Option<&str>) -> Result<Option<Area>> {
+    let lower = wanted.to_lowercase();
+    if lower.is_empty() {
+        return Ok(None);
+    }
     let of_kind = |e: &&Element| kind.is_none_or(|k| e.kind == k);
-    elements
-        .iter()
-        .filter(of_kind)
-        .find(|e| e.text.to_lowercase() == wanted)
-        .or_else(|| {
-            elements
+    let rank = |e: &Element| match e.kind.as_str() {
+        "button" => 0,
+        "field" | "label" => 1,
+        "column" | "tab" => 2,
+        _ => 3,
+    };
+    for exact in [true, false] {
+        let hits: Vec<&Element> = elements
+            .iter()
+            .filter(of_kind)
+            .filter(|e| {
+                let t = e.text.to_lowercase();
+                if exact {
+                    t == lower
+                } else {
+                    t.contains(&lower)
+                }
+            })
+            .collect();
+        let Some(best) = hits.iter().map(|e| rank(e)).min() else {
+            continue;
+        };
+        let top: Vec<&&Element> = hits.iter().filter(|e| rank(e) == best).collect();
+        if top.len() > 1 {
+            let names: Vec<String> = top
                 .iter()
-                .filter(of_kind)
-                .find(|e| !wanted.is_empty() && e.text.to_lowercase().contains(&wanted))
-        })
-        .map(Area::of)
+                .take(4)
+                .map(|e| {
+                    if e.name.is_empty() {
+                        format!("{}:\"{}\"", e.kind, e.text)
+                    } else {
+                        format!("{}:{}", e.kind, e.name)
+                    }
+                })
+                .collect();
+            bail!("\"{wanted}\" matches several things on this screenshot ({}): use one of those names.", names.join(", "));
+        }
+        return Ok(top.first().map(|e| Area::of(e)));
+    }
+    Ok(None)
 }
 
 /// A short list of what can be pointed at, to help the assistant pick a valid anchor.
@@ -148,6 +183,63 @@ mod tests {
             w,
             h,
         }
+    }
+
+    #[test]
+    fn a_button_wins_over_the_same_words_in_the_chatter() {
+        let els = vec![
+            el("text", "", "Approve", 900.0, 400.0, 60.0, 16.0),
+            el(
+                "button",
+                "action_approve",
+                "Approve",
+                100.0,
+                120.0,
+                80.0,
+                30.0,
+            ),
+        ];
+        assert_eq!(locate(&els, "Approve").unwrap().x, 100.0);
+    }
+
+    #[test]
+    fn two_equal_candidates_are_refused_with_their_names() {
+        let els = vec![
+            el("button", "action_a", "Approve", 100.0, 120.0, 80.0, 30.0),
+            el("button", "action_b", "Approve", 300.0, 120.0, 80.0, 30.0),
+        ];
+        let err = locate(&els, "Approve").unwrap_err().to_string();
+        assert!(
+            err.contains("button:action_a") && err.contains("button:action_b"),
+            "{err}"
+        );
+        assert_eq!(locate(&els, "button:action_b").unwrap().x, 300.0);
+    }
+
+    #[test]
+    fn a_partial_text_must_be_unique() {
+        let els = vec![
+            el(
+                "text",
+                "",
+                "Grant Approval for Manager 1",
+                900.0,
+                400.0,
+                60.0,
+                16.0,
+            ),
+            el(
+                "text",
+                "",
+                "Grant Approval for Manager 2",
+                900.0,
+                440.0,
+                60.0,
+                16.0,
+            ),
+        ];
+        assert!(locate(&els, "Grant Approval").is_err());
+        assert_eq!(locate(&els, "Manager 2").unwrap().y, 440.0);
     }
 
     fn form() -> Vec<Element> {

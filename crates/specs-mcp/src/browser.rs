@@ -351,26 +351,55 @@ async fn capture_one(
             wait_until_drawn(tab).await;
         }
 
-        let png = tab
-            .screenshot(
-                ScreenshotParams::builder()
-                    .format(CaptureScreenshotFormat::Png)
-                    .build(),
-            )
-            .await
-            .context("Chrome could not take the screenshot.")?;
-        std::fs::write(&shot.out, png)
-            .with_context(|| format!("Could not save {}.", shot.out.display()))?;
-        let found: String = evaluate_settled(tab, ELEMENTS_JS)
-            .await
-            .ok()
-            .and_then(|r| r.into_value().ok())
-            .unwrap_or_default();
+        // Positions are read just before and after the screenshot: if the page moved in
+        // between (a pop-up still opening, the chatter loading), wait and take both again,
+        // so outlines land on what the picture shows.
+        let elements = || async {
+            let found: String = evaluate_settled(tab, ELEMENTS_JS)
+                .await
+                .ok()
+                .and_then(|r| r.into_value().ok())
+                .unwrap_or_default();
+            serde_json::from_str::<Vec<Element>>(&found).unwrap_or_default()
+        };
+        let mut found = Vec::new();
+        for attempt in 0..3 {
+            let before = elements().await;
+            let png = tab
+                .screenshot(
+                    ScreenshotParams::builder()
+                        .format(CaptureScreenshotFormat::Png)
+                        .build(),
+                )
+                .await
+                .context("Chrome could not take the screenshot.")?;
+            std::fs::write(&shot.out, png)
+                .with_context(|| format!("Could not save {}.", shot.out.display()))?;
+            found = elements().await;
+            if same_places(&before, &found) || attempt == 2 {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(700)).await;
+            wait_until_drawn(tab).await;
+        }
         if let (Some(answer), Some(sc)) = (made, &shot.scenario) {
             let _ = evaluate_settled(tab, &crate::scenario::undo_script(&sc.model, &answer)).await;
         }
-        Ok(serde_json::from_str(&found).unwrap_or_default())
+        Ok(found)
     }
+}
+
+/// The same things at the same places (within 2 pixels).
+fn same_places(a: &[Element], b: &[Element]) -> bool {
+    a.len() == b.len()
+        && a.iter().zip(b).all(|(p, q)| {
+            p.kind == q.kind
+                && p.name == q.name
+                && (p.x - q.x).abs() <= 2.0
+                && (p.y - q.y).abs() <= 2.0
+                && (p.w - q.w).abs() <= 2.0
+                && (p.h - q.h).abs() <= 2.0
+        })
 }
 
 /// Run a script in the page. While a page is being replaced (a redirect right after
