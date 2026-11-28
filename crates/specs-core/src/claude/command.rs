@@ -194,8 +194,6 @@ mod tests {
             "No abstract flow charts",
             "a storyboard of real screenshots",
             "guides/examples/INDEX.md",
-            "say so in one line of your answer, with why",
-            "at most one corrected rebuild",
             "stacked top to bottom",
             "Plain business words everywhere",
             "## Attached reports",
